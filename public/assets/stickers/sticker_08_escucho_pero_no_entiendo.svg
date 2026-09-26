@@ -1,0 +1,57 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 400 400" width="100%" height="100%">
+  <defs>
+    <filter id="shadow-8" x="-10%" y="-10%" width="130%" height="130%">
+      <feDropShadow dx="0" dy="6" stdDeviation="8" flood-color="#000000" flood-opacity="0.35"/>
+    </filter>
+  </defs>
+  <g filter="url(#drop-shadow)">
+    <!-- White Die-Cut -->
+    <path d="M 80 30 Q 200 10 320 30 Q 370 110 360 240 Q 370 330 310 355 L 90 355 Q 30 330 40 220 Q 30 100 80 30 Z" fill="#ffffff" stroke="#ffffff" stroke-width="12" stroke-linejoin="round"/>
+    
+    <!-- Hair -->
+    <ellipse cx="200" cy="115" rx="75" ry="50" fill="#613b1e"/>
+
+    <!-- Boy Head Base -->
+    <ellipse cx="200" cy="165" rx="75" ry="75" fill="#f8cdb2"/>
+    
+    <!-- Hair Front -->
+    <path d="M 135 125 C 150 95 250 95 265 125 C 240 115 160 115 135 125 Z" fill="#613b1e"/>
+
+    <!-- Loading / Buffering Spinner ON FOREHEAD -->
+    <g transform="translate(200, 115)">
+      <circle cx="0" cy="-14" r="3" fill="#333333"/>
+      <circle cx="10" cy="-10" r="3" fill="#666666"/>
+      <circle cx="14" cy="0" r="3" fill="#999999"/>
+      <circle cx="10" cy="10" r="3" fill="#cccccc"/>
+      <circle cx="0" cy="14" r="3" fill="#ffffff"/>
+      <circle cx="-10" cy="10" r="3" fill="#333333"/>
+      <circle cx="-14" cy="0" r="3" fill="#333333"/>
+      <circle cx="-10" cy="-10" r="3" fill="#333333"/>
+    </g>
+
+    <!-- Blank Confused Eyebrows -->
+    <path d="M 148 145 Q 170 142 185 148" stroke="#3d210d" stroke-width="5" stroke-linecap="round" fill="none"/>
+    <path d="M 215 148 Q 230 142 252 145" stroke="#3d210d" stroke-width="5" stroke-linecap="round" fill="none"/>
+
+    <!-- Blank Staring Eyes -->
+    <ellipse cx="168" cy="160" rx="14" ry="12" fill="#ffffff"/>
+    <circle cx="168" cy="160" r="7" fill="#3d210d"/>
+    <circle cx="166" cy="158" r="2.5" fill="#ffffff"/>
+    <ellipse cx="232" cy="160" rx="14" ry="12" fill="#ffffff"/>
+    <circle cx="232" cy="160" r="7" fill="#3d210d"/>
+    <circle cx="230" cy="158" r="2.5" fill="#ffffff"/>
+
+    <!-- Small Nose -->
+    <path d="M 196 172 Q 200 180 204 172" stroke="#bd7753" stroke-width="3" stroke-linecap="round" fill="none"/>
+
+    <!-- Straight Flat Confused Mouth -->
+    <path d="M 180 205 L 220 205" stroke="#66291a" stroke-width="4" stroke-linecap="round"/>
+
+    <!-- Black T-Shirt -->
+    <path d="M 125 235 L 85 300 L 315 300 L 275 235 Z" fill="#18181a"/>
+
+    <!-- Meme Text: Escucho, pero no entiendo -->
+    <text x="200" y="325" text-anchor="middle" font-family="Impact, Arial Black, sans-serif" font-weight="900" font-size="27" fill="#ffffff" stroke="#000000" stroke-width="6" paint-order="stroke fill">Escucho, pero</text>
+    <text x="200" y="352" text-anchor="middle" font-family="Impact, Arial Black, sans-serif" font-weight="900" font-size="28" fill="#ffffff" stroke="#000000" stroke-width="6" paint-order="stroke fill">no entiendo</text>
+  </g>
+</svg>

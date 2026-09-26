@@ -1,0 +1,41 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 400 400" width="100%" height="100%">
+  <defs>
+    <filter id="shadow-12" x="-10%" y="-10%" width="130%" height="130%">
+      <feDropShadow dx="0" dy="6" stdDeviation="8" flood-color="#000000" flood-opacity="0.35"/>
+    </filter>
+  </defs>
+  <g filter="url(#drop-shadow)">
+    <!-- White Die-Cut -->
+    <path d="M 90 40 Q 200 10 310 40 Q 370 120 360 250 Q 370 340 310 360 L 90 360 Q 30 340 40 230 Q 30 100 90 40 Z" fill="#ffffff" stroke="#ffffff" stroke-width="14" stroke-linejoin="round"/>
+    
+    <!-- Gru Bald Oval Head (Fisheye distortion) -->
+    <ellipse cx="200" cy="150" rx="95" ry="90" fill="#edd0bd"/>
+
+    <!-- Eyebrows with High Arches -->
+    <path d="M 135 120 Q 165 95 185 125" stroke="#33241b" stroke-width="7" stroke-linecap="round" fill="none"/>
+    <path d="M 215 125 Q 235 95 265 120" stroke="#33241b" stroke-width="7" stroke-linecap="round" fill="none"/>
+
+    <!-- Wide Fisheye Staring Eyes -->
+    <ellipse cx="160" cy="140" rx="20" ry="16" fill="#ffffff"/>
+    <circle cx="160" cy="140" r="8" fill="#427891"/>
+    <circle cx="158" cy="138" r="2.5" fill="#ffffff"/>
+    <ellipse cx="240" cy="140" rx="20" ry="16" fill="#ffffff"/>
+    <circle cx="240" cy="140" r="8" fill="#427891"/>
+    <circle cx="238" cy="138" r="2.5" fill="#ffffff"/>
+
+    <!-- Pointy Huge Gru Long Nose -->
+    <polygon points="192,135 208,135 200,195" fill="#dfad91"/>
+
+    <!-- Smirking Wide Mouth -->
+    <path d="M 145 205 Q 200 230 255 195" stroke="#4a2215" stroke-width="7" stroke-linecap="round" fill="none"/>
+
+    <!-- Striped Scarf & Dark Coat -->
+    <path d="M 110 240 L 70 320 L 330 320 L 290 240 Z" fill="#2d3748"/>
+    <!-- Scarf Rings -->
+    <path d="M 120 235 Q 200 260 280 235 Q 200 275 120 235 Z" fill="#718096"/>
+    <path d="M 135 250 Q 200 275 265 250" stroke="#1a202c" stroke-width="8"/>
+
+    <!-- Meme Text: GRUCERO -->
+    <text x="200" y="345" text-anchor="middle" font-family="Impact, Arial Black, sans-serif" font-weight="900" font-size="44" fill="#ffffff" stroke="#000000" stroke-width="9" paint-order="stroke fill" letter-spacing="2">GRUCERO</text>
+  </g>
+</svg>

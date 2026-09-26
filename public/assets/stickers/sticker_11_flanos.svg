@@ -1,0 +1,56 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 400 400" width="100%" height="100%">
+  <defs>
+    <filter id="shadow-11" x="-10%" y="-10%" width="130%" height="130%">
+      <feDropShadow dx="0" dy="6" stdDeviation="8" flood-color="#000000" flood-opacity="0.35"/>
+    </filter>
+    <linearGradient id="caramel" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#b45309"/>
+      <stop offset="100%" stop-color="#78350f"/>
+    </linearGradient>
+    <linearGradient id="flan-body" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#fef3c7"/>
+      <stop offset="100%" stop-color="#fde68a"/>
+    </linearGradient>
+  </defs>
+  <g filter="url(#drop-shadow)">
+    <!-- White Die-Cut -->
+    <path d="M 110 50 Q 200 20 290 50 Q 360 90 350 220 Q 360 330 300 355 L 100 355 Q 40 330 50 220 Q 40 90 110 50 Z" fill="#ffffff" stroke="#ffffff" stroke-width="14" stroke-linejoin="round"/>
+    
+    <!-- White Dessert Plate -->
+    <ellipse cx="200" cy="250" rx="140" ry="50" fill="#f1f5f9" stroke="#cbd5e1" stroke-width="4"/>
+    <ellipse cx="200" cy="245" rx="120" ry="38" fill="url(#caramel)" opacity="0.8"/>
+
+    <!-- Flan Trapezoid Shape -->
+    <path d="M 130 90 L 270 90 L 305 240 L 95 240 Z" fill="url(#flan-body)"/>
+
+    <!-- Caramel Syrup on Top & Dripping -->
+    <ellipse cx="200" cy="90" rx="70" ry="25" fill="url(#caramel)"/>
+    <!-- Drips -->
+    <path d="M 130 90 Q 140 125 150 90 Q 170 140 185 90 Q 210 130 225 90 Q 245 140 260 90" fill="url(#caramel)"/>
+
+    <!-- THANOS FACE CARVED INTO FLAN -->
+    <!-- Heavy Brow -->
+    <path d="M 145 130 Q 200 120 255 130" stroke="#78350f" stroke-width="7" stroke-linecap="round" fill="none"/>
+    <!-- Intense Staring Thanos Eyes -->
+    <ellipse cx="170" cy="142" rx="14" ry="10" fill="#ffffff"/>
+    <circle cx="170" cy="142" r="6" fill="#4c1d95"/>
+    <ellipse cx="230" cy="142" rx="14" ry="10" fill="#ffffff"/>
+    <circle cx="230" cy="142" r="6" fill="#4c1d95"/>
+
+    <!-- Thanos Nose -->
+    <polygon points="195,150 205,150 200,165" fill="#d97706"/>
+
+    <!-- Stern Mouth -->
+    <path d="M 165 180 Q 200 175 235 180" stroke="#78350f" stroke-width="6" stroke-linecap="round"/>
+
+    <!-- Thanos Iconic Grooved / Ribbed Chin -->
+    <path d="M 175 195 L 175 230" stroke="#b45309" stroke-width="4" stroke-linecap="round"/>
+    <path d="M 188 195 L 188 235" stroke="#b45309" stroke-width="4" stroke-linecap="round"/>
+    <path d="M 200 195 L 200 235" stroke="#b45309" stroke-width="4" stroke-linecap="round"/>
+    <path d="M 212 195 L 212 235" stroke="#b45309" stroke-width="4" stroke-linecap="round"/>
+    <path d="M 225 195 L 225 230" stroke="#b45309" stroke-width="4" stroke-linecap="round"/>
+
+    <!-- Meme Text: FLANOS -->
+    <text x="200" y="340" text-anchor="middle" font-family="Impact, Arial Black, sans-serif" font-weight="900" font-size="46" fill="#ffffff" stroke="#000000" stroke-width="9" paint-order="stroke fill" letter-spacing="2">FLANOS</text>
+  </g>
+</svg>

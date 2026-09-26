@@ -1,0 +1,50 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 400 400" width="100%" height="100%">
+  <defs>
+    <filter id="shadow-6" x="-10%" y="-10%" width="130%" height="130%">
+      <feDropShadow dx="0" dy="6" stdDeviation="8" flood-color="#000000" flood-opacity="0.35"/>
+    </filter>
+  </defs>
+  <g filter="url(#drop-shadow)">
+    <!-- White Die-Cut -->
+    <path d="M 80 40 Q 200 10 320 40 Q 380 120 370 250 Q 380 340 310 360 L 90 360 Q 20 340 30 230 Q 20 100 80 40 Z" fill="#ffffff" stroke="#ffffff" stroke-width="12" stroke-linejoin="round"/>
+    
+    <!-- Blonde Pigtails / Ponytail -->
+    <circle cx="120" cy="110" r="30" fill="#e8ba5d"/>
+    <circle cx="280" cy="110" r="30" fill="#e8ba5d"/>
+    <!-- Head Base -->
+    <ellipse cx="200" cy="165" rx="75" ry="70" fill="#f8cfb7"/>
+    <!-- Blonde Hair Top -->
+    <path d="M 125 145 C 130 90 270 90 275 145 C 240 110 160 110 125 145 Z" fill="#f0c66b"/>
+
+    <!-- Expressive Shrugging Eyebrows (Curved up) -->
+    <path d="M 150 142 Q 170 130 185 142" stroke="#5c4118" stroke-width="5" stroke-linecap="round" fill="none"/>
+    <path d="M 215 142 Q 230 130 250 142" stroke="#5c4118" stroke-width="5" stroke-linecap="round" fill="none"/>
+
+    <!-- Wide Confused Eyes -->
+    <ellipse cx="168" cy="155" rx="14" ry="12" fill="#ffffff"/>
+    <circle cx="168" cy="155" r="7" fill="#426b38"/>
+    <circle cx="166" cy="153" r="2.5" fill="#ffffff"/>
+    <ellipse cx="232" cy="155" rx="14" ry="12" fill="#ffffff"/>
+    <circle cx="232" cy="155" r="7" fill="#426b38"/>
+    <circle cx="230" cy="153" r="2.5" fill="#ffffff"/>
+
+    <!-- Small Button Nose -->
+    <circle cx="200" cy="175" r="4" fill="#df987e"/>
+
+    <!-- Shrugging / Amused Open Smile -->
+    <path d="M 175 195 Q 200 215 225 195" stroke="#8c2e2e" stroke-width="5" stroke-linecap="round" fill="none"/>
+    <path d="M 182 198 Q 200 206 218 198" stroke="#ffffff" stroke-width="3" stroke-linecap="round"/>
+
+    <!-- Shrugging Hands (Palms up beside shoulders) -->
+    <ellipse cx="85" cy="225" rx="18" ry="14" fill="#f8cfb7" transform="rotate(-20 85 225)"/>
+    <ellipse cx="315" cy="225" rx="18" ry="14" fill="#f8cfb7" transform="rotate(20 315 225)"/>
+
+    <!-- Bright Pink Zipper Jacket -->
+    <path d="M 125 225 L 85 300 L 315 300 L 275 225 Z" fill="#e8437a"/>
+    <path d="M 200 225 L 200 300" stroke="#ffffff" stroke-width="3"/>
+
+    <!-- Meme Text: QUE ME ESTAS CONTANDO? -->
+    <text x="200" y="325" text-anchor="middle" font-family="Impact, Arial Black, sans-serif" font-weight="900" font-size="28" fill="#ffffff" stroke="#000000" stroke-width="6" paint-order="stroke fill">QUE ME ESTAS</text>
+    <text x="200" y="352" text-anchor="middle" font-family="Impact, Arial Black, sans-serif" font-weight="900" font-size="28" fill="#ffffff" stroke="#000000" stroke-width="6" paint-order="stroke fill">CONTANDO?</text>
+  </g>
+</svg>

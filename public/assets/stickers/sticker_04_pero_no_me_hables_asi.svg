@@ -1,0 +1,53 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 400 400" width="100%" height="100%">
+  <defs>
+    <filter id="shadow-4" x="-10%" y="-10%" width="130%" height="130%">
+      <feDropShadow dx="0" dy="6" stdDeviation="8" flood-color="#000000" flood-opacity="0.35"/>
+    </filter>
+    <linearGradient id="crying-skin" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#f8c3a5"/>
+      <stop offset="100%" stop-color="#df8e67"/>
+    </linearGradient>
+  </defs>
+  <g filter="url(#drop-shadow)">
+    <!-- White Die-Cut -->
+    <path d="M 70 40 Q 200 10 330 40 Q 370 120 360 240 Q 370 330 310 355 L 90 355 Q 30 330 40 220 Q 30 100 70 40 Z" fill="#ffffff" stroke="#ffffff" stroke-width="12" stroke-linejoin="round"/>
+    
+    <!-- Dark/Moody Background circle -->
+    <rect x="55" y="45" width="290" height="295" rx="20" fill="#121214"/>
+
+    <!-- Head & Hair -->
+    <ellipse cx="200" cy="140" rx="75" ry="60" fill="#241913"/>
+    <ellipse cx="200" cy="170" rx="70" ry="70" fill="url(#crying-skin)"/>
+
+    <!-- Big Distressed Angled Eyebrows -->
+    <path d="M 145 145 Q 170 160 185 145" stroke="#1c110a" stroke-width="7" stroke-linecap="round" fill="none"/>
+    <path d="M 215 145 Q 230 160 255 145" stroke="#1c110a" stroke-width="7" stroke-linecap="round" fill="none"/>
+
+    <!-- Crying Eyes Filled with Tears & Glistening -->
+    <ellipse cx="165" cy="165" rx="18" ry="14" fill="#ffffff"/>
+    <circle cx="165" cy="165" r="9" fill="#1c110a"/>
+    <circle cx="162" cy="160" r="3.5" fill="#ffffff"/>
+    <!-- Tear stream left -->
+    <path d="M 160 178 Q 155 200 158 220" stroke="#7bd0ff" stroke-width="4" stroke-linecap="round" fill="none"/>
+
+    <ellipse cx="235" cy="165" rx="18" ry="14" fill="#ffffff"/>
+    <circle cx="235" cy="165" r="9" fill="#1c110a"/>
+    <circle cx="232" cy="160" r="3.5" fill="#ffffff"/>
+    <!-- Tear stream right -->
+    <path d="M 240 178 Q 245 200 242 220" stroke="#7bd0ff" stroke-width="4" stroke-linecap="round" fill="none"/>
+
+    <!-- Sniffling Red Nose -->
+    <ellipse cx="200" cy="188" rx="10" ry="7" fill="#c45d52"/>
+
+    <!-- Desperate Trembling Open Crying Mouth -->
+    <path d="M 165 210 Q 200 200 235 210 Q 230 242 200 245 Q 170 242 165 210 Z" fill="#541215"/>
+    <path d="M 175 212 Q 200 215 225 212" stroke="#ffffff" stroke-width="4" stroke-linecap="round"/>
+
+    <!-- Dark Shirt with Scarf/Collar -->
+    <path d="M 120 245 L 80 320 L 320 320 L 280 245 Z" fill="#1c2438"/>
+
+    <!-- Meme Text: PERO NO ME HABLES ASI, OKEY? -->
+    <text x="200" y="310" text-anchor="middle" font-family="Impact, Arial Black, sans-serif" font-weight="900" font-size="25" fill="#ffffff" stroke="#000000" stroke-width="6" paint-order="stroke fill">PERO NO ME HABLES</text>
+    <text x="200" y="340" text-anchor="middle" font-family="Impact, Arial Black, sans-serif" font-weight="900" font-size="27" fill="#ffffff" stroke="#000000" stroke-width="6" paint-order="stroke fill">ASI,OKEY?</text>
+  </g>
+</svg>

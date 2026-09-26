@@ -1,0 +1,6 @@
+{
+  "name": "Birdmessage",
+  "description": "App de mensajería privada exclusiva para chatear con amigos agregados, BirdMarketplace para venta y compra con fotos tomadas por cámara o galería, posibles conocidos, fondos personalizados y Sala De Espera con mini juegos.",
+  "requestFramePermissions": ["microphone", "camera"],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

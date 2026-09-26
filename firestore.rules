@@ -1,0 +1,78 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    function isValidId(id) {
+      return id is string && id.size() <= 128 && id.matches('^[a-zA-Z0-9_\\-]+$');
+    }
+    function incoming() { return request.resource.data; }
+    function existing() { return resource.data; }
+    function isSignedIn() { return request.auth != null; }
+
+    function isValidUserProfile(data) {
+      return data.keys().hasAll(['id', 'name', 'username']) &&
+        data.keys().hasOnly(['id', 'name', 'username', 'avatarUrl', 'bio', 'phone', 'email', 'status', 'wallpaperId', 'customWallpaperUrl', 'wallpaperDim', 'doNotDisturb', 'dndDuration', 'aiModeEnabled', 'autoReplyWithAi']) &&
+        data.id is string && data.id.size() <= 128 &&
+        data.name is string && data.name.size() <= 100 &&
+        data.username is string && data.username.size() <= 50;
+    }
+
+    function isValidChat(data) {
+      return data.keys().hasAll(['id', 'name', 'type']) &&
+        data.keys().hasOnly(['id', 'name', 'username', 'phone', 'isFriend', 'isBlocked', 'avatarUrl', 'isVerified', 'isOnline', 'statusText', 'type', 'categories', 'unreadCount', 'pinned', 'lastMessageText', 'lastMessageTime', 'lastMessageRead', 'hasAiSuggestion', 'customWallpaperId', 'customWallpaperUrl', 'isTyping', 'isRealTime', 'roomId', 'onlineCount', 'activeUsers', 'messages']) &&
+        data.id is string && data.id.size() <= 128 &&
+        data.name is string && data.name.size() <= 100 &&
+        data.type is string;
+    }
+
+    function isValidMarketplaceProduct(data) {
+      return data.keys().hasAll(['id', 'title', 'price', 'sellerId']) &&
+        data.keys().hasOnly(['id', 'title', 'price', 'currency', 'description', 'category', 'condition', 'imageUrl', 'location', 'sellerId', 'sellerName', 'sellerAvatarUrl', 'sellerUsername', 'sellerPhone', 'createdAt', 'isAvailable']) &&
+        data.id is string && data.id.size() <= 128 &&
+        data.title is string && data.title.size() <= 150 &&
+        data.price is number &&
+        data.sellerId is string && data.sellerId.size() <= 128;
+    }
+
+    function isValidGameScore(data) {
+      return data.keys().hasAll(['id', 'userId', 'gameName', 'score']) &&
+        data.keys().hasOnly(['id', 'userId', 'userName', 'gameName', 'score', 'timestamp']) &&
+        data.id is string && data.id.size() <= 128 &&
+        data.userId is string && data.userId.size() <= 128 &&
+        data.gameName is string && data.gameName.size() <= 50 &&
+        data.score is number;
+    }
+
+    match /users/{userId} {
+      allow get, list: if isSignedIn();
+      allow create: if isSignedIn() && isValidId(userId) && isValidUserProfile(incoming());
+      allow update: if isSignedIn() && isValidId(userId) && isValidUserProfile(incoming());
+      allow delete: if isSignedIn() && isValidId(userId);
+    }
+
+    match /chats/{chatId} {
+      allow get, list: if isSignedIn();
+      allow create: if isSignedIn() && isValidId(chatId) && isValidChat(incoming());
+      allow update: if isSignedIn() && isValidId(chatId) && isValidChat(incoming());
+      allow delete: if isSignedIn() && isValidId(chatId);
+    }
+
+    match /marketplaceProducts/{productId} {
+      allow get, list: if true;
+      allow create: if isSignedIn() && isValidId(productId) && isValidMarketplaceProduct(incoming());
+      allow update: if isSignedIn() && isValidId(productId) && isValidMarketplaceProduct(incoming());
+      allow delete: if isSignedIn() && isValidId(productId);
+    }
+
+    match /gameScores/{scoreId} {
+      allow get, list: if true;
+      allow create: if isSignedIn() && isValidId(scoreId) && isValidGameScore(incoming());
+      allow update: if isSignedIn() && isValidId(scoreId) && isValidGameScore(incoming());
+      allow delete: if isSignedIn() && isValidId(scoreId);
+    }
+
+    match /{document=**} {
+      allow read, write: if false;
+    }
+  }
+}

@@ -1,0 +1,63 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 400 400" width="100%" height="100%">
+  <defs>
+    <filter id="shadow-3" x="-10%" y="-10%" width="130%" height="130%">
+      <feDropShadow dx="0" dy="6" stdDeviation="8" flood-color="#000000" flood-opacity="0.35"/>
+    </filter>
+    <linearGradient id="hasbulla-skin" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#f5cbb1"/>
+      <stop offset="100%" stop-color="#dfa785"/>
+    </linearGradient>
+  </defs>
+  <g filter="url(#drop-shadow)">
+    <!-- White Die-Cut -->
+    <path d="M 90 30 Q 200 10 310 30 Q 370 120 350 240 Q 360 330 310 350 L 90 350 Q 40 330 50 230 Q 30 110 90 30 Z" fill="#ffffff" stroke="#ffffff" stroke-width="12" stroke-linejoin="round"/>
+    
+    <!-- Short Brown Hair -->
+    <ellipse cx="200" cy="120" rx="75" ry="55" fill="#4a2e1b"/>
+
+    <!-- Hands on Head / Clutching Forehead (Stressed gesture) -->
+    <!-- Left Hand -->
+    <ellipse cx="115" cy="100" rx="30" ry="24" fill="url(#hasbulla-skin)" transform="rotate(-30 115 100)"/>
+    <circle cx="100" cy="90" r="10" fill="#dfa785"/>
+    <circle cx="112" cy="80" r="10" fill="#dfa785"/>
+    <circle cx="126" cy="78" r="10" fill="#dfa785"/>
+    <!-- Right Hand -->
+    <ellipse cx="285" cy="100" rx="30" ry="24" fill="url(#hasbulla-skin)" transform="rotate(30 285 100)"/>
+    <circle cx="300" cy="90" r="10" fill="#dfa785"/>
+    <circle cx="288" cy="80" r="10" fill="#dfa785"/>
+    <circle cx="274" cy="78" r="10" fill="#dfa785"/>
+
+    <!-- Chubby Face -->
+    <ellipse cx="200" cy="165" rx="75" ry="75" fill="url(#hasbulla-skin)"/>
+    
+    <!-- Hair Bangs -->
+    <path d="M 140 115 Q 200 135 260 115 Q 240 100 200 100 Q 160 100 140 115 Z" fill="#4a2e1b"/>
+
+    <!-- Distressed/Crying Brow & Forehead Wrinkles -->
+    <path d="M 180 125 Q 200 132 220 125" stroke="#b87a55" stroke-width="3" stroke-linecap="round" fill="none"/>
+    <path d="M 150 138 Q 175 148 190 140" stroke="#331c0e" stroke-width="5" stroke-linecap="round" fill="none"/>
+    <path d="M 250 138 Q 225 148 210 140" stroke="#331c0e" stroke-width="5" stroke-linecap="round" fill="none"/>
+
+    <!-- Pained Squinting Eyes with Tears -->
+    <ellipse cx="168" cy="155" rx="14" ry="10" fill="#ffffff"/>
+    <circle cx="168" cy="155" r="7" fill="#331c0e"/>
+    <ellipse cx="232" cy="155" rx="14" ry="10" fill="#ffffff"/>
+    <circle cx="232" cy="155" r="7" fill="#331c0e"/>
+
+    <!-- Small nose -->
+    <path d="M 195 168 Q 200 176 205 168" stroke="#aa6845" stroke-width="4" stroke-linecap="round" fill="none"/>
+
+    <!-- Crying / Wailing Open Mouth -->
+    <path d="M 175 192 Q 200 185 225 192 Q 220 218 200 220 Q 180 218 175 192 Z" fill="#6e1a1e"/>
+    <path d="M 182 193 Q 200 196 218 193" stroke="#ffffff" stroke-width="4" stroke-linecap="round"/>
+
+    <!-- Green Polo Shirt with White Stripes on Neck -->
+    <path d="M 120 235 L 80 320 L 320 320 L 280 235 Z" fill="#1b6e3f"/>
+    <polygon points="175,235 200,265 225,235" fill="#ffffff"/>
+    <path d="M 135 240 L 165 240" stroke="#ffffff" stroke-width="4"/>
+    <path d="M 235 240 L 265 240" stroke="#ffffff" stroke-width="4"/>
+
+    <!-- Meme Text: ¡AY DIOS MIO! -->
+    <text x="200" y="340" text-anchor="middle" font-family="Impact, Arial Black, sans-serif" font-weight="900" font-size="38" fill="#ffffff" stroke="#000000" stroke-width="8" paint-order="stroke fill" letter-spacing="1">!AY DIOS MIO¡</text>
+  </g>
+</svg>

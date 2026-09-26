@@ -1,0 +1,44 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 400 400" width="100%" height="100%">
+  <defs>
+    <filter id="shadow-7" x="-10%" y="-10%" width="130%" height="130%">
+      <feDropShadow dx="0" dy="6" stdDeviation="8" flood-color="#000000" flood-opacity="0.4"/>
+    </filter>
+  </defs>
+  <g filter="url(#drop-shadow)">
+    <!-- White Die-Cut -->
+    <path d="M 80 40 Q 200 10 320 40 Q 370 120 360 250 Q 370 340 310 360 L 90 360 Q 30 340 40 230 Q 30 100 80 40 Z" fill="#ffffff" stroke="#ffffff" stroke-width="12" stroke-linejoin="round"/>
+    
+    <!-- Dark Background -->
+    <rect x="55" y="45" width="290" height="295" rx="20" fill="#0f1526"/>
+
+    <!-- Skull Base -->
+    <ellipse cx="190" cy="135" rx="65" ry="60" fill="#e8e4d8"/>
+    <!-- Cheekbones -->
+    <polygon points="140,160 170,200 210,200 240,160 190,170" fill="#e8e4d8"/>
+    <!-- Teeth / Jaw -->
+    <rect x="165" y="195" width="50" height="20" rx="4" fill="#dad5c5"/>
+    <path d="M 170 195 L 170 215 M 180 195 L 180 215 M 190 195 L 190 215 M 200 195 L 200 215 M 210 195 L 210 215" stroke="#3d372e" stroke-width="2"/>
+
+    <!-- Dark Eye Sockets -->
+    <ellipse cx="165" cy="135" rx="18" ry="20" fill="#1b1713"/>
+    <ellipse cx="215" cy="135" rx="18" ry="20" fill="#1b1713"/>
+    <!-- Triangular Nose Cavity -->
+    <polygon points="190,155 183,172 197,172" fill="#1b1713"/>
+
+    <!-- Skeletal Arm Resting Chin on Hand (Bored waiting posture) -->
+    <!-- Bony Hand Under Chin -->
+    <path d="M 140 180 Q 130 150 135 125" stroke="#e8e4d8" stroke-width="6" stroke-linecap="round" fill="none"/>
+    <path d="M 145 185 Q 138 160 142 135" stroke="#e8e4d8" stroke-width="6" stroke-linecap="round" fill="none"/>
+    <!-- Arm Bones -->
+    <path d="M 140 195 L 80 250 L 220 250" stroke="#e8e4d8" stroke-width="12" stroke-linecap="round" stroke-linejoin="round" fill="none"/>
+    <!-- Ribcage / Spine -->
+    <path d="M 190 215 L 190 280" stroke="#e8e4d8" stroke-width="10" stroke-linecap="round"/>
+    <path d="M 160 230 Q 190 240 220 230" stroke="#dad5c5" stroke-width="6" fill="none"/>
+    <path d="M 155 250 Q 190 260 225 250" stroke="#dad5c5" stroke-width="6" fill="none"/>
+    <path d="M 160 270 Q 190 280 220 270" stroke="#dad5c5" stroke-width="6" fill="none"/>
+
+    <!-- Meme Text: ESTOY ESPERANDO! in Yellow Glow -->
+    <text x="200" y="325" text-anchor="middle" font-family="Impact, Arial Black, sans-serif" font-weight="900" font-size="34" fill="#ffe033" stroke="#000000" stroke-width="8" paint-order="stroke fill" letter-spacing="1">ESTOY</text>
+    <text x="200" y="355" text-anchor="middle" font-family="Impact, Arial Black, sans-serif" font-weight="900" font-size="34" fill="#ffe033" stroke="#000000" stroke-width="8" paint-order="stroke fill" letter-spacing="1">ESPERANDO!</text>
+  </g>
+</svg>

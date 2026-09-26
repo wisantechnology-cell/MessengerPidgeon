@@ -1,0 +1,50 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 400 400" width="100%" height="100%">
+  <defs>
+    <filter id="shadow-13" x="-10%" y="-10%" width="130%" height="130%">
+      <feDropShadow dx="0" dy="6" stdDeviation="8" flood-color="#000000" flood-opacity="0.35"/>
+    </filter>
+    <linearGradient id="dog-fur" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#f5cf8e"/>
+      <stop offset="100%" stop-color="#d49b4b"/>
+    </linearGradient>
+  </defs>
+  <g filter="url(#drop-shadow)">
+    <!-- White Die-Cut -->
+    <path d="M 80 40 Q 200 10 320 40 Q 370 110 360 240 Q 370 330 310 355 L 90 355 Q 30 330 40 220 Q 30 100 80 40 Z" fill="#ffffff" stroke="#ffffff" stroke-width="14" stroke-linejoin="round"/>
+    
+    <!-- Labrador Ears (Floppy) -->
+    <ellipse cx="140" cy="140" rx="30" ry="50" fill="#ba8034" transform="rotate(-15 140 140)"/>
+    <ellipse cx="260" cy="140" rx="30" ry="50" fill="#ba8034" transform="rotate(15 260 140)"/>
+
+    <!-- Labrador Head -->
+    <ellipse cx="200" cy="150" rx="70" ry="65" fill="url(#dog-fur)"/>
+
+    <!-- Sweet / Polite Looking Dog Eyes -->
+    <ellipse cx="170" cy="135" rx="14" ry="12" fill="#2d1a0e"/>
+    <circle cx="166" cy="132" r="3.5" fill="#ffffff"/>
+    <ellipse cx="230" cy="135" rx="14" ry="12" fill="#2d1a0e"/>
+    <circle cx="226" cy="132" r="3.5" fill="#ffffff"/>
+
+    <!-- Muzzle & Black Nose -->
+    <ellipse cx="200" cy="165" rx="30" ry="22" fill="#fde68a"/>
+    <ellipse cx="200" cy="158" rx="14" ry="9" fill="#171717"/>
+    <path d="M 190 175 Q 200 182 200 168 Q 200 182 210 175" stroke="#171717" stroke-width="3" fill="none"/>
+
+    <!-- Raised Paw Reaching Up High (Asking for turn to speak) -->
+    <path d="M 80 180 L 100 60 Q 120 40 135 60 L 140 120" stroke="#ffffff" stroke-width="8" fill="none"/>
+    <!-- Paw Pad & Claws -->
+    <ellipse cx="105" cy="55" rx="22" ry="26" fill="url(#dog-fur)" transform="rotate(-20 105 55)"/>
+    <circle cx="95" cy="40" r="6" fill="#ba8034"/>
+    <circle cx="107" cy="35" r="6" fill="#ba8034"/>
+    <circle cx="120" cy="40" r="6" fill="#ba8034"/>
+    <circle cx="107" cy="58" r="10" fill="#523218"/>
+
+    <!-- Dog Body & Desk Table -->
+    <path d="M 130 210 L 100 290 L 300 290 L 270 210 Z" fill="url(#dog-fur)"/>
+    <!-- Wooden Table Surface -->
+    <rect x="60" y="270" width="280" height="25" rx="6" fill="#854d0e" stroke="#58310c" stroke-width="3"/>
+
+    <!-- Meme Text: QUIERO OPINAR -->
+    <text x="200" y="340" text-anchor="middle" font-family="Impact, Arial Black, sans-serif" font-weight="900" font-size="38" fill="#ffffff" stroke="#000000" stroke-width="8" paint-order="stroke fill" letter-spacing="1">QUIERO OPINAR</text>
+  </g>
+</svg>

@@ -1,0 +1,52 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 400 400" width="100%" height="100%">
+  <defs>
+    <filter id="drop-shadow" x="-10%" y="-10%" width="130%" height="130%">
+      <feDropShadow dx="0" dy="6" stdDeviation="8" flood-color="#000000" flood-opacity="0.35"/>
+    </filter>
+    <linearGradient id="skin1" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#99583d"/>
+      <stop offset="100%" stop-color="#733e28"/>
+    </linearGradient>
+  </defs>
+  <g filter="url(#drop-shadow)">
+    <!-- White Sticker Die-Cut Outline -->
+    <path d="M 120 40 Q 200 20 280 40 Q 350 80 340 180 Q 350 260 300 310 L 320 340 Q 200 370 80 340 L 100 310 Q 50 240 60 160 Q 50 80 120 40 Z" fill="#ffffff" stroke="#ffffff" stroke-width="12" stroke-linejoin="round"/>
+    
+    <!-- Hair Buns -->
+    <circle cx="130" cy="95" r="38" fill="#181412"/>
+    <circle cx="270" cy="95" r="38" fill="#181412"/>
+    <!-- Head Base -->
+    <ellipse cx="200" cy="170" rx="90" ry="85" fill="url(#skin1)"/>
+    <!-- Front Hair -->
+    <path d="M 115 150 C 130 95 270 95 285 150 C 260 120 140 120 115 150 Z" fill="#181412"/>
+    <ellipse cx="200" cy="115" rx="55" ry="18" fill="#241d19"/>
+
+    <!-- Angry Eyebrows angled down -->
+    <path d="M 135 150 Q 165 160 185 155" stroke="#181412" stroke-width="7" stroke-linecap="round" fill="none"/>
+    <path d="M 215 155 Q 235 160 265 150" stroke="#181412" stroke-width="7" stroke-linecap="round" fill="none"/>
+
+    <!-- Side-eye Glance Eyes -->
+    <ellipse cx="160" cy="170" rx="16" ry="12" fill="#ffffff"/>
+    <ellipse cx="240" cy="170" rx="16" ry="12" fill="#ffffff"/>
+    <!-- Pupils looking far left/side -->
+    <circle cx="152" cy="170" r="8" fill="#181412"/>
+    <circle cx="150" cy="168" r="2.5" fill="#ffffff"/>
+    <circle cx="232" cy="170" r="8" fill="#181412"/>
+    <circle cx="230" cy="168" r="2.5" fill="#ffffff"/>
+
+    <!-- Button Nose -->
+    <ellipse cx="196" cy="195" rx="9" ry="6" fill="#5a2f1e"/>
+
+    <!-- Pouty Sulking Cheeks & Mouth -->
+    <path d="M 175 228 Q 200 215 225 228" stroke="#422013" stroke-width="6" stroke-linecap="round" fill="none"/>
+    <ellipse cx="200" cy="235" rx="14" ry="7" fill="#823d24"/>
+
+    <!-- Black Dress Body with Straps -->
+    <path d="M 135 250 L 120 320 L 280 320 L 265 250 Z" fill="#1a1a1a"/>
+    <rect x="130" y="245" width="16" height="30" rx="4" fill="#000000"/>
+    <rect x="254" y="245" width="16" height="30" rx="4" fill="#000000"/>
+
+    <!-- Meme Text: NO ME HABLES -->
+    <text x="200" y="340" text-anchor="middle" font-family="Impact, Arial Black, sans-serif" font-weight="900" font-size="38" fill="#ffffff" stroke="#000000" stroke-width="8" paint-order="stroke fill" letter-spacing="1">NO ME HABLES</text>
+  </g>
+</svg>

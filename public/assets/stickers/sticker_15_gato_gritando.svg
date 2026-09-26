@@ -1,0 +1,48 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 400 400" width="100%" height="100%">
+  <defs>
+    <filter id="shadow-15" x="-10%" y="-10%" width="130%" height="130%">
+      <feDropShadow dx="0" dy="6" stdDeviation="8" flood-color="#000000" flood-opacity="0.35"/>
+    </filter>
+  </defs>
+  <g filter="url(#drop-shadow)">
+    <!-- White Die-Cut -->
+    <path d="M 90 40 Q 200 10 310 40 Q 370 120 360 250 Q 370 340 310 360 L 90 360 Q 30 340 40 230 Q 30 100 90 40 Z" fill="#ffffff" stroke="#ffffff" stroke-width="14" stroke-linejoin="round"/>
+    
+    <!-- White Cat Ears Pinched Back (Distress) -->
+    <polygon points="120,110 70,60 140,80" fill="#f8fafc"/>
+    <polygon points="115,100 85,70 130,85" fill="#fda4af"/>
+    <polygon points="280,110 330,60 260,80" fill="#f8fafc"/>
+    <polygon points="285,100 315,70 270,85" fill="#fda4af"/>
+
+    <!-- White Kitten Head -->
+    <ellipse cx="200" cy="160" rx="85" ry="80" fill="#ffffff"/>
+
+    <!-- Crying Watery Black Eyes Filled with Tears -->
+    <ellipse cx="150" cy="140" rx="24" ry="26" fill="#0f172a"/>
+    <circle cx="142" cy="132" r="8" fill="#ffffff"/>
+    <circle cx="158" cy="148" r="4" fill="#ffffff"/>
+    <path d="M 135 160 Q 125 190 130 220" stroke="#38bdf8" stroke-width="4" stroke-linecap="round" fill="none"/>
+
+    <ellipse cx="250" cy="140" rx="24" ry="26" fill="#0f172a"/>
+    <circle cx="242" cy="132" r="8" fill="#ffffff"/>
+    <circle cx="258" cy="148" r="4" fill="#ffffff"/>
+    <path d="M 265 160 Q 275 190 270 220" stroke="#38bdf8" stroke-width="4" stroke-linecap="round" fill="none"/>
+
+    <!-- Tiny Pink Nose -->
+    <polygon points="194,168 206,168 200,176" fill="#fb7185"/>
+
+    <!-- HUGE WIDE OPEN SCREAMING MOUTH -->
+    <path d="M 140 185 Q 200 170 260 185 Q 280 270 200 275 Q 120 270 140 185 Z" fill="#881337"/>
+    <!-- Tongue and Fangs -->
+    <polygon points="150,185 158,198 166,185" fill="#ffffff"/>
+    <polygon points="234,185 242,198 250,185" fill="#ffffff"/>
+    <ellipse cx="200" cy="245" rx="30" ry="18" fill="#f43f5e"/>
+
+    <!-- Whiskers -->
+    <path d="M 120 180 L 60 170 M 120 190 L 55 195" stroke="#cbd5e1" stroke-width="3"/>
+    <path d="M 280 180 L 340 170 M 280 190 L 345 195" stroke="#cbd5e1" stroke-width="3"/>
+
+    <!-- Meme Text: AAAAAAAAH! -->
+    <text x="200" y="340" text-anchor="middle" font-family="Impact, Arial Black, sans-serif" font-weight="900" font-size="40" fill="#ffffff" stroke="#000000" stroke-width="9" paint-order="stroke fill" letter-spacing="2">AAAAAH! 😭</text>
+  </g>
+</svg>
