@@ -26,6 +26,7 @@ import {
 import { UserProfile, Wallpaper } from '../types';
 import { ensurePhoneStartsWith16 } from '../utils/phoneUtils';
 import { PRESET_AVATARS, createSvgAvatar, DEFAULT_PIDGEON_AVATAR } from '../utils/avatarUtils';
+import { isPhoneTakenByAnotherUser } from '../utils/phoneValidation';
 
 interface SettingsProfileViewProps {
   user: UserProfile;
@@ -71,6 +72,8 @@ export const SettingsProfileView: React.FC<SettingsProfileViewProps> = ({
   const [isDeleting, setIsDeleting] = useState<boolean>(false);
   const [deleteError, setDeleteError] = useState<string | null>(null);
   const [savedFeedback, setSavedFeedback] = useState<boolean>(false);
+  const [phoneError, setPhoneError] = useState<string | null>(null);
+  const [isCheckingPhone, setIsCheckingPhone] = useState<boolean>(false);
 
   // Wallpaper settings state inside Ajustes
   const [wallpaperFeedback, setWallpaperFeedback] = useState<boolean>(false);
@@ -89,15 +92,28 @@ export const SettingsProfileView: React.FC<SettingsProfileViewProps> = ({
     setAvatarUrl(user.avatarUrl || DEFAULT_PIDGEON_AVATAR);
   }, [user]);
 
-  const handleSaveProfile = () => {
+  const handleSaveProfile = async () => {
+    setPhoneError(null);
     const finalName = name.trim() ? name.trim() : 'USUARIO NUEVO';
     const finalBio = bio.trim() ? bio.trim() : 'Soy nuevo en MessengerPidgeon';
     const finalUsername = username.trim() ? username.trim() : '@usuarionuevo';
     const sanitizedPhone = ensurePhoneStartsWith16(phone);
+
+    // Check if phone number already exists for another user
+    setIsCheckingPhone(true);
+    const isTaken = await isPhoneTakenByAnotherUser(sanitizedPhone, user.id);
+    setIsCheckingPhone(false);
+
+    if (isTaken) {
+      setPhoneError('Este número de teléfono ya existe');
+      return;
+    }
+
     setPhone(sanitizedPhone);
     setName(finalName);
     setBio(finalBio);
     setUsername(finalUsername);
+
     onUpdateUser({
       name: finalName,
       bio: finalBio,
@@ -106,6 +122,7 @@ export const SettingsProfileView: React.FC<SettingsProfileViewProps> = ({
       email,
       avatarUrl: avatarUrl || DEFAULT_PIDGEON_AVATAR,
     });
+
     setIsEditing(false);
     setSavedFeedback(true);
     setTimeout(() => setSavedFeedback(false), 2000);
@@ -315,9 +332,20 @@ export const SettingsProfileView: React.FC<SettingsProfileViewProps> = ({
               <input
                 type="text"
                 value={phone}
-                onChange={(e) => setPhone(e.target.value)}
-                className="bg-[#181c24] text-xs text-[#dfe2ee] px-3 py-2 rounded-xl border border-white/10 focus:outline-none focus:border-[#2563eb]"
+                onChange={(e) => {
+                  setPhone(e.target.value);
+                  setPhoneError(null);
+                }}
+                className={`bg-[#181c24] text-xs text-[#dfe2ee] px-3 py-2 rounded-xl border focus:outline-none ${
+                  phoneError ? 'border-red-500/80 ring-1 ring-red-500/40' : 'border-white/10 focus:border-[#2563eb]'
+                }`}
               />
+              {phoneError && (
+                <span className="text-[11px] font-bold text-red-400 mt-1 flex items-center gap-1 animate-in fade-in">
+                  <AlertTriangle className="w-3.5 h-3.5 text-red-400 shrink-0" />
+                  <span>{phoneError}</span>
+                </span>
+              )}
             </div>
           </div>
 

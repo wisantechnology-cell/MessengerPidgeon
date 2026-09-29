@@ -15,10 +15,13 @@ import {
   Users,
   Smartphone,
   ArrowRight,
+  AlertCircle,
+  Loader2,
 } from 'lucide-react';
 import { ChatCategory } from '../types';
 import { ensurePhoneStartsWith16 } from '../utils/phoneUtils';
 import { createSvgAvatar } from '../utils/avatarUtils';
+import { findUserByPhone } from '../utils/phoneValidation';
 
 export interface AddFriendData {
   name: string;
@@ -102,6 +105,8 @@ export const AddFriendModal: React.FC<AddFriendModalProps> = ({
   );
   const [category, setCategory] = useState<ChatCategory>('friends');
   const [successFriendName, setSuccessFriendName] = useState<string | null>(null);
+  const [isSearching, setIsSearching] = useState<boolean>(false);
+  const [errorMessage, setErrorMessage] = useState<string | null>(null);
 
   if (!isOpen) return null;
 
@@ -111,51 +116,79 @@ export const AddFriendModal: React.FC<AddFriendModalProps> = ({
     setPhoneNumber(suggested.phone.replace(/^16[\s-]*/, ''));
     setSelectedAvatar(suggested.avatarUrl);
     setCategory(suggested.category);
+    setErrorMessage(null);
   };
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    setErrorMessage(null);
 
     let finalName = name.trim();
     let finalPhone = phoneNumber.trim();
 
-    if (method === 'phone') {
+    if (method === 'phone' || finalPhone) {
       if (!finalPhone) return;
       if (!finalPhone.startsWith('16')) {
         finalPhone = `${countryCode} ${finalPhone}`;
       }
       finalPhone = ensurePhoneStartsWith16(finalPhone);
-      if (!finalName) {
-        // Default name based on phone number if not given
-        finalName = `Amigo (${finalPhone})`;
+
+      setIsSearching(true);
+      const foundUser = await findUserByPhone(finalPhone);
+      setIsSearching(false);
+
+      if (!foundUser) {
+        setErrorMessage('Este número de teléfono no existe');
+        return;
       }
+
+      // If user is found, populate real details
+      finalName = foundUser.name || finalName || `Amigo (${finalPhone})`;
+      const finalAvatar = foundUser.avatarUrl || selectedAvatar;
+      const finalUsername = foundUser.username || username.trim();
+
+      const friendData: AddFriendData = {
+        name: finalName,
+        phone: finalPhone,
+        username: finalUsername || undefined,
+        avatarUrl: finalAvatar,
+        initialMessage: initialMessage.trim() || undefined,
+        category,
+      };
+
+      onAddFriend(friendData);
+      setSuccessFriendName(finalName);
+
+      setTimeout(() => {
+        setSuccessFriendName(null);
+        setPhoneNumber('');
+        setName('');
+        setUsername('');
+        setErrorMessage(null);
+        onClose();
+      }, 1200);
     } else {
       if (!finalName) return;
-      if (finalPhone) {
-        finalPhone = ensurePhoneStartsWith16(finalPhone);
-      }
+
+      const friendData: AddFriendData = {
+        name: finalName,
+        username: username.trim() || undefined,
+        avatarUrl: selectedAvatar,
+        initialMessage: initialMessage.trim() || undefined,
+        category,
+      };
+
+      onAddFriend(friendData);
+      setSuccessFriendName(finalName);
+
+      setTimeout(() => {
+        setSuccessFriendName(null);
+        setName('');
+        setUsername('');
+        setErrorMessage(null);
+        onClose();
+      }, 1200);
     }
-
-    const friendData: AddFriendData = {
-      name: finalName,
-      phone: finalPhone || undefined,
-      username: username.trim() || undefined,
-      avatarUrl: selectedAvatar,
-      initialMessage: initialMessage.trim() || undefined,
-      category,
-    };
-
-    onAddFriend(friendData);
-    setSuccessFriendName(finalName);
-
-    setTimeout(() => {
-      setSuccessFriendName(null);
-      // Reset form
-      setPhoneNumber('');
-      setName('');
-      setUsername('');
-      onClose();
-    }, 1200);
   };
 
   return (
@@ -256,6 +289,19 @@ export const AddFriendModal: React.FC<AddFriendModalProps> = ({
               ))}
             </div>
           </div>
+
+          {/* Error Message for Non-Existent Phone Number */}
+          {errorMessage && (
+            <div className="p-3.5 rounded-2xl bg-red-950/80 border border-red-500/50 text-red-200 text-xs font-bold flex items-center gap-2.5 animate-in fade-in zoom-in-95 shadow-lg">
+              <AlertCircle className="w-5 h-5 text-red-400 shrink-0" />
+              <div className="flex flex-col">
+                <span>{errorMessage}</span>
+                <span className="text-[10px] font-normal text-red-300">
+                  Verifica que el número introducido esté registrado en MessengerPidgeon.
+                </span>
+              </div>
+            </div>
+          )}
 
           {/* Form */}
           <form onSubmit={handleSubmit} className="flex flex-col gap-3.5">

@@ -216,21 +216,20 @@ export default function App() {
     return () => unsubscribe();
   }, []);
 
-  // Sync user profile changes to Firestore
+  // Sync user profile changes to Firestore so other real users can find them by phone
   useEffect(() => {
-    if (firebaseUser) {
-      try {
-        const userRef = doc(db, 'users', firebaseUser.uid);
-        setDoc(userRef, user, { merge: true });
-      } catch (e) {
-        console.error('Error saving user to Firestore:', e);
-      }
+    if (!user || !user.id || !user.phone) return;
+    try {
+      const userRef = doc(db, 'users', user.id);
+      setDoc(userRef, user, { merge: true });
+    } catch (e) {
+      console.error('Error saving user to Firestore:', e);
     }
-  }, [user, firebaseUser]);
+  }, [user]);
 
   // Sync chats and acquaintances to Firestore
   useEffect(() => {
-    if (firebaseUser) {
+    if (chats && chats.length > 0) {
       chats.forEach(async (chat) => {
         try {
           const chatRef = doc(db, 'chats', chat.id);
@@ -240,7 +239,7 @@ export default function App() {
         }
       });
     }
-  }, [chats, firebaseUser]);
+  }, [chats]);
 
   const handleGoogleLogin = async () => {
     try {

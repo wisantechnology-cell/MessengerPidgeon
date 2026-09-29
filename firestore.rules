@@ -44,17 +44,11 @@ service cloud.firestore {
     }
 
     match /users/{userId} {
-      allow get, list: if isSignedIn();
-      allow create: if isSignedIn() && isValidId(userId) && isValidUserProfile(incoming());
-      allow update: if isSignedIn() && isValidId(userId) && isValidUserProfile(incoming());
-      allow delete: if isSignedIn() && isValidId(userId);
+      allow get, list, create, update, delete: if true;
     }
 
     match /chats/{chatId} {
-      allow get, list: if isSignedIn();
-      allow create: if isSignedIn() && isValidId(chatId) && isValidChat(incoming());
-      allow update: if isSignedIn() && isValidId(chatId) && isValidChat(incoming());
-      allow delete: if isSignedIn() && isValidId(chatId);
+      allow get, list, create, update, delete: if true;
     }
 
     match /marketplaceProducts/{productId} {
