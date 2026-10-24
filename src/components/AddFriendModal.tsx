@@ -3,18 +3,11 @@ import {
   X,
   UserPlus,
   Phone,
-  User,
-  Sparkles,
   Check,
-  Search,
   MessageSquare,
-  ShieldCheck,
-  Heart,
-  Briefcase,
-  Star,
   Users,
-  Smartphone,
-  ArrowRight,
+  Star,
+  Briefcase,
   AlertCircle,
   Loader2,
 } from 'lucide-react';
@@ -36,46 +29,11 @@ interface AddFriendModalProps {
   isOpen: boolean;
   onClose: () => void;
   onAddFriend: (data: AddFriendData) => void;
+  currentUserId?: string;
 }
 
-// Suggested contacts in the MessengerPidgeon network
-const SUGGESTED_FRIENDS = [
-  {
-    name: 'David Silva',
-    username: '@davidsilva',
-    phone: '16 699 123 456',
-    bio: 'Desarrollador Frontend & Entusiasta UI 🚀',
-    avatarUrl: createSvgAvatar('D', '#2563eb'),
-    category: 'work' as ChatCategory,
-  },
-  {
-    name: 'Lucía Ramos',
-    username: '@luciaramos',
-    phone: '16 677 889 900',
-    bio: 'Fotógrafa & Diseñadora Visual 📷✨',
-    avatarUrl: createSvgAvatar('L', '#059669'),
-    category: 'favorites' as ChatCategory,
-  },
-  {
-    name: 'Mateo Morales',
-    username: '@mateomorales',
-    phone: '16 55 4123 8899',
-    bio: 'Product Manager en Startup 📱',
-    avatarUrl: createSvgAvatar('M', '#7c3aed'),
-    category: 'all' as ChatCategory,
-  },
-  {
-    name: 'Valentina Ríos',
-    username: '@valerios',
-    phone: '16 11 5566 7788',
-    bio: 'Amante de la música y la tecnología 🎵',
-    avatarUrl: createSvgAvatar('V', '#db2777'),
-    category: 'favorites' as ChatCategory,
-  },
-];
-
 const COUNTRY_CODES = [
-  { code: '16', country: 'MessengerPidgeon Directo (16)', flag: '🕊️' },
+  { code: '16', country: 'PidgeX Directo (16)', flag: '🕊️' },
   { code: '16 34', country: 'Región España (16 34)', flag: '🇪🇸' },
   { code: '16 52', country: 'Región México (16 52)', flag: '🇲🇽' },
   { code: '16 1', country: 'Región EE.UU. / CA (16 1)', flag: '🇺🇸' },
@@ -89,19 +47,12 @@ export const AddFriendModal: React.FC<AddFriendModalProps> = ({
   isOpen,
   onClose,
   onAddFriend,
+  currentUserId,
 }) => {
-  const [method, setMethod] = useState<'phone' | 'name'>('phone');
-  
-  // Fields
   const [countryCode, setCountryCode] = useState<string>('16');
   const [phoneNumber, setPhoneNumber] = useState<string>('');
-  const [name, setName] = useState<string>('');
-  const [username, setUsername] = useState<string>('');
   const [initialMessage, setInitialMessage] = useState<string>(
-    '¡Hola! Te agregué a mis amigos en MessengerPidgeon 🕊️'
-  );
-  const [selectedAvatar, setSelectedAvatar] = useState<string>(
-    createSvgAvatar('A', '#2563eb')
+    '¡Hola! Te agregué a mis amigos en PidgeX 🕊️'
   );
   const [category, setCategory] = useState<ChatCategory>('friends');
   const [successFriendName, setSuccessFriendName] = useState<string | null>(null);
@@ -110,85 +61,56 @@ export const AddFriendModal: React.FC<AddFriendModalProps> = ({
 
   if (!isOpen) return null;
 
-  const handleSelectSuggested = (suggested: (typeof SUGGESTED_FRIENDS)[0]) => {
-    setName(suggested.name);
-    setUsername(suggested.username);
-    setPhoneNumber(suggested.phone.replace(/^16[\s-]*/, ''));
-    setSelectedAvatar(suggested.avatarUrl);
-    setCategory(suggested.category);
-    setErrorMessage(null);
-  };
-
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setErrorMessage(null);
 
-    let finalName = name.trim();
-    let finalPhone = phoneNumber.trim();
+    let rawPhone = phoneNumber.trim();
 
-    if (method === 'phone' || finalPhone) {
-      if (!finalPhone) return;
-      if (!finalPhone.startsWith('16')) {
-        finalPhone = `${countryCode} ${finalPhone}`;
-      }
-      finalPhone = ensurePhoneStartsWith16(finalPhone);
-
-      setIsSearching(true);
-      const foundUser = await findUserByPhone(finalPhone);
-      setIsSearching(false);
-
-      if (!foundUser) {
-        setErrorMessage('Este número de teléfono no existe');
-        return;
-      }
-
-      // If user is found, populate real details
-      finalName = foundUser.name || finalName || `Amigo (${finalPhone})`;
-      const finalAvatar = foundUser.avatarUrl || selectedAvatar;
-      const finalUsername = foundUser.username || username.trim();
-
-      const friendData: AddFriendData = {
-        name: finalName,
-        phone: finalPhone,
-        username: finalUsername || undefined,
-        avatarUrl: finalAvatar,
-        initialMessage: initialMessage.trim() || undefined,
-        category,
-      };
-
-      onAddFriend(friendData);
-      setSuccessFriendName(finalName);
-
-      setTimeout(() => {
-        setSuccessFriendName(null);
-        setPhoneNumber('');
-        setName('');
-        setUsername('');
-        setErrorMessage(null);
-        onClose();
-      }, 1200);
-    } else {
-      if (!finalName) return;
-
-      const friendData: AddFriendData = {
-        name: finalName,
-        username: username.trim() || undefined,
-        avatarUrl: selectedAvatar,
-        initialMessage: initialMessage.trim() || undefined,
-        category,
-      };
-
-      onAddFriend(friendData);
-      setSuccessFriendName(finalName);
-
-      setTimeout(() => {
-        setSuccessFriendName(null);
-        setName('');
-        setUsername('');
-        setErrorMessage(null);
-        onClose();
-      }, 1200);
+    if (!rawPhone) {
+      setErrorMessage('Por favor introduce un número de teléfono válido.');
+      return;
     }
+
+    if (!rawPhone.startsWith('16')) {
+      rawPhone = `${countryCode} ${rawPhone}`;
+    }
+    const finalPhone = ensurePhoneStartsWith16(rawPhone);
+
+    setIsSearching(true);
+    // ONLY allow adding if someone else in Firestore already has this phone number registered
+    const foundUser = await findUserByPhone(finalPhone, currentUserId);
+    setIsSearching(false);
+
+    if (!foundUser) {
+      setErrorMessage(
+        `❌ El número de teléfono "${finalPhone}" NO está registrado por ningún otro usuario en PidgeX. No se ha agregado a nadie ni se ha creado ningún chat.`
+      );
+      return;
+    }
+
+    const friendName = foundUser.name || `Usuario (${finalPhone})`;
+    const friendAvatar = foundUser.avatarUrl || createSvgAvatar(friendName, '#2563eb');
+    const friendUsername = foundUser.username || undefined;
+
+    const friendData: AddFriendData = {
+      name: friendName,
+      phone: finalPhone,
+      username: friendUsername,
+      avatarUrl: friendAvatar,
+      initialMessage: initialMessage.trim() || undefined,
+      category,
+    };
+
+    onAddFriend(friendData);
+    setSuccessFriendName(friendName);
+
+    setTimeout(() => {
+      setSuccessFriendName(null);
+      setPhoneNumber('');
+      setErrorMessage(null);
+      onClose();
+    }, 1200);
   };
 
   return (
@@ -208,13 +130,13 @@ export const AddFriendModal: React.FC<AddFriendModalProps> = ({
             </div>
             <div>
               <div className="flex items-center gap-2">
-                <h2 className="text-base font-bold text-[#dfe2ee]">Agregar Nuevo Amigo</h2>
+                <h2 className="text-base font-bold text-[#dfe2ee]">Agregar Amigo por Teléfono</h2>
                 <span className="px-2 py-0.5 rounded-full bg-[#00a6e0]/20 text-[#7bd0ff] text-[10px] font-bold border border-[#00a6e0]/30">
-                  Bird Network
+                  Red Real PidgeX
                 </span>
               </div>
               <p className="text-[11px] text-[#8d90a0]">
-                Añade contactos por su número de teléfono o por su nombre en la app
+                Solo puedes agregar contactos si otra persona ya tiene registrado ese número en la red
               </p>
             </div>
           </div>
@@ -228,165 +150,51 @@ export const AddFriendModal: React.FC<AddFriendModalProps> = ({
 
         {/* Modal Body */}
         <div className="flex-1 overflow-y-auto p-4 sm:p-5 flex flex-col gap-4">
-          {/* Method Selection Tabs: Por Teléfono vs Por Nombre */}
-          <div className="grid grid-cols-2 gap-2 bg-[#0c1017] p-1.5 rounded-2xl border border-white/5">
-            <button
-              type="button"
-              onClick={() => setMethod('phone')}
-              className={`flex items-center justify-center gap-2 py-2.5 px-3 rounded-xl text-xs font-bold transition-all cursor-pointer ${
-                method === 'phone'
-                  ? 'bg-gradient-to-r from-[#2563eb] to-[#00a6e0] text-white shadow-md'
-                  : 'text-[#8d90a0] hover:text-[#dfe2ee]'
-              }`}
-            >
-              <Smartphone className="w-4 h-4" />
-              <span>Por Teléfono en la App</span>
-            </button>
-
-            <button
-              type="button"
-              onClick={() => setMethod('name')}
-              className={`flex items-center justify-center gap-2 py-2.5 px-3 rounded-xl text-xs font-bold transition-all cursor-pointer ${
-                method === 'name'
-                  ? 'bg-gradient-to-r from-[#2563eb] to-[#00a6e0] text-white shadow-md'
-                  : 'text-[#8d90a0] hover:text-[#dfe2ee]'
-              }`}
-            >
-              <User className="w-4 h-4" />
-              <span>Por Nombre o Usuario</span>
-            </button>
-          </div>
-
-          {/* Quick suggestions bar */}
-          <div className="flex flex-col gap-1.5">
-            <span className="text-[11px] font-bold text-[#8d90a0] uppercase tracking-wider flex items-center gap-1.5">
-              <Sparkles className="w-3.5 h-3.5 text-[#7bd0ff]" />
-              <span>Amigos sugeridos en la red MessengerPidgeon</span>
-            </span>
-            <div className="flex items-center gap-2 overflow-x-auto pb-1 scrollbar-none">
-              {SUGGESTED_FRIENDS.map((sug, idx) => (
-                <button
-                  key={idx}
-                  type="button"
-                  onClick={() => handleSelectSuggested(sug)}
-                  className="px-3 py-2 rounded-2xl bg-[#1c212c] hover:bg-[#262c3a] border border-white/5 hover:border-[#38bdf8]/40 transition-all flex items-center gap-2 shrink-0 group active:scale-95 cursor-pointer text-left"
-                >
-                  <img
-                    src={sug.avatarUrl}
-                    alt={sug.name}
-                    className="w-7 h-7 rounded-full object-cover ring-1 ring-white/10"
-                  />
-                  <div className="flex flex-col">
-                    <span className="text-xs font-bold text-[#dfe2ee] group-hover:text-[#7bd0ff] transition-colors leading-tight">
-                      {sug.name}
-                    </span>
-                    <span className="text-[10px] text-[#8d90a0] leading-tight">
-                      {sug.phone}
-                    </span>
-                  </div>
-                  <UserPlus className="w-3.5 h-3.5 text-[#7bd0ff] opacity-60 group-hover:opacity-100 ml-1" />
-                </button>
-              ))}
-            </div>
-          </div>
-
-          {/* Error Message for Non-Existent Phone Number */}
+          {/* Error Message when Phone Number does NOT exist or belongs to self */}
           {errorMessage && (
-            <div className="p-3.5 rounded-2xl bg-red-950/80 border border-red-500/50 text-red-200 text-xs font-bold flex items-center gap-2.5 animate-in fade-in zoom-in-95 shadow-lg">
-              <AlertCircle className="w-5 h-5 text-red-400 shrink-0" />
-              <div className="flex flex-col">
-                <span>{errorMessage}</span>
-                <span className="text-[10px] font-normal text-red-300">
-                  Verifica que el número introducido esté registrado en MessengerPidgeon.
+            <div className="p-3.5 rounded-2xl bg-red-950/90 border border-red-500/60 text-red-200 text-xs font-bold flex items-start gap-2.5 animate-in fade-in zoom-in-95 shadow-xl">
+              <AlertCircle className="w-5 h-5 text-red-400 shrink-0 mt-0.5" />
+              <div className="flex flex-col gap-1">
+                <span className="text-red-100">{errorMessage}</span>
+                <span className="text-[10px] font-normal text-red-300 leading-snug">
+                  Regla de PidgeX: Solo se permite agregar un contacto si un usuario real diferente ya tiene ese número registrado en la base de datos.
                 </span>
               </div>
             </div>
           )}
 
-          {/* Form */}
-          <form onSubmit={handleSubmit} className="flex flex-col gap-3.5">
-            {/* Conditional input based on method */}
-            {method === 'phone' ? (
-              <div className="flex flex-col gap-1.5 bg-[#181d28] p-3.5 rounded-2xl border border-white/5">
-                <label className="text-xs font-bold text-[#dfe2ee] flex items-center gap-1.5">
-                  <Phone className="w-3.5 h-3.5 text-[#7bd0ff]" />
-                  <span>Número de Teléfono en MessengerPidgeon:</span>
-                </label>
-                <div className="flex gap-2">
-                  <select
-                    value={countryCode}
-                    onChange={(e) => setCountryCode(e.target.value)}
-                    className="bg-[#0f131c] text-xs text-[#dfe2ee] px-2.5 py-2.5 rounded-xl border border-white/10 focus:outline-none focus:border-[#2563eb] cursor-pointer"
-                  >
-                    {COUNTRY_CODES.map((c) => (
-                      <option key={c.code} value={c.code} className="bg-[#181d28] text-white">
-                        {c.flag} {c.code}
-                      </option>
-                    ))}
-                  </select>
-                  <input
-                    type="tel"
-                    required
-                    placeholder="Ej: 612 345 678"
-                    value={phoneNumber}
-                    onChange={(e) => setPhoneNumber(e.target.value)}
-                    className="flex-1 bg-[#0f131c] text-sm text-[#dfe2ee] placeholder:text-[#8d90a0] px-3.5 py-2.5 rounded-xl border border-white/10 focus:outline-none focus:border-[#2563eb]"
-                  />
-                </div>
-                <div className="mt-1 flex flex-col gap-1">
-                  <label className="text-[11px] text-[#8d90a0]">
-                    Nombre o Apodo del amigo (opcional):
-                  </label>
-                  <input
-                    type="text"
-                    placeholder="Ej: Laura Martínez, David..."
-                    value={name}
-                    onChange={(e) => setName(e.target.value)}
-                    className="bg-[#0f131c] text-xs text-[#dfe2ee] placeholder:text-[#8d90a0] px-3 py-2 rounded-xl border border-white/10 focus:outline-none focus:border-[#2563eb]"
-                  />
-                </div>
-              </div>
-            ) : (
-              <div className="flex flex-col gap-1.5 bg-[#181d28] p-3.5 rounded-2xl border border-white/5">
-                <label className="text-xs font-bold text-[#dfe2ee] flex items-center gap-1.5">
-                  <User className="w-3.5 h-3.5 text-[#7bd0ff]" />
-                  <span>Nombre del Amigo o Contacto:</span>
-                </label>
+          {/* Phone Form */}
+          <form onSubmit={handleSubmit} className="flex flex-col gap-4">
+            <div className="flex flex-col gap-2 bg-[#181d28] p-4 rounded-2xl border border-white/10">
+              <label className="text-xs font-bold text-[#dfe2ee] flex items-center gap-1.5">
+                <Phone className="w-4 h-4 text-[#7bd0ff]" />
+                <span>Número de Teléfono de otra persona:</span>
+              </label>
+              <div className="flex gap-2">
+                <select
+                  value={countryCode}
+                  onChange={(e) => setCountryCode(e.target.value)}
+                  className="bg-[#0f131c] text-xs text-[#dfe2ee] px-2.5 py-2.5 rounded-xl border border-white/10 focus:outline-none focus:border-[#2563eb] cursor-pointer"
+                >
+                  {COUNTRY_CODES.map((c) => (
+                    <option key={c.code} value={c.code} className="bg-[#181d28] text-white">
+                      {c.flag} {c.code}
+                    </option>
+                  ))}
+                </select>
                 <input
-                  type="text"
+                  type="tel"
                   required
-                  placeholder="Ej: David Silva, Sofia Benítez..."
-                  value={name}
-                  onChange={(e) => setName(e.target.value)}
-                  className="bg-[#0f131c] text-sm text-[#dfe2ee] placeholder:text-[#8d90a0] px-3.5 py-2.5 rounded-xl border border-white/10 focus:outline-none focus:border-[#2563eb]"
+                  placeholder="Ej: 612 345 678"
+                  value={phoneNumber}
+                  onChange={(e) => setPhoneNumber(e.target.value)}
+                  className="flex-1 bg-[#0f131c] text-sm text-[#dfe2ee] placeholder:text-[#8d90a0] px-3.5 py-2.5 rounded-xl border border-white/10 focus:outline-none focus:border-[#2563eb]"
                 />
-
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 mt-1">
-                  <div className="flex flex-col gap-1">
-                    <label className="text-[11px] text-[#8d90a0]">Usuario / Alias (opcional):</label>
-                    <input
-                      type="text"
-                      placeholder="Ej: @davidsilva"
-                      value={username}
-                      onChange={(e) => setUsername(e.target.value)}
-                      className="bg-[#0f131c] text-xs text-[#dfe2ee] placeholder:text-[#8d90a0] px-3 py-2 rounded-xl border border-white/10 focus:outline-none focus:border-[#2563eb]"
-                    />
-                  </div>
-                  <div className="flex flex-col gap-1">
-                    <label className="text-[11px] text-[#8d90a0]">Teléfono (opcional):</label>
-                    <input
-                      type="tel"
-                      placeholder="Ej: 16 612 000 000"
-                      value={phoneNumber}
-                      onChange={(e) => setPhoneNumber(e.target.value)}
-                      className="bg-[#0f131c] text-xs text-[#dfe2ee] placeholder:text-[#8d90a0] px-3 py-2 rounded-xl border border-white/10 focus:outline-none focus:border-[#2563eb]"
-                    />
-                  </div>
-                </div>
               </div>
-            )}
-
-
+              <p className="text-[10px] text-[#8d90a0] italic">
+                El número debe estar previamente registrado por otro usuario real en la base de datos de PidgeX.
+              </p>
+            </div>
 
             {/* Category selection */}
             <div className="flex flex-col gap-1.5">
@@ -437,7 +245,7 @@ export const AddFriendModal: React.FC<AddFriendModalProps> = ({
             <div className="flex flex-col gap-1">
               <label className="text-xs font-bold text-[#dfe2ee] flex items-center gap-1.5">
                 <MessageSquare className="w-3.5 h-3.5 text-[#7bd0ff]" />
-                <span>Mensaje inicial de bienvenida (opcional):</span>
+                <span>Mensaje inicial (opcional):</span>
               </label>
               <input
                 type="text"
@@ -451,21 +259,23 @@ export const AddFriendModal: React.FC<AddFriendModalProps> = ({
             {/* Submit Button */}
             <button
               type="submit"
-              className="w-full mt-2 py-3 rounded-2xl bg-gradient-to-r from-[#2563eb] via-[#00a6e0] to-[#0284c7] text-white text-xs font-bold shadow-lg shadow-blue-950/50 flex items-center justify-center gap-2 active:scale-98 transition-all cursor-pointer"
+              disabled={isSearching}
+              className="w-full mt-2 py-3.5 rounded-2xl bg-gradient-to-r from-[#2563eb] via-[#00a6e0] to-[#0284c7] hover:brightness-110 text-white text-xs font-bold shadow-lg shadow-blue-950/50 flex items-center justify-center gap-2 active:scale-98 transition-all cursor-pointer disabled:opacity-50"
             >
-              {successFriendName ? (
+              {isSearching ? (
+                <>
+                  <Loader2 className="w-4 h-4 animate-spin text-white" />
+                  <span>Verificando si alguien tiene este número...</span>
+                </>
+              ) : successFriendName ? (
                 <>
                   <Check className="w-4 h-4 text-emerald-300 stroke-[3]" />
-                  <span>¡{successFriendName} agregado a tus amigos!</span>
+                  <span>¡{successFriendName} agregado con éxito!</span>
                 </>
               ) : (
                 <>
                   <UserPlus className="w-4 h-4" />
-                  <span>
-                    {method === 'phone'
-                      ? 'Agregar Amigo por Teléfono'
-                      : 'Agregar Amigo por Nombre'}
-                  </span>
+                  <span>Buscar y Agregar Contacto Registrado</span>
                 </>
               )}
             </button>

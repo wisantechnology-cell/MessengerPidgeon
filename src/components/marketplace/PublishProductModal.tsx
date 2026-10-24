@@ -192,7 +192,7 @@ export const PublishProductModal: React.FC<PublishProductModalProps> = ({
             </div>
             <div>
               <h3 className={`font-bold text-base ${isNightMode ? 'text-white' : 'text-[#0c2340]'}`}>
-                Vender en MessengerPidgeon Market
+                Vender en PidgeX Market
               </h3>
               <p className={`text-[11px] ${isNightMode ? 'text-[#8d90a0]' : 'text-[#476788]'}`}>
                 Publica tu artículo y chatea con amigos interesados

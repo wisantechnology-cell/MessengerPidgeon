@@ -50,7 +50,7 @@ export class ErrorBoundary extends Component<Props, State> {
             <div className="flex flex-col gap-1">
               <h2 className="text-xl font-bold text-[#dfe2ee]">Algo no cargó correctamente</h2>
               <p className="text-xs text-[#8d90a0]">
-                Ocurrió un inconveniente temporal al cargar la vista de MessengerPidgeon.
+                Ocurrió un inconveniente temporal al cargar la vista de PidgeX.
               </p>
             </div>
 

@@ -1,5 +1,5 @@
 /**
- * Helpers and default SVG avatars for MessengerPidgeon
+ * Helpers and default SVG avatars for PidgeX
  * Clean, modern, vector-based avatars with no external human stock photos.
  */
 

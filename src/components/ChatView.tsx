@@ -28,9 +28,23 @@ import {
   Moon,
   Bell,
   BellOff,
+  Download,
   Gamepad2,
+  Trash2,
+  Play,
+  ExternalLink,
+  Clock,
+  Palette,
+  Pencil,
+  BarChart2,
+  Share2,
 } from 'lucide-react';
-import { Chat, Message, Wallpaper, StickerItem, UserProfile } from '../types';
+import { Chat, Message, Wallpaper, StickerItem, UserProfile, GroupMember, PollData } from '../types';
+import { PollModal } from './PollModal';
+import { PollMessageView } from './PollMessageView';
+import { PrivateMessageModal } from './PrivateMessageModal';
+import { PrivateMessageView } from './PrivateMessageView';
+import { ForwardModal } from './ForwardModal';
 import { STICKERS } from '../data/mockData';
 import { VoiceRecorder } from './VoiceRecorder';
 import { VoicePlayer } from './VoicePlayer';
@@ -38,11 +52,16 @@ import { PhotoFilterModal } from './PhotoFilterModal';
 import { EmojiStickerPicker } from './EmojiStickerPicker';
 import { MediaModal } from './MediaModal';
 import { CallModal } from './CallModal';
+import { GroupMembersModal } from './GroupMembersModal';
+import { ChatThemeModal } from './ChatThemeModal';
+import { WhiteboardModal } from './WhiteboardModal';
+import { applyAutoCorrect } from '../utils/autocorrectUtils';
 
 interface ChatViewProps {
   chat: Chat;
   user: UserProfile;
   wallpapers: Wallpaper[];
+  allContacts?: Chat[];
   isNightMode?: boolean;
   onToggleNightMode?: () => void;
   onBack: () => void;
@@ -57,6 +76,75 @@ interface ChatViewProps {
   onOpenWaitingRoom?: () => void;
   onAddContactAsFriend?: (chatId: string) => void;
   onOpenAddFriend?: () => void;
+  onDeleteMessage?: (chatId: string, messageId: string) => void;
+  onClearChatMessages?: (chatId: string) => void;
+  onUpdateGroupMembers?: (chatId: string, updatedMembers: GroupMember[]) => void;
+  onLeaveGroup?: (chatId: string) => void;
+  onStartGroupGame?: (gameId: 'triviagrupal' | 'dibujayadivina' | 'stopgrupal') => void;
+  onOpenTimeCapsule?: () => void;
+  onSelectGradient?: (chatId: string, gradient: string) => void;
+  onOpenWhiteboard?: () => void;
+  onStartPrivateChat?: (memberId: string, memberName: string) => void;
+  onForwardMessage?: (targetChatId: string, message: Message) => void;
+  onExportChat?: (chat: Chat) => void;
+}
+
+interface VideoPreview {
+  platform: 'youtube' | 'tiktok' | 'facebook' | 'generic';
+  url: string;
+  videoId?: string;
+  thumbnailUrl?: string;
+  title?: string;
+}
+
+function parseVideoLink(text: string): VideoPreview | null {
+  if (!text) return null;
+  const urlRegex = /(https?:\/\/[^\s]+)/g;
+  const matches = text.match(urlRegex);
+  if (!matches) return null;
+
+  for (const url of matches) {
+    // YouTube
+    const ytMatch = url.match(/(?:youtube\.com\/(?:[^\/]+\/.+\/|(?:v|e(?:mbed)?)\/|.*[?&]v=)|youtu\.be\/)([^"&?\/\s]{11})/i);
+    if (ytMatch && ytMatch[1]) {
+      const vidId = ytMatch[1];
+      return {
+        platform: 'youtube',
+        url,
+        videoId: vidId,
+        thumbnailUrl: `https://img.youtube.com/vi/${vidId}/hqdefault.jpg`,
+        title: 'Video de YouTube',
+      };
+    }
+    // TikTok
+    if (url.includes('tiktok.com') || url.includes('vm.tiktok.com')) {
+      return {
+        platform: 'tiktok',
+        url,
+        title: 'Video de TikTok',
+        thumbnailUrl: 'https://images.unsplash.com/photo-1611162617474-5b21e879e113?w=600&auto=format&fit=crop&q=80',
+      };
+    }
+    // Facebook
+    if (url.includes('facebook.com') || url.includes('fb.watch')) {
+      return {
+        platform: 'facebook',
+        url,
+        title: 'Video de Facebook',
+        thumbnailUrl: 'https://images.unsplash.com/photo-1563986768609-322da13575f3?w=600&auto=format&fit=crop&q=80',
+      };
+    }
+    // Generic video
+    if (url.endsWith('.mp4') || url.endsWith('.mov') || url.endsWith('.webm') || url.includes('video') || url.includes('watch')) {
+      return {
+        platform: 'generic',
+        url,
+        title: 'Video compartido',
+        thumbnailUrl: 'https://images.unsplash.com/photo-1574717024653-61fd2cf4d44d?w=600&auto=format&fit=crop&q=80',
+      };
+    }
+  }
+  return null;
 }
 
 import { BirdLogo } from './BirdLogo';
@@ -65,6 +153,7 @@ export const ChatView: React.FC<ChatViewProps> = ({
   chat,
   user,
   wallpapers,
+  allContacts = [],
   isNightMode = false,
   onToggleNightMode,
   onBack,
@@ -79,11 +168,76 @@ export const ChatView: React.FC<ChatViewProps> = ({
   onOpenWaitingRoom,
   onAddContactAsFriend,
   onOpenAddFriend,
+  onDeleteMessage,
+  onClearChatMessages,
+  onUpdateGroupMembers,
+  onLeaveGroup,
+  onStartGroupGame,
+  onOpenTimeCapsule,
+  onSelectGradient,
+  onOpenWhiteboard,
+  onStartPrivateChat,
+  onForwardMessage,
+  onExportChat,
 }) => {
   const [inputText, setInputText] = useState<string>('');
+  const [showChatThemeModal, setShowChatThemeModal] = useState<boolean>(false);
+  const [showWhiteboardModal, setShowWhiteboardModal] = useState<boolean>(false);
+  const [showPollModal, setShowPollModal] = useState<boolean>(false);
+  const [showPrivateMessageModal, setShowPrivateMessageModal] = useState<boolean>(false);
+  const [forwardingMessage, setForwardingMessage] = useState<Message | null>(null);
+
+  const handleVotePoll = (messageId: string, optionId: string) => {
+    const updatedMsgs = chat.messages.map((m) => {
+      if (m.id === messageId && m.pollData) {
+        const updatedOptions = m.pollData.options.map((opt) => {
+          const hasVoted = opt.voters?.includes('me');
+          if (opt.id === optionId) {
+            if (hasVoted) {
+              return { ...opt, votes: Math.max(0, opt.votes - 1), voters: opt.voters.filter(v => v !== 'me') };
+            } else {
+              return { ...opt, votes: opt.votes + 1, voters: [...(opt.voters || []), 'me'] };
+            }
+          } else {
+            return {
+              ...opt,
+              votes: hasVoted ? Math.max(0, opt.votes - 1) : opt.votes,
+              voters: (opt.voters || []).filter(v => v !== 'me'),
+            };
+          }
+        });
+        return { ...m, pollData: { ...m.pollData, options: updatedOptions } };
+      }
+      return m;
+    });
+    chat.messages = updatedMsgs;
+  };
   const [copiedRoomLink, setCopiedRoomLink] = useState<boolean>(false);
   const [showSecurityPopover, setShowSecurityPopover] = useState<boolean>(false);
   const [showBlockModal, setShowBlockModal] = useState<boolean>(false);
+  const [showClearChatModal, setShowClearChatModal] = useState<boolean>(false);
+  const [showGroupMembersModal, setShowGroupMembersModal] = useState<boolean>(false);
+  const [showGroupGamesDropdown, setShowGroupGamesDropdown] = useState<boolean>(false);
+  const [showVideoLinkModal, setShowVideoLinkModal] = useState<boolean>(false);
+  const [videoLinkInput, setVideoLinkInput] = useState<string>('');
+  const [videoLinkCaption, setVideoLinkCaption] = useState<string>('');
+  const [activeVideoModalUrl, setActiveVideoModalUrl] = useState<string | null>(null);
+
+  const handleStartGroupGameClick = (gameId: 'triviagrupal' | 'dibujayadivina' | 'stopgrupal', gameTitle: string) => {
+    setShowGroupGamesDropdown(false);
+    onSendMessage(chat.id, {
+      senderId: 'me',
+      senderName: user.name,
+      senderAvatar: user.avatarUrl,
+      type: 'text',
+      text: `🎮 ¡${user.name} ha solicitado iniciar una partida de ${gameTitle} en este grupo! 🚀`,
+      timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+      isRead: true,
+    });
+    if (onStartGroupGame) {
+      onStartGroupGame(gameId);
+    }
+  };
   const [showWallpaperDrawer, setShowWallpaperDrawer] = useState<boolean>(false);
   const [showAttachSheet, setShowAttachSheet] = useState<boolean>(false);
   const [showEmojiPicker, setShowEmojiPicker] = useState<boolean>(false);
@@ -130,8 +284,13 @@ export const ChatView: React.FC<ChatViewProps> = ({
   }, [chat.messages, isRecordingVoice]);
 
   const handleSendTextMessage = (textToSend?: string) => {
-    const text = textToSend || inputText;
+    let text = textToSend || inputText;
     if (!text.trim()) return;
+
+    if (user.autoCorrectEnabled !== false) {
+      const { correctedText } = applyAutoCorrect(text);
+      text = correctedText;
+    }
 
     onSendMessage(chat.id, {
       senderId: 'me',
@@ -167,13 +326,14 @@ export const ChatView: React.FC<ChatViewProps> = ({
     });
   };
 
-  const handleSendVoice = (durationText: string, audioBlobUrl?: string) => {
+  const handleSendVoice = (durationText: string, audioBlobUrl?: string, voiceFilter?: 'normal' | 'chipmunk' | 'robot' | 'deep') => {
     onSendMessage(chat.id, {
       senderId: 'me',
       senderName: user.name,
       type: 'voice',
       mediaDuration: durationText,
       mediaUrl: audioBlobUrl,
+      voiceFilter: voiceFilter !== 'normal' ? voiceFilter : undefined,
       timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
       isRead: true,
     });
@@ -200,7 +360,7 @@ export const ChatView: React.FC<ChatViewProps> = ({
     }`}>
       {/* 1. App Navigation Header */}
       <header className={`sticky top-0 w-full z-40 backdrop-blur-xl border-b transition-colors duration-300 ${
-        isNightMode ? 'bg-[#0f131c]/90 border-white/5' : 'bg-white/90 border-sky-200/80'
+        chat.headerGradient ? `bg-gradient-to-r ${chat.headerGradient} text-white border-white/10` : isNightMode ? 'bg-[#0f131c]/90 border-white/5' : 'bg-white/90 border-sky-200/80'
       }`}>
         <div className="h-16 px-4 flex items-center justify-between">
           <div className="flex items-center gap-2">
@@ -311,7 +471,69 @@ export const ChatView: React.FC<ChatViewProps> = ({
 
           {/* Action buttons on contact bar */}
           <div className="flex items-center gap-1.5 shrink-0">
-            {!chat.isFriend && !chat.isBlocked && onAddContactAsFriend && (
+            {chat.type === 'group' && (
+              <>
+                <button
+                  onClick={() => setShowGroupMembersModal(true)}
+                  title="Ver Integrantes y Administrar Líderes del Grupo"
+                  className="flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-gradient-to-r from-[#2563eb] to-[#00a6e0] hover:from-[#1d4ed8] hover:to-[#2563eb] text-white text-xs font-bold shadow-md active:scale-95 transition-all cursor-pointer"
+                >
+                  <Users className="w-3.5 h-3.5 text-white" />
+                  <span>{chat.groupMembers?.length || 1} Integrantes</span>
+                </button>
+
+                <div className="relative">
+                  <button
+                    onClick={() => setShowGroupGamesDropdown(!showGroupGamesDropdown)}
+                    title="Juegos en Grupo (Trivia, Dibuja, Tutti Frutti)"
+                    className="flex items-center gap-1 px-2.5 py-1.5 rounded-full bg-purple-600/30 hover:bg-purple-600/50 text-purple-200 border border-purple-500/40 text-xs font-bold active:scale-95 transition-all cursor-pointer shadow-sm"
+                  >
+                    <Gamepad2 className="w-3.5 h-3.5 text-purple-300" />
+                    <span>Juegos de Grupo</span>
+                  </button>
+
+                  {showGroupGamesDropdown && (
+                    <div className="absolute right-0 mt-2 w-56 p-2 bg-[#1c2028] border border-white/10 rounded-2xl shadow-2xl z-50 animate-in fade-in zoom-in-95 duration-150">
+                      <div className="px-2 py-1 text-[10px] font-bold text-[#8d90a0] uppercase tracking-wider">
+                        Solicitar Juego en Grupo
+                      </div>
+                      <button
+                        onClick={() => handleStartGroupGameClick('triviagrupal', 'Trivia & Quiz Grupal')}
+                        className="w-full text-left px-3 py-2 rounded-xl text-xs text-[#dfe2ee] hover:bg-purple-600/20 hover:text-white flex items-center gap-2 cursor-pointer transition-colors"
+                      >
+                        <span className="text-base">🏆</span>
+                        <div>
+                          <div className="font-bold">Trivia & Quiz</div>
+                          <div className="text-[10px] text-[#8d90a0]">Cultura general</div>
+                        </div>
+                      </button>
+                      <button
+                        onClick={() => handleStartGroupGameClick('dibujayadivina', 'Dibuja y Adivina')}
+                        className="w-full text-left px-3 py-2 rounded-xl text-xs text-[#dfe2ee] hover:bg-sky-600/20 hover:text-white flex items-center gap-2 cursor-pointer transition-colors"
+                      >
+                        <span className="text-base">🎨</span>
+                        <div>
+                          <div className="font-bold">Dibuja y Adivina</div>
+                          <div className="text-[10px] text-[#8d90a0]">Arte en lienzo</div>
+                        </div>
+                      </button>
+                      <button
+                        onClick={() => handleStartGroupGameClick('stopgrupal', 'Tutti Frutti / STOP')}
+                        className="w-full text-left px-3 py-2 rounded-xl text-xs text-[#dfe2ee] hover:bg-orange-600/20 hover:text-white flex items-center gap-2 cursor-pointer transition-colors"
+                      >
+                        <span className="text-base">⚡</span>
+                        <div>
+                          <div className="font-bold">Tutti Frutti / STOP</div>
+                          <div className="text-[10px] text-[#8d90a0]">Basta de palabras</div>
+                        </div>
+                      </button>
+                    </div>
+                  )}
+                </div>
+              </>
+            )}
+
+            {!chat.isFriend && !chat.isBlocked && chat.type !== 'group' && onAddContactAsFriend && (
               <button
                 onClick={() => onAddContactAsFriend(chat.id)}
                 aria-label="Agregar a mis amigos"
@@ -346,23 +568,96 @@ export const ChatView: React.FC<ChatViewProps> = ({
               <WallpaperIcon className="w-4 h-4" />
             </button>
             <button
-              onClick={() => setCallConfig({ isOpen: true, isVideo: false })}
+              onClick={() => onExportChat?.(chat)}
+              aria-label="Exportar chat"
+              title="Exportar historial de chat (TXT)"
+              className={`w-9 h-9 rounded-full flex items-center justify-center transition-colors cursor-pointer shadow-sm ${
+                isNightMode
+                  ? 'bg-[#262a33] text-[#dfe2ee] hover:bg-[#353942] hover:text-emerald-400'
+                  : 'bg-white text-emerald-700 border border-emerald-200 hover:bg-emerald-50 hover:text-emerald-950'
+              }`}
+            >
+              <Download className="w-4 h-4" />
+            </button>
+            <button
+              onClick={() => {
+                if (chat.type === 'group') {
+                  onSendMessage(chat.id, {
+                    senderId: 'me',
+                    senderName: user.name,
+                    senderAvatar: user.avatarUrl,
+                    type: 'text',
+                    text: `📞 ¡${user.name} ha iniciado una llamada de voz grupal! 🔊`,
+                    timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+                    isRead: true,
+                  });
+                } else {
+                  onSendMessage(chat.id, {
+                    senderId: 'me',
+                    senderName: user.name,
+                    senderAvatar: user.avatarUrl,
+                    type: 'text',
+                    text: `📞 ¡${user.name} ha iniciado una llamada de voz! 🔊`,
+                    timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+                    isRead: true,
+                  });
+                }
+                setCallConfig({ isOpen: true, isVideo: false });
+              }}
               aria-label="Llamada de voz"
-              className={`w-9 h-9 rounded-full flex items-center justify-center transition-colors shadow-sm ${
+              className={`w-9 h-9 rounded-full flex items-center justify-center transition-colors shadow-sm cursor-pointer ${
                 isNightMode ? 'bg-[#262a33] text-[#dfe2ee] hover:bg-[#353942]' : 'bg-white text-sky-800 border border-sky-200 hover:bg-sky-100'
               }`}
             >
               <Phone className="w-4 h-4" />
             </button>
             <button
-              onClick={() => setCallConfig({ isOpen: true, isVideo: true })}
+              onClick={() => {
+                if (chat.type === 'group') {
+                  onSendMessage(chat.id, {
+                    senderId: 'me',
+                    senderName: user.name,
+                    senderAvatar: user.avatarUrl,
+                    type: 'text',
+                    text: `📹 ¡${user.name} ha iniciado una videollamada grupal! 🎥`,
+                    timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+                    isRead: true,
+                  });
+                } else {
+                  onSendMessage(chat.id, {
+                    senderId: 'me',
+                    senderName: user.name,
+                    senderAvatar: user.avatarUrl,
+                    type: 'text',
+                    text: `📹 ¡${user.name} ha iniciado una videollamada! 🎥`,
+                    timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+                    isRead: true,
+                  });
+                }
+                setCallConfig({ isOpen: true, isVideo: true });
+              }}
               aria-label="Videollamada"
-              className={`w-9 h-9 rounded-full flex items-center justify-center transition-colors shadow-sm ${
+              className={`w-9 h-9 rounded-full flex items-center justify-center transition-colors shadow-sm cursor-pointer ${
                 isNightMode ? 'bg-[#262a33] text-[#dfe2ee] hover:bg-[#353942]' : 'bg-white text-sky-800 border border-sky-200 hover:bg-sky-100'
               }`}
             >
               <VideoIcon className="w-4 h-4" />
             </button>
+
+            {onClearChatMessages && (
+              <button
+                onClick={() => setShowClearChatModal(true)}
+                aria-label="Vaciar conversación"
+                title="Vaciar todos los mensajes de esta conversación"
+                className={`w-9 h-9 rounded-full flex items-center justify-center transition-colors shadow-sm ${
+                  isNightMode
+                    ? 'bg-red-950/40 text-red-300 hover:bg-red-900/60 hover:text-red-200'
+                    : 'bg-red-50 text-red-600 border border-red-200 hover:bg-red-100'
+                }`}
+              >
+                <Trash2 className="w-4 h-4" />
+              </button>
+            )}
             <div className="relative">
               <button
                 onClick={(e) => {
@@ -407,6 +702,16 @@ export const ChatView: React.FC<ChatViewProps> = ({
                     <span>Cambiar fondo de pantalla</span>
                   </button>
                   <button
+                    onClick={() => {
+                      setShowChatThemeModal(true);
+                      setShowSecurityPopover(false);
+                    }}
+                    className="w-full text-left px-2 py-1.5 rounded-lg text-xs text-[#dfe2ee] hover:bg-white/5 flex items-center gap-2 cursor-pointer"
+                  >
+                    <Palette className="w-3.5 h-3.5 text-purple-400" />
+                    <span>🎨 Cambiar Tema del Chat</span>
+                  </button>
+                  <button
                     onClick={() => setShowSecurityPopover(false)}
                     className="w-full text-left px-2 py-1.5 rounded-lg text-xs text-[#dfe2ee] hover:bg-white/5 flex items-center gap-2"
                   >
@@ -445,6 +750,18 @@ export const ChatView: React.FC<ChatViewProps> = ({
                       {user.doNotDisturb ? 'ACTIVO' : 'OFF'}
                     </span>
                   </button>
+                  {onClearChatMessages && (
+                    <button
+                      onClick={() => {
+                        setShowSecurityPopover(false);
+                        setShowClearChatModal(true);
+                      }}
+                      className="w-full text-left px-2 py-1.5 rounded-lg text-xs text-red-400 hover:bg-red-500/15 flex items-center gap-2 cursor-pointer font-medium"
+                    >
+                      <Trash2 className="w-3.5 h-3.5 text-red-400" />
+                      <span>Vaciar todos los mensajes (Borrar chat)</span>
+                    </button>
+                  )}
                   <div className="h-px bg-white/10 my-1" />
                   {!chat.isFriend && !chat.isBlocked && onAddContactAsFriend && (
                     <button
@@ -641,31 +958,104 @@ export const ChatView: React.FC<ChatViewProps> = ({
                       {emo}
                     </button>
                   ))}
+
+                  {onDeleteMessage && (
+                    <div className="flex items-center gap-1">
+                      <button
+                        onClick={() => setForwardingMessage(msg)}
+                        title="Reenviar mensaje"
+                        className="p-1 text-sky-400 hover:text-sky-200 hover:bg-sky-500/20 rounded-full transition-all cursor-pointer"
+                      >
+                        <Share2 className="w-3.5 h-3.5" />
+                      </button>
+                      <button
+                        onClick={() => onDeleteMessage(chat.id, msg.id)}
+                        title="Eliminar mensaje"
+                        className="p-1 text-red-400 hover:text-red-200 hover:bg-red-500/20 rounded-full transition-all cursor-pointer"
+                      >
+                        <Trash2 className="w-3.5 h-3.5" />
+                      </button>
+                    </div>
+                  )}
                 </div>
               )}
 
               {/* Message Content according to Type */}
-              {msg.type === 'text' && (
-                <div
-                  className={`rounded-2xl p-3 shadow-md backdrop-blur-md transition-colors ${
-                    isMe
-                      ? 'bg-gradient-to-r from-[#0284c7] to-[#0ea5e9] text-white rounded-br-sm shadow-sky-950/20'
-                      : isNightMode
-                      ? 'bg-[#1c2028]/95 text-[#dfe2ee] rounded-bl-sm border border-white/10'
-                      : 'bg-white/95 text-[#0c2340] rounded-bl-sm border border-sky-200/90 shadow-sm'
-                  }`}
-                >
-                  <p className="text-[14px] leading-relaxed">{msg.text}</p>
-                  <div className="flex items-center justify-end gap-1 mt-1">
-                    <span className={`text-[10px] ${isMe ? 'text-white/80' : isNightMode ? 'text-[#8d90a0]' : 'text-sky-700/70'}`}>
-                      {msg.timestamp}
-                    </span>
-                    {isMe && (
-                      <CheckCheck className="w-3.5 h-3.5 text-white inline" />
+              {msg.type === 'text' && (() => {
+                const videoPreview = parseVideoLink(msg.text);
+                return (
+                  <div
+                    className={`rounded-2xl p-3 shadow-md backdrop-blur-md transition-colors ${
+                      isMe
+                        ? 'bg-gradient-to-r from-[#0284c7] to-[#0ea5e9] text-white rounded-br-sm shadow-sky-950/20'
+                        : isNightMode
+                        ? 'bg-[#1c2028]/95 text-[#dfe2ee] rounded-bl-sm border border-white/10'
+                        : 'bg-white/95 text-[#0c2340] rounded-bl-sm border border-sky-200/90 shadow-sm'
+                    }`}
+                  >
+                    <p className="text-[14px] leading-relaxed whitespace-pre-wrap">{msg.text}</p>
+                    
+                    {videoPreview && (
+                      <div
+                        className="mt-2.5 rounded-xl overflow-hidden bg-black/40 border border-white/10 group/vidcard cursor-pointer"
+                        onClick={() => {
+                          if (videoPreview.platform === 'youtube' && videoPreview.videoId) {
+                            setActiveVideoModalUrl(`https://www.youtube.com/embed/${videoPreview.videoId}?autoplay=1`);
+                          } else {
+                            window.open(videoPreview.url, '_blank');
+                          }
+                        }}
+                      >
+                        <div className="relative aspect-video w-full overflow-hidden bg-black/60">
+                          {videoPreview.thumbnailUrl && (
+                            <img
+                              src={videoPreview.thumbnailUrl}
+                              alt="Video thumbnail"
+                              className="w-full h-full object-cover group-hover/vidcard:scale-105 transition-transform duration-300 opacity-90"
+                            />
+                          )}
+                          <div className="absolute inset-0 bg-black/30 flex items-center justify-center">
+                            <div className="w-12 h-12 rounded-full bg-red-600 group-hover/vidcard:bg-red-500 text-white flex items-center justify-center shadow-lg group-hover/vidcard:scale-110 transition-transform">
+                              <Play className="w-6 h-6 fill-white ml-0.5" />
+                            </div>
+                          </div>
+                          <div className="absolute top-2 left-2 px-2 py-0.5 rounded-md bg-black/70 backdrop-blur-md text-[10px] font-bold text-white flex items-center gap-1 shadow-sm">
+                            {videoPreview.platform === 'youtube' && <span className="text-red-500 font-extrabold">▶ YouTube</span>}
+                            {videoPreview.platform === 'tiktok' && <span className="text-pink-400 font-extrabold">🎵 TikTok</span>}
+                            {videoPreview.platform === 'facebook' && <span className="text-blue-400 font-extrabold">📘 Facebook</span>}
+                            {videoPreview.platform === 'generic' && <span className="text-sky-400 font-extrabold">🎬 Video</span>}
+                          </div>
+                        </div>
+                        <div className="p-2 bg-[#181c24] flex items-center justify-between text-xs">
+                          <span className="font-medium text-[#dfe2ee] truncate">{videoPreview.url}</span>
+                          <ExternalLink className="w-3.5 h-3.5 text-[#8d90a0] shrink-0 ml-2" />
+                        </div>
+                      </div>
                     )}
+
+                    <div className="flex items-center justify-end gap-1 mt-1">
+                      <span className={`text-[10px] ${isMe ? 'text-white/80' : isNightMode ? 'text-[#8d90a0]' : 'text-sky-700/70'}`}>
+                        {msg.timestamp}
+                      </span>
+                      {isMe && (
+                        <CheckCheck className="w-3.5 h-3.5 text-white inline" />
+                      )}
+                      {onDeleteMessage && (
+                        <button
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            onDeleteMessage(chat.id, msg.id);
+                          }}
+                          title="Borrar este mensaje"
+                          className="ml-1 p-0.5 text-red-300 hover:text-red-100 opacity-70 hover:opacity-100 transition-all cursor-pointer"
+                        >
+                          <Trash2 className="w-3.5 h-3.5" />
+                        </button>
+                      )}
+                    </div>
                   </div>
-                </div>
-              )}
+                );
+              })()}
 
               {msg.type === 'image' && (
                 <div className="rounded-2xl p-1.5 bg-[#262a33]/90 shadow-md backdrop-blur-md border border-white/5 overflow-hidden">
@@ -706,6 +1096,18 @@ export const ChatView: React.FC<ChatViewProps> = ({
                   <div className="flex items-center justify-end gap-1 px-2 pb-0.5">
                     <span className="text-[10px] text-[#8d90a0]">{msg.timestamp}</span>
                     {isMe && <CheckCheck className="w-3 h-3 text-[#38bdf8]" />}
+                    {onDeleteMessage && (
+                      <button
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          onDeleteMessage(chat.id, msg.id);
+                        }}
+                        title="Borrar este mensaje"
+                        className="ml-1 p-0.5 text-red-400 hover:text-red-200 opacity-70 hover:opacity-100 transition-all cursor-pointer"
+                      >
+                        <Trash2 className="w-3 h-3" />
+                      </button>
+                    )}
                   </div>
                 </div>
               )}
@@ -727,6 +1129,18 @@ export const ChatView: React.FC<ChatViewProps> = ({
                     <div className="flex items-center gap-1 px-1">
                       <span className="text-[10px] text-[#8d90a0]">{msg.timestamp}</span>
                       {isMe && <CheckCheck className="w-3 h-3 text-[#38bdf8]" />}
+                      {onDeleteMessage && (
+                        <button
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            onDeleteMessage(chat.id, msg.id);
+                          }}
+                          title="Borrar este mensaje"
+                          className="ml-1 p-0.5 text-red-400 hover:text-red-200 opacity-70 hover:opacity-100 transition-all cursor-pointer"
+                        >
+                          <Trash2 className="w-3 h-3" />
+                        </button>
+                      )}
                     </div>
                   </div>
                 );
@@ -744,8 +1158,66 @@ export const ChatView: React.FC<ChatViewProps> = ({
                     durationText={msg.mediaDuration}
                     audioUrl={msg.mediaUrl}
                     isSender={isMe}
+                    voiceFilter={msg.voiceFilter}
                   />
                   <div className="flex items-center justify-end gap-1 mt-0.5">
+                    <span className={`text-[10px] ${isMe ? 'text-white/75' : 'text-[#8d90a0]'}`}>
+                      {msg.timestamp}
+                    </span>
+                    {isMe && <CheckCheck className="w-3 h-3 text-[#38bdf8]" />}
+                    {onDeleteMessage && (
+                      <button
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          onDeleteMessage(chat.id, msg.id);
+                        }}
+                        title="Borrar este mensaje"
+                        className="ml-1 p-0.5 text-red-300 hover:text-red-100 opacity-70 hover:opacity-100 transition-all cursor-pointer"
+                      >
+                        <Trash2 className="w-3 h-3" />
+                      </button>
+                    )}
+                  </div>
+                </div>
+              )}
+
+              {msg.type === 'poll' && msg.pollData && (
+                <div
+                  className={`rounded-2xl p-3 shadow-md backdrop-blur-md ${
+                    isMe
+                      ? 'bg-[#2563eb] text-white rounded-br-sm'
+                      : 'bg-[#262a33]/90 text-[#dfe2ee] rounded-bl-sm border border-white/5'
+                  }`}
+                >
+                  <PollMessageView
+                    pollData={msg.pollData}
+                    isSender={isMe}
+                    onVote={(optionId) => handleVotePoll(msg.id, optionId)}
+                    isNightMode={isNightMode}
+                  />
+                  <div className="flex items-center justify-end gap-1 mt-1">
+                    <span className={`text-[10px] ${isMe ? 'text-white/75' : 'text-[#8d90a0]'}`}>
+                      {msg.timestamp}
+                    </span>
+                    {isMe && <CheckCheck className="w-3 h-3 text-[#38bdf8]" />}
+                  </div>
+                </div>
+              )}
+
+              {msg.type === 'private' && msg.privateData && (
+                <div
+                  className={`rounded-2xl p-3 shadow-md backdrop-blur-md ${
+                    isMe
+                      ? 'bg-amber-700 text-white rounded-br-sm'
+                      : 'bg-[#262a33]/90 text-[#dfe2ee] rounded-bl-sm border border-amber-500/20'
+                  }`}
+                >
+                  <PrivateMessageView
+                    privateData={msg.privateData}
+                    isSender={isMe}
+                    isNightMode={isNightMode}
+                  />
+                  <div className="flex items-center justify-end gap-1 mt-1">
                     <span className={`text-[10px] ${isMe ? 'text-white/75' : 'text-[#8d90a0]'}`}>
                       {msg.timestamp}
                     </span>
@@ -778,7 +1250,21 @@ export const ChatView: React.FC<ChatViewProps> = ({
                   )}
                   <div className="flex items-center justify-between px-2 py-1 text-[11px] text-[#8d90a0]">
                     <span>{msg.mediaName || 'Video clip'}</span>
-                    <span>{msg.timestamp}</span>
+                    <div className="flex items-center gap-1">
+                      <span>{msg.timestamp}</span>
+                      {onDeleteMessage && (
+                        <button
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            onDeleteMessage(chat.id, msg.id);
+                          }}
+                          title="Borrar este mensaje"
+                          className="ml-1 p-0.5 text-red-400 hover:text-red-200 opacity-70 hover:opacity-100 transition-all cursor-pointer"
+                        >
+                          <Trash2 className="w-3 h-3" />
+                        </button>
+                      )}
+                    </div>
                   </div>
                 </div>
               )}
@@ -914,6 +1400,81 @@ export const ChatView: React.FC<ChatViewProps> = ({
                 <FileUp className="w-5 h-5" />
               </div>
               <span className="text-xs text-[#dfe2ee] font-medium">Doc / CV</span>
+            </button>
+
+            <button
+              onClick={() => {
+                setShowAttachSheet(false);
+                setShowVideoLinkModal(true);
+              }}
+              className="flex flex-col items-center gap-1.5 p-2 rounded-xl bg-[#1c2028] hover:bg-[#181c24] transition-colors cursor-pointer col-span-4 mt-1 border border-white/5"
+            >
+              <div className="flex items-center gap-2 text-red-400 font-bold text-xs">
+                <div className="w-7 h-7 rounded-full bg-red-600/20 flex items-center justify-center text-red-500">
+                  <Play className="w-3.5 h-3.5 fill-current" />
+                </div>
+                <span>Compartir Enlace de Video (YouTube, TikTok, Facebook, etc.)</span>
+              </div>
+            </button>
+
+            <button
+              onClick={() => {
+                setShowAttachSheet(false);
+                onOpenTimeCapsule?.();
+              }}
+              className="flex flex-col items-center gap-1.5 p-2 rounded-xl bg-[#1c2028] hover:bg-[#181c24] transition-colors cursor-pointer col-span-4 mt-1 border border-white/5"
+            >
+              <div className="flex items-center gap-2 text-amber-400 font-bold text-xs">
+                <div className="w-7 h-7 rounded-full bg-amber-500/20 flex items-center justify-center text-amber-400">
+                  <Clock className="w-3.5 h-3.5" />
+                </div>
+                <span>Cápsula del Tiempo (Mensajes Futuros)</span>
+              </div>
+            </button>
+
+            <button
+              onClick={() => {
+                setShowAttachSheet(false);
+                setShowWhiteboardModal(true);
+              }}
+              className="flex flex-col items-center gap-1.5 p-2 rounded-xl bg-[#1c2028] hover:bg-[#181c24] transition-colors cursor-pointer col-span-4 mt-1 border border-white/5"
+            >
+              <div className="flex items-center gap-2 text-blue-400 font-bold text-xs">
+                <div className="w-7 h-7 rounded-full bg-blue-500/20 flex items-center justify-center text-blue-400">
+                  <Pencil className="w-3.5 h-3.5" />
+                </div>
+                <span>Pizarra Colaborativa (Dibujar en Vivo)</span>
+              </div>
+            </button>
+
+            <button
+              onClick={() => {
+                setShowAttachSheet(false);
+                setShowPollModal(true);
+              }}
+              className="flex flex-col items-center gap-1.5 p-2 rounded-xl bg-[#1c2028] hover:bg-[#181c24] transition-colors cursor-pointer col-span-4 mt-1 border border-white/5"
+            >
+              <div className="flex items-center gap-2 text-sky-400 font-bold text-xs">
+                <div className="w-7 h-7 rounded-full bg-sky-500/20 flex items-center justify-center text-sky-400">
+                  <BarChart2 className="w-3.5 h-3.5" />
+                </div>
+                <span>Crear Encuesta (Votación en Vivo)</span>
+              </div>
+            </button>
+
+            <button
+              onClick={() => {
+                setShowAttachSheet(false);
+                setShowPrivateMessageModal(true);
+              }}
+              className="flex flex-col items-center gap-1.5 p-2 rounded-xl bg-[#1c2028] hover:bg-[#181c24] transition-colors cursor-pointer col-span-4 mt-1 border border-white/5"
+            >
+              <div className="flex items-center gap-2 text-amber-400 font-bold text-xs">
+                <div className="w-7 h-7 rounded-full bg-amber-500/20 flex items-center justify-center text-amber-400">
+                  <Lock className="w-3.5 h-3.5" />
+                </div>
+                <span>Mensaje Privado / Confidencial (PIN)</span>
+              </div>
             </button>
           </div>
         </div>
@@ -1114,6 +1675,8 @@ export const ChatView: React.FC<ChatViewProps> = ({
         contactName={chat.name}
         contactAvatar={chat.avatarUrl}
         isVideo={callConfig.isVideo}
+        isGroup={chat.type === 'group'}
+        groupMembers={chat.groupMembers || []}
       />
 
       {/* 12. In-Chat Quick Wallpaper Selector Modal */}
@@ -1240,7 +1803,7 @@ export const ChatView: React.FC<ChatViewProps> = ({
             </div>
 
             <p className="text-xs text-[#8d90a0] leading-relaxed">
-              Al bloquear a <strong className="text-white">{chat.name}</strong>, ya no estará en tu lista de amigos y no podrán enviarse mensajes ni realizar llamadas en MessengerPidgeon.
+              Al bloquear a <strong className="text-white">{chat.name}</strong>, ya no estará en tu lista de amigos y no podrán enviarse mensajes ni realizar llamadas en PidgeX.
             </p>
 
             <div className="flex items-center justify-end gap-2 pt-2">
@@ -1267,6 +1830,254 @@ export const ChatView: React.FC<ChatViewProps> = ({
           </div>
         </div>
       )}
+
+      {/* 14. Clear Chat Messages Confirmation Modal */}
+      {showClearChatModal && (
+        <div
+          className="fixed inset-0 z-50 bg-black/80 backdrop-blur-sm flex items-center justify-center p-4 animate-in fade-in duration-150"
+          onClick={() => setShowClearChatModal(false)}
+        >
+          <div
+            className="w-full max-w-sm bg-[#1c2028] border border-red-500/20 rounded-2xl p-5 shadow-2xl flex flex-col gap-4 animate-in zoom-in-95 duration-150"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="flex items-center gap-3">
+              <div className="w-11 h-11 rounded-full bg-red-500/15 text-red-400 flex items-center justify-center shrink-0">
+                <Trash2 className="w-6 h-6" />
+              </div>
+              <div className="flex flex-col">
+                <h3 className="font-bold text-base text-[#dfe2ee]">¿Vaciar conversación?</h3>
+                <span className="text-xs text-red-400 font-medium">Se borrarán todos los mensajes</span>
+              </div>
+            </div>
+
+            <p className="text-xs text-[#8d90a0] leading-relaxed">
+              ¿Estás seguro de que deseas borrar todos los mensajes del chat con <strong className="text-white">{chat.name}</strong>? Esta acción no se puede deshacer.
+            </p>
+
+            <div className="flex items-center justify-end gap-2 pt-2">
+              <button
+                onClick={() => setShowClearChatModal(false)}
+                className="px-4 py-2 rounded-xl text-xs font-semibold text-[#8d90a0] hover:text-white hover:bg-white/5 transition-colors cursor-pointer"
+              >
+                Cancelar
+              </button>
+              <button
+                onClick={() => {
+                  setShowClearChatModal(false);
+                  if (onClearChatMessages) {
+                    onClearChatMessages(chat.id);
+                  }
+                }}
+                className="px-4 py-2 rounded-xl text-xs font-bold bg-red-600 hover:bg-red-700 text-white shadow-lg shadow-red-900/30 flex items-center gap-1.5 transition-all cursor-pointer active:scale-95"
+              >
+                <Trash2 className="w-3.5 h-3.5" />
+                <span>Vaciar Conversación</span>
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* 15. Group Members & Leader Management Modal */}
+      {chat.type === 'group' && (
+        <GroupMembersModal
+          isOpen={showGroupMembersModal}
+          onClose={() => setShowGroupMembersModal(false)}
+          chat={chat}
+          user={user}
+          contacts={allContacts}
+          onUpdateGroupMembers={(chatId, updatedMembers) => {
+            if (onUpdateGroupMembers) {
+              onUpdateGroupMembers(chatId, updatedMembers);
+            }
+          }}
+          onLeaveGroup={(chatId) => {
+            if (onLeaveGroup) {
+              onLeaveGroup(chatId);
+            }
+            onBack();
+          }}
+          onStartPrivateChat={(member) => {
+            if (onStartPrivateChat) {
+              onStartPrivateChat(member.id, member.name);
+            }
+          }}
+        />
+      )}
+
+      {/* 16. Share Video Link Modal */}
+      {showVideoLinkModal && (
+        <div className="fixed inset-0 z-50 bg-black/70 backdrop-blur-sm flex items-center justify-center p-4 animate-in fade-in duration-200">
+          <div className="bg-[#181c24] border border-white/10 w-full max-w-md rounded-3xl p-6 shadow-2xl flex flex-col gap-4">
+            <div className="flex items-center justify-between">
+              <h3 className="text-base font-bold text-[#dfe2ee] flex items-center gap-2">
+                <VideoIcon className="w-5 h-5 text-red-500" />
+                Compartir Video (YouTube, TikTok, FB)
+              </h3>
+              <button
+                onClick={() => setShowVideoLinkModal(false)}
+                className="w-8 h-8 rounded-full bg-[#262a33] text-[#dfe2ee] flex items-center justify-center hover:bg-[#353942]"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+            <div className="flex flex-col gap-3">
+              <div>
+                <label className="text-xs font-semibold text-[#8d90a0] mb-1 block">Enlace del video (URL)</label>
+                <input
+                  type="text"
+                  value={videoLinkInput}
+                  onChange={(e) => setVideoLinkInput(e.target.value)}
+                  placeholder="https://www.youtube.com/watch?v=... o tiktok.com/@..."
+                  className="w-full px-3.5 py-2.5 rounded-xl bg-[#262a33] border border-white/10 text-white text-xs focus:outline-none focus:border-[#2563eb]"
+                />
+              </div>
+              <div>
+                <label className="text-xs font-semibold text-[#8d90a0] mb-1 block">Mensaje / Comentario opcional</label>
+                <input
+                  type="text"
+                  value={videoLinkCaption}
+                  onChange={(e) => setVideoLinkCaption(e.target.value)}
+                  placeholder="¡Miren este video increíble!"
+                  className="w-full px-3.5 py-2.5 rounded-xl bg-[#262a33] border border-white/10 text-white text-xs focus:outline-none focus:border-[#2563eb]"
+                />
+              </div>
+            </div>
+            <div className="flex items-center justify-end gap-2 pt-2">
+              <button
+                onClick={() => setShowVideoLinkModal(false)}
+                className="px-4 py-2 rounded-xl bg-[#262a33] text-xs font-semibold text-[#dfe2ee] hover:bg-[#353942]"
+              >
+                Cancelar
+              </button>
+              <button
+                onClick={() => {
+                  if (!videoLinkInput.trim()) return;
+                  const fullText = videoLinkCaption
+                    ? `${videoLinkCaption}\n${videoLinkInput.trim()}`
+                    : videoLinkInput.trim();
+                  handleSendTextMessage(fullText);
+                  setVideoLinkInput('');
+                  setVideoLinkCaption('');
+                  setShowVideoLinkModal(false);
+                }}
+                className="px-4 py-2 rounded-xl bg-[#2563eb] text-xs font-semibold text-white hover:bg-[#1d4ed8]"
+              >
+                Enviar video
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* 17. Active Video Player Modal */}
+      {activeVideoModalUrl && (
+        <div
+          className="fixed inset-0 z-50 bg-black/90 backdrop-blur-md flex items-center justify-center p-4 animate-in fade-in duration-200"
+          onClick={() => setActiveVideoModalUrl(null)}
+        >
+          <div
+            className="relative w-full max-w-3xl aspect-video bg-black rounded-3xl overflow-hidden shadow-2xl border border-white/10 flex items-center justify-center"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <button
+              onClick={() => setActiveVideoModalUrl(null)}
+              className="absolute top-3 right-3 z-20 w-9 h-9 rounded-full bg-black/70 text-white flex items-center justify-center hover:bg-black"
+            >
+              <X className="w-5 h-5" />
+            </button>
+            <iframe
+              src={activeVideoModalUrl}
+              title="Reproductor de Video"
+              className="w-full h-full border-0"
+              allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
+              allowFullScreen
+            />
+          </div>
+        </div>
+      )}
+
+      {/* Chat Theme Modal */}
+      <ChatThemeModal
+        isOpen={showChatThemeModal}
+        onClose={() => setShowChatThemeModal(false)}
+        chat={chat}
+        isNightMode={isNightMode}
+        onSelectGradient={onSelectGradient || (() => {})}
+      />
+
+      {/* Whiteboard Modal */}
+      <WhiteboardModal
+        isOpen={showWhiteboardModal}
+        onClose={() => setShowWhiteboardModal(false)}
+        chat={chat}
+        user={user}
+        isNightMode={isNightMode}
+        onSendDrawing={(chatId, dataUrl) => {
+          onSendMessage(chatId, {
+            senderId: 'me',
+            senderName: user.name,
+            senderAvatar: user.avatarUrl,
+            type: 'image',
+            mediaUrl: dataUrl,
+            text: '🎨 Pizarra Colaborativa en Vivo',
+            timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+            isRead: true,
+          });
+        }}
+      />
+
+      <PollModal
+        isOpen={showPollModal}
+        onClose={() => setShowPollModal(false)}
+        isNightMode={isNightMode}
+        onCreatePoll={(pollData) => {
+          onSendMessage(chat.id, {
+            senderId: 'me',
+            senderName: user.name,
+            senderAvatar: user.avatarUrl,
+            type: 'poll',
+            pollData,
+            text: `📊 Encuesta: ${pollData.question}`,
+            timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+            isRead: true,
+          });
+        }}
+      />
+
+      <PrivateMessageModal
+        isOpen={showPrivateMessageModal}
+        onClose={() => setShowPrivateMessageModal(false)}
+        chat={chat}
+        user={user}
+        isNightMode={isNightMode}
+        onSendPrivateMessage={(chatId, text, pin, selfDestructSecs) => {
+          onSendMessage(chatId, {
+            senderId: 'me',
+            senderName: user.name,
+            senderAvatar: user.avatarUrl,
+            type: 'private',
+            privateData: { text, pin, selfDestructSecs },
+            text: '🔒 [Mensaje Privado Confidencial protegido con PIN]',
+            timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+            isRead: true,
+          });
+        }}
+      />
+
+      <ForwardModal
+        isOpen={Boolean(forwardingMessage)}
+        onClose={() => setForwardingMessage(null)}
+        message={forwardingMessage}
+        chats={allContacts}
+        isNightMode={isNightMode}
+        onForwardMessage={(targetChatId, message) => {
+          if (onForwardMessage) {
+            onForwardMessage(targetChatId, message);
+          }
+        }}
+      />
     </div>
   );
 };

@@ -117,7 +117,7 @@ export const MarketplaceView: React.FC<MarketplaceViewProps> = ({
       createdAt: 'Hace un momento',
     };
     setProducts((prev) => [newProduct, ...prev]);
-    setToastMessage('¡Artículo publicado en MessengerPidgeon Market!');
+    setToastMessage('¡Artículo publicado en PidgeX Market!');
     setTimeout(() => {
       setToastMessage(null);
     }, 2800);
@@ -217,7 +217,7 @@ export const MarketplaceView: React.FC<MarketplaceViewProps> = ({
                 <h1 className={`font-extrabold text-base tracking-tight ${
                   isNightMode ? 'text-white' : 'text-[#0c2340]'
                 }`}>
-                  MessengerPidgeon Market
+                  PidgeX Market
                 </h1>
                 <span className={`px-1.5 py-0.2 rounded-full text-[9px] font-bold border ${
                   isNightMode
@@ -566,7 +566,7 @@ export const MarketplaceView: React.FC<MarketplaceViewProps> = ({
             <div className="flex flex-col gap-1.5">
               <h3 className={`text-base font-bold ${isNightMode ? 'text-white' : 'text-[#0c2340]'}`}>¿Borrar este artículo?</h3>
               <p className={`text-xs leading-relaxed ${isNightMode ? 'text-[#8d90a0]' : 'text-[#476788]'}`}>
-                ¿Seguro que deseas eliminar <span className={`font-semibold ${isNightMode ? 'text-white' : 'text-[#0c2340]'}`}>"{productToDelete.title}"</span> de MessengerPidgeon Market? Se retirará permanentemente de la venta.
+                ¿Seguro que deseas eliminar <span className={`font-semibold ${isNightMode ? 'text-white' : 'text-[#0c2340]'}`}>"{productToDelete.title}"</span> de PidgeX Market? Se retirará permanentemente de la venta.
               </p>
             </div>
             <div className="flex items-center gap-2.5 w-full pt-1">

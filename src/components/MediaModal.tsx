@@ -28,7 +28,7 @@ export const MediaModal: React.FC<MediaModalProps> = ({
       <div className="flex items-center justify-between z-10">
         <div className="flex flex-col">
           <span className="text-sm font-semibold text-[#dfe2ee]">{mediaName}</span>
-          <span className="text-xs text-[#8d90a0]">{mediaSize} • MessengerPidgeon Secure</span>
+          <span className="text-xs text-[#8d90a0]">{mediaSize} • PidgeX Secure</span>
         </div>
         <div className="flex items-center gap-2">
           {mediaType === 'image' && (

@@ -17,11 +17,20 @@ export interface UserProfile {
   doNotDisturb: boolean; // Modo No Molestar
   dndDuration?: string; // '1h' | '8h' | 'always' | 'custom'
   nightMode?: boolean; // Modo nocturno (tonos oscuros vs colores claros azules)
+  monthlyTheme?: string; // Tema mensual festivo ('auto' o id del tema)
+  colorBlindnessMode?: 'normal' | 'protanopia' | 'deuteranopia' | 'tritanopia' | 'achromatopsia';
   aiModeEnabled: boolean;
   autoReplyWithAi?: boolean;
+  autoCorrectEnabled?: boolean;
   parentalControlEnabled?: boolean;
   parentName?: string;
   parentPhone?: string;
+  voiceSubtitlesEnabled?: boolean;
+  sharedCanvasEnabled?: boolean;
+  sharedCalendarEnabled?: boolean;
+  virtualPetEnabled?: boolean;
+  language?: 'es' | 'en' | 'pt' | 'fr';
+  weatherEffect?: 'none' | 'rain' | 'snow' | 'stars';
   pendingFriendRequests?: {
     id: string;
     name: string;
@@ -34,7 +43,7 @@ export interface UserProfile {
   }[];
 }
 
-export type MessageType = 'text' | 'image' | 'sticker' | 'voice' | 'video';
+export type MessageType = 'text' | 'image' | 'sticker' | 'voice' | 'video' | 'poll' | 'private' | 'location';
 
 export interface MessageReaction {
   emoji: string;
@@ -62,6 +71,24 @@ export interface Message {
   timestamp: string;
   isRead: boolean;
   reactions?: Record<string, number>;
+  disappearing?: boolean;
+  expiresAt?: number;
+  voiceFilter?: 'normal' | 'chipmunk' | 'robot' | 'deep';
+  translatedText?: string;
+  pollData?: PollData;
+  privateData?: PrivateMessageData;
+  isStarred?: boolean;
+  locationData?: { lat: number; lng: number; address: string };
+}
+
+export interface GroupMember {
+  id: string;
+  name: string;
+  phone?: string;
+  avatarUrl: string;
+  isLeader: boolean; // True si es líder/administrador del grupo
+  addedBy?: string;
+  joinedAt?: string;
 }
 
 export interface Chat {
@@ -79,6 +106,7 @@ export interface Chat {
   categories: ChatCategory[];
   unreadCount: number;
   pinned?: boolean;
+  isArchived?: boolean;
   lastMessageText: string;
   lastMessageTime: string;
   lastMessageRead?: boolean;
@@ -90,7 +118,17 @@ export interface Chat {
   roomId?: string;
   onlineCount?: number;
   activeUsers?: { id: string; name: string; avatarUrl?: string }[];
+  headerGradient?: string;
   messages: Message[];
+  // Group Specific Properties
+  creatorId?: string;
+  groupMembers?: GroupMember[];
+  description?: string;
+  isLocked?: boolean;
+  lockPin?: string;
+  disappearingMessages?: boolean;
+  countdownEvent?: { title: string; targetDate: string } | null;
+  streakDays?: number;
 }
 
 export interface Wallpaper {
@@ -143,3 +181,35 @@ export interface MarketplaceProduct {
   createdAt: string;
   isAvailable: boolean;
 }
+
+export interface PollOption {
+  id: string;
+  text: string;
+  votes: number;
+  voters: string[];
+}
+
+export interface PollData {
+  question: string;
+  options: PollOption[];
+  isAnonymous?: boolean;
+}
+
+export interface PrivateMessageData {
+  text: string;
+  pin: string;
+  selfDestructSecs: number;
+}
+
+export interface StatusStory {
+  id: string;
+  userId: string;
+  userName: string;
+  userAvatar: string;
+  mediaUrl?: string;
+  text?: string;
+  timestamp: string;
+  expiresAt: number;
+  viewed?: boolean;
+}
+

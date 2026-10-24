@@ -1,5 +1,5 @@
 /**
- * Utility functions to guarantee all phone numbers in MessengerPidgeon start with '16'.
+ * Utility functions to guarantee all phone numbers in PidgeX start with '16'.
  */
 
 export function ensurePhoneStartsWith16(rawPhone?: string): string {

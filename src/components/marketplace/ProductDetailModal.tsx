@@ -114,7 +114,7 @@ export const ProductDetailModal: React.FC<ProductDetailModalProps> = ({
                 ? 'bg-[#0084ff]/20 text-[#7bd0ff] border-[#0084ff]/30'
                 : 'bg-sky-100 text-[#0284c7] border-sky-200'
             }`}>
-              MessengerPidgeon Market
+              PidgeX Market
             </span>
             <span className={`text-xs ${isNightMode ? 'text-[#8d90a0]' : 'text-[#476788]'}`}>
               Detalles del artículo
@@ -353,7 +353,7 @@ export const ProductDetailModal: React.FC<ProductDetailModalProps> = ({
                       ) : (
                         <>
                           <Send className="w-3.5 h-3.5" />
-                          <span>Enviar mensaje al vendedor en MessengerPidgeon</span>
+                          <span>Enviar mensaje al vendedor en PidgeX</span>
                         </>
                       )}
                     </button>

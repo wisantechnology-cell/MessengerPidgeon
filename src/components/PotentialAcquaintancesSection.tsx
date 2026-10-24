@@ -65,7 +65,7 @@ export const PotentialAcquaintancesSection: React.FC<PotentialAcquaintancesSecti
       username: friend.username,
       avatarUrl: friend.avatarUrl,
       category: friend.category,
-      initialMessage: `¡Hola ${friend.name}! Te vi en posibles conocidos porque somos amigos de ${mutualName}. ¡Encantado de conectar en MessengerPidgeon! 🕊️✨`,
+      initialMessage: `¡Hola ${friend.name}! Te vi en posibles conocidos porque somos amigos de ${mutualName}. ¡Encantado de conectar en PidgeX! 🕊️✨`,
     });
 
     setAddedIds((prev) => [...prev, friend.id]);
@@ -209,7 +209,7 @@ export const PotentialAcquaintancesSection: React.FC<PotentialAcquaintancesSecti
             </span>
             <p className="text-[11px] text-[#8d90a0] leading-relaxed">
               {chats.length === 0
-                ? 'Cuando agregues a tus primeros contactos en MessengerPidgeon, aquí se sugerirán automáticamente las personas que sean amigos de tus amigos.'
+                ? 'Cuando agregues a tus primeros contactos en PidgeX, aquí se sugerirán automáticamente las personas que sean amigos de tus amigos.'
                 : 'Solo te mostramos sugerencias cuando existe al menos un amigo en común con tus contactos agregados.'}
             </p>
           </div>

@@ -4,7 +4,9 @@ import {
   INITIAL_CHATS,
   WALLPAPERS,
 } from './data/mockData';
-import { Chat, ChatCategory, Message, UserProfile, MarketplaceProduct } from './types';
+import { Chat, ChatCategory, Message, UserProfile, MarketplaceProduct, GroupMember } from './types';
+import { StatusItem } from './types/status';
+import { INITIAL_STATUSES } from './data/statusData';
 import {
   auth,
   db,
@@ -25,17 +27,35 @@ import {
   handleFirestoreError
 } from './firebase';
 import { ChatsListView } from './components/ChatsListView';
+import { StatusView } from './components/StatusView';
+import { StarredMessagesView } from './components/StarredMessagesView';
+import { LocalRadarView } from './components/LocalRadarView';
+import { TutorialModal } from './components/TutorialModal';
+import { SpotlightTour } from './components/SpotlightTour';
+import { soundEffects } from './utils/soundEffects';
+import { exportChatAsText } from './utils/exportChat';
+
 
 import { ChatView } from './components/ChatView';
 import { SettingsProfileView } from './components/SettingsProfileView';
 import { WaitingRoomView } from './components/waitingRoom/WaitingRoomView';
+import { TriviaGrupalGame } from './components/waitingRoom/TriviaGrupalGame';
+import { DibujaYAdivinaGame } from './components/waitingRoom/DibujaYAdivinaGame';
+import { StopGrupalGame } from './components/waitingRoom/StopGrupalGame';
 import { MarketplaceView } from './components/marketplace/MarketplaceView';
+import { NewsView } from './components/NewsView';
 import { BottomNav, NavTab } from './components/BottomNav';
 import { NewChatModal } from './components/NewChatModal';
+import { NewGroupModal } from './components/NewGroupModal';
 import { AddFriendModal, AddFriendData } from './components/AddFriendModal';
 import { SendVoiceMessageModal } from './components/SendVoiceMessageModal';
 import { StudioWatermark } from './components/StudioWatermark';
+import { VirtualPetWidget } from './components/VirtualPetWidget';
+import { ContactProfileModal } from './components/ContactProfileModal';
+import { WeatherEffectsOverlay } from './components/WeatherEffectsOverlay';
+import { TimeCapsuleModal } from './components/TimeCapsuleModal';
 import { ensurePhoneStartsWith16 } from './utils/phoneUtils';
+import { createSvgAvatar } from './utils/avatarUtils';
 
 const USER_STORAGE_KEY = 'birdmessage_user_profile_v1';
 const CHATS_STORAGE_KEY = 'birdmessage_chats_data_v7';
@@ -64,7 +84,7 @@ const isLegacyChat = (c: Chat) => {
     nameLower.includes('gente real') ||
     nameLower.includes('comunidad en vivo') ||
     nameLower === 'birdmessage ai' ||
-    nameLower === 'messengerpidgeon ai'
+    nameLower === 'pidgex ai'
   ) {
     return true;
   }
@@ -99,6 +119,64 @@ const isLegacyOrEmptyBio = (bio?: string): boolean => {
   );
 };
 
+const playBirdSongSound = () => {
+  try {
+    const AudioContextClass = window.AudioContext || (window as any).webkitAudioContext;
+    if (!AudioContextClass) return;
+    const ctx = new AudioContextClass();
+    const now = ctx.currentTime;
+    
+    // Chirp 1
+    const osc1 = ctx.createOscillator();
+    const gain1 = ctx.createGain();
+    osc1.type = 'sine';
+    osc1.frequency.setValueAtTime(2200, now);
+    osc1.frequency.exponentialRampToValueAtTime(3800, now + 0.08);
+    osc1.frequency.exponentialRampToValueAtTime(2600, now + 0.15);
+    
+    gain1.gain.setValueAtTime(0.18, now);
+    gain1.gain.exponentialRampToValueAtTime(0.001, now + 0.18);
+    
+    osc1.connect(gain1);
+    gain1.connect(ctx.destination);
+    
+    osc1.start(now);
+    osc1.stop(now + 0.18);
+
+    // Chirp 2 (Trill)
+    const start2 = now + 0.2;
+    for (let i = 0; i < 4; i++) {
+      const oscT = ctx.createOscillator();
+      const gainT = ctx.createGain();
+      oscT.type = 'triangle';
+      const t0 = start2 + i * 0.06;
+      oscT.frequency.setValueAtTime(3000 + (i % 2 === 0 ? 600 : -400), t0);
+      oscT.frequency.exponentialRampToValueAtTime(4500, t0 + 0.05);
+      
+      gainT.gain.setValueAtTime(0.12, t0);
+      gainT.gain.exponentialRampToValueAtTime(0.001, t0 + 0.06);
+      
+      oscT.connect(gainT);
+      gainT.connect(ctx.destination);
+      
+      oscT.start(t0);
+      oscT.stop(t0 + 0.06);
+    }
+  } catch {
+    // AudioContext blocked
+  }
+};
+
+const getFilterStyle = (mode?: string) => {
+  switch (mode) {
+    case 'protanopia': return 'url(#protanopia-filter)';
+    case 'deuteranopia': return 'url(#deuteranopia-filter)';
+    case 'tritanopia': return 'url(#tritanopia-filter)';
+    case 'achromatopsia': return 'grayscale(100%)';
+    default: return 'none';
+  }
+};
+
 export default function App() {
   // Load User Profile from localStorage or fallback
   const [user, setUser] = useState<UserProfile>(() => {
@@ -114,7 +192,7 @@ export default function App() {
           }
 
           const currentName = isLegacyOrEmptyName(parsed.name) ? 'USUARIO NUEVO' : parsed.name.trim();
-          const currentBio = isLegacyOrEmptyBio(parsed.bio) ? 'Soy nuevo en MessengerPidgeon' : parsed.bio.trim();
+          const currentBio = isLegacyOrEmptyBio(parsed.bio) ? 'Soy nuevo en PidgeX' : parsed.bio.trim();
           const currentUsername = !parsed.username || parsed.username === '@anarodriguez' || parsed.username === '@carlosmendoza' || parsed.username === '@elenagomez' ? '@usuarionuevo' : parsed.username;
 
           return {
@@ -149,13 +227,21 @@ export default function App() {
       localStorage.removeItem('birdmessage_chats_data_v4');
       localStorage.removeItem('birdmessage_chats_data_v5');
       localStorage.removeItem('birdmessage_chats_data_v6');
+      localStorage.removeItem('gac');
+      localStorage.removeItem('gac3d');
+      localStorage.removeItem('grand_adventure');
 
       const saved = localStorage.getItem(CHATS_STORAGE_KEY);
       if (saved) {
         const parsed: Chat[] = JSON.parse(saved);
         if (Array.isArray(parsed)) {
           const cleaned = parsed
-            .filter((c) => !isLegacyChat(c))
+            .filter((c) => {
+              if (isLegacyChat(c) || c.isBlocked) return false;
+              const nameLower = (c.name || '').toLowerCase();
+              if (nameLower.includes('gac') || nameLower.includes('grand adventure') || nameLower.includes('gta')) return false;
+              return true;
+            })
             .map((c) => ({
               ...c,
               phone: c.phone ? ensurePhoneStartsWith16(c.phone) : undefined,
@@ -169,14 +255,113 @@ export default function App() {
     return INITIAL_CHATS;
   });
 
+  const [statuses, setStatuses] = useState<StatusItem[]>(() => {
+    try {
+      localStorage.removeItem('pidge_statuses_v1');
+      const saved = localStorage.getItem('pidge_statuses_v2');
+      if (saved) {
+        const parsed = JSON.parse(saved);
+        if (Array.isArray(parsed)) return parsed;
+      }
+    } catch {
+      // ignore
+    }
+    return INITIAL_STATUSES;
+  });
+
+  useEffect(() => {
+    try {
+      localStorage.setItem('pidge_statuses_v2', JSON.stringify(statuses));
+    } catch {
+      // ignore
+    }
+  }, [statuses]);
+
+  const handleAddStatus = (mediaUrl: string, caption?: string, title?: string, privacy?: 'contacts' | 'everyone') => {
+    const newStatus: StatusItem = {
+      id: `status_${Date.now()}`,
+      userId: user.id || 'me',
+      userName: user.name || 'Tú',
+      userAvatar: user.avatarUrl,
+      mediaUrl,
+      title,
+      caption,
+      privacy: privacy || 'everyone',
+      timestamp: 'Justo ahora',
+      expiresAt: '',
+      replies: [],
+    };
+    setStatuses((prev) => [newStatus, ...prev]);
+  };
+
+  const handleDeleteStatus = (statusId: string) => {
+    setStatuses((prev) => prev.filter((s) => s.id !== statusId));
+  };
+
+  const handleReplyToStatus = (statusId: string, replyText: string) => {
+    const newReply = {
+      id: `reply_${Date.now()}`,
+      senderId: user.id || 'me',
+      senderName: user.name || 'Tú',
+      senderAvatar: user.avatarUrl,
+      text: replyText,
+      timestamp: 'Justo ahora',
+    };
+    setStatuses((prev) =>
+      prev.map((s) =>
+        s.id === statusId
+          ? { ...s, replies: [...s.replies, newReply] }
+          : s
+      )
+    );
+  };
+
   const [activeChatId, setActiveChatId] = useState<string | null>(null);
+  const [activeGroupGame, setActiveGroupGame] = useState<'triviagrupal' | 'dibujayadivina' | 'stopgrupal' | null>(null);
   const [activeTab, setActiveTab] = useState<NavTab>('chats');
+  const [lastTabDirection, setLastTabDirection] = useState<'left' | 'right'>('right');
+
+  const tabIndices: Record<NavTab, number> = {
+    chats: 0,
+    marketplace: 1,
+    games: 2,
+    news: 3,
+    settings: 4,
+  };
+
+  const [isStarredModalOpen, setIsStarredModalOpen] = useState<boolean>(false);
+
+  const handleSelectTab = (newTab: NavTab) => {
+    if (newTab !== activeTab) {
+      const dir = tabIndices[newTab] > tabIndices[activeTab] ? 'right' : 'left';
+      setLastTabDirection(dir);
+      setActiveTab(newTab);
+    }
+  };
   const [activeCategory, setActiveCategory] = useState<ChatCategory>('all');
   const [isNewChatModalOpen, setIsNewChatModalOpen] = useState<boolean>(false);
+  const [isNewGroupModalOpen, setIsNewGroupModalOpen] = useState<boolean>(false);
   const [isAddFriendModalOpen, setIsAddFriendModalOpen] = useState<boolean>(false);
   const [isVoiceMessageModalOpen, setIsVoiceMessageModalOpen] = useState<boolean>(false);
+  const [selectedContactForProfile, setSelectedContactForProfile] = useState<Chat | null>(null);
+  const [isTimeCapsuleModalOpen, setIsTimeCapsuleModalOpen] = useState<boolean>(false);
+  const [isLocalRadarOpen, setIsLocalRadarOpen] = useState<boolean>(false);
+  const [isClassicMode, setIsClassicMode] = useState<boolean>(localStorage.getItem('pidge_classic_mode') === 'true');
+  const [isTutorialOpen, setIsTutorialOpen] = useState<boolean>(!localStorage.getItem('pidge_tutorial_seen'));
+  const [isTourOpen, setIsTourOpen] = useState<boolean>(!localStorage.getItem('pidge_spotlight_seen'));
+
+
   const [firebaseUser, setFirebaseUser] = useState<any>(null);
   const [isCloudSynced, setIsCloudSynced] = useState<boolean>(false);
+
+  useEffect(() => {
+    try {
+      localStorage.removeItem('gac');
+      localStorage.removeItem('gac3d');
+      localStorage.removeItem('grand_adventure');
+      localStorage.removeItem('gta');
+    } catch {}
+  }, []);
 
   // Firebase Auth & Cloud Sync
   useEffect(() => {
@@ -323,7 +508,7 @@ export default function App() {
       id: newRandomId,
       name: 'USUARIO NUEVO',
       username: '@usuarionuevo',
-      bio: 'Soy nuevo en MessengerPidgeon',
+      bio: 'Soy nuevo en PidgeX',
       phone: '16 600 000 001',
       email: '',
       pendingFriendRequests: [],
@@ -359,7 +544,42 @@ export default function App() {
     }
   }, [chats]);
 
+  // Play authentic bird song sound when receiving a new message
+  const prevMessageCountsRef = useRef<Record<string, number>>({});
+  useEffect(() => {
+    chats.forEach((c) => {
+      const prevCount = prevMessageCountsRef.current[c.id] || c.messages.length;
+      if (c.messages.length > prevCount) {
+        const latestMsg = c.messages[c.messages.length - 1];
+        if (latestMsg && latestMsg.senderId !== 'me') {
+          playBirdSongSound();
+        }
+      }
+      prevMessageCountsRef.current[c.id] = c.messages.length;
+    });
+  }, [chats]);
+
   const activeChat = chats.find((c) => c.id === activeChatId);
+
+  // Offline status sync effect & queueing
+  const prevStatusRef = useRef<string>(user.status);
+  useEffect(() => {
+    if (prevStatusRef.current === 'offline' && user.status === 'online') {
+      try {
+        const savedQueue = localStorage.getItem('birdmessage_offline_queue');
+        if (savedQueue) {
+          const queue = JSON.parse(savedQueue);
+          if (Array.isArray(queue) && queue.length > 0) {
+            localStorage.removeItem('birdmessage_offline_queue');
+            alert(`🟢 ¡Conexión en línea restaurada! Se han sincronizado automáticamente ${queue.length} mensajes guardados en modo offline.`);
+          }
+        }
+      } catch (e) {
+        console.error('Error syncing offline queue:', e);
+      }
+    }
+    prevStatusRef.current = user.status;
+  }, [user.status]);
 
   // Send message handler
   const handleSendMessage = (chatId: string, messageData: Partial<Message>) => {
@@ -396,6 +616,23 @@ export default function App() {
       isRead: true,
       reactions: {},
     };
+
+    if (newMessage.senderId === 'me') {
+      soundEffects.playSend();
+    } else {
+      soundEffects.playReceive();
+    }
+
+    if (user.status === 'offline') {
+      try {
+        const savedQueue = localStorage.getItem('birdmessage_offline_queue');
+        const queue = savedQueue ? JSON.parse(savedQueue) : [];
+        queue.push({ chatId, message: newMessage });
+        localStorage.setItem('birdmessage_offline_queue', JSON.stringify(queue));
+      } catch (e) {
+        console.error('Error saving to offline queue:', e);
+      }
+    }
 
     setChats((prevChats) =>
       prevChats.map((c) => {
@@ -436,6 +673,59 @@ export default function App() {
       isRead: true,
     });
     setActiveChatId(chatId);
+  };
+
+  const handleShareArticleToChat = (chatId: string, title: string, url: string) => {
+    handleSendMessage(chatId, {
+      senderId: 'me',
+      senderName: user.name,
+      type: 'text',
+      text: `📰 Noticia compartida:\n"${title}"\n🔗 ${url}`,
+      timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+      isRead: true,
+    });
+  };
+
+  // Delete a specific message in a chat
+  const handleDeleteMessage = (chatId: string, messageId: string) => {
+    setChats((prev) =>
+      prev.map((c) => {
+        if (c.id === chatId) {
+          const filteredMessages = c.messages.filter((m) => m.id !== messageId);
+          const lastMsg = filteredMessages[filteredMessages.length - 1];
+          let lastText = 'Conversación vacía';
+          if (lastMsg) {
+            lastText = lastMsg.text || '';
+            if (lastMsg.type === 'image') lastText = '📷 Foto adjunta';
+            if (lastMsg.type === 'voice') lastText = '🎤 Mensaje de voz';
+            if (lastMsg.type === 'sticker') lastText = `✨ Sticker: ${lastMsg.stickerTitle || 'Sticker'}`;
+            if (lastMsg.type === 'video') lastText = '📹 Video adjunto';
+          }
+          return {
+            ...c,
+            messages: filteredMessages,
+            lastMessageText: lastText,
+          };
+        }
+        return c;
+      })
+    );
+  };
+
+  // Clear all messages in a chat
+  const handleClearChatMessages = (chatId: string) => {
+    setChats((prev) =>
+      prev.map((c) => {
+        if (c.id === chatId) {
+          return {
+            ...c,
+            messages: [],
+            lastMessageText: 'Conversación vaciada',
+          };
+        }
+        return c;
+      })
+    );
   };
 
   // Add reaction to message
@@ -525,7 +815,7 @@ export default function App() {
       avatarUrl,
       isVerified: true,
       isOnline: true,
-      statusText: finalPhone ? `Amigo • ${finalPhone}` : 'Amigo en MessengerPidgeon',
+      statusText: finalPhone ? `Amigo • ${finalPhone}` : 'Amigo en PidgeX',
       type: 'direct',
       categories: ['all', 'friends'],
       unreadCount: 0,
@@ -550,6 +840,97 @@ export default function App() {
 
     setChats((prev) => [newChat, ...prev]);
     setActiveChatId(newChatId);
+  };
+
+  // Create Group Chat
+  const handleCreateGroup = (
+    groupName: string,
+    members: GroupMember[],
+    description?: string,
+    groupAvatarUrl?: string
+  ) => {
+    const newChatId = `group_${Date.now()}`;
+    const firstMsgTime = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+    const avatar = groupAvatarUrl || createSvgAvatar(groupName, '#2563eb');
+
+    const newGroupChat: Chat = {
+      id: newChatId,
+      name: groupName,
+      avatarUrl: avatar,
+      type: 'group',
+      categories: ['all', 'groups'],
+      unreadCount: 0,
+      isVerified: true,
+      lastMessageText: `Grupo "${groupName}" creado por ${user.name}`,
+      lastMessageTime: firstMsgTime,
+      lastMessageRead: true,
+      description: description || `Grupo con ${members.length} integrantes`,
+      groupMembers: members,
+      messages: [
+        {
+          id: `msg_group_init_${Date.now()}`,
+          chatId: newChatId,
+          senderId: 'system',
+          senderName: 'PidgeX Sistema',
+          type: 'text',
+          text: `🎉 ¡Grupo "${groupName}" creado con éxito por ${user.name}! Agrega integrantes por contacto o por número de teléfono.`,
+          timestamp: firstMsgTime,
+          isRead: true,
+        },
+      ],
+    };
+
+    setChats((prev) => [newGroupChat, ...prev]);
+    setActiveChatId(newChatId);
+  };
+
+  // Update Group Members & Roles (Leaders / Members)
+  const handleUpdateGroupMembers = (chatId: string, updatedMembers: GroupMember[]) => {
+    setChats((prev) =>
+      prev.map((c) => {
+        if (c.id === chatId) {
+          return {
+            ...c,
+            groupMembers: updatedMembers,
+            description: `Grupo con ${updatedMembers.length} integrantes`,
+          };
+        }
+        return c;
+      })
+    );
+  };
+
+  // Leave Group
+  const handleLeaveGroup = (chatId: string) => {
+    setChats((prev) =>
+      prev.map((c) => {
+        if (c.id === chatId) {
+          const remainingMembers = (c.groupMembers || []).filter(
+            (m) => m.id !== user.id && m.id !== 'me'
+          );
+          const sysMsg: Message = {
+            id: `msg_sys_leave_${Date.now()}`,
+            chatId,
+            senderId: 'system',
+            senderName: 'Sistema',
+            type: 'text',
+            text: `🚪 ${user.name} se ha salido del grupo.`,
+            timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+            isRead: true,
+          };
+          return {
+            ...c,
+            groupMembers: remainingMembers,
+            messages: [...c.messages, sysMsg],
+            lastMessageText: `${user.name} se salió del grupo`,
+          };
+        }
+        return c;
+      })
+    );
+    if (activeChatId === chatId) {
+      setActiveChatId(null);
+    }
   };
 
   // Add new friend handler (only friends can be chatted with)
@@ -594,7 +975,7 @@ export default function App() {
       avatarUrl: data.avatarUrl,
       isVerified: true,
       isOnline: true,
-      statusText: finalPhone ? `Amigo • ${finalPhone}` : 'Amigo en MessengerPidgeon',
+      statusText: finalPhone ? `Amigo • ${finalPhone}` : 'Amigo en PidgeX',
       type: 'direct',
       categories: friendCategories,
       unreadCount: 0,
@@ -645,22 +1026,9 @@ export default function App() {
     }));
   };
 
-  // Block contact handler: removes friend status and marks as blocked
+  // Block contact handler: completely removes contact so they don't show up again
   const handleBlockContact = (chatId: string) => {
-    setChats((prev) =>
-      prev.map((c) => {
-        if (c.id === chatId) {
-          return {
-            ...c,
-            isFriend: false,
-            isBlocked: true,
-            statusText: 'Contacto bloqueado • Ya no es tu amigo',
-            categories: c.categories.filter((cat) => cat !== 'friends'),
-          };
-        }
-        return c;
-      })
-    );
+    setChats((prev) => prev.filter((c) => c.id !== chatId));
     setActiveChatId(null);
   };
 
@@ -673,7 +1041,7 @@ export default function App() {
             ...c,
             isFriend: true,
             isBlocked: false,
-            statusText: c.phone ? `Amigo • ${c.phone}` : 'Amigo en MessengerPidgeon',
+            statusText: c.phone ? `Amigo • ${c.phone}` : 'Amigo en PidgeX',
             categories: c.categories.includes('friends') ? c.categories : [...c.categories, 'friends'],
           };
         }
@@ -778,7 +1146,7 @@ export default function App() {
           return {
             ...c,
             isFriend: true,
-            statusText: c.phone ? `Amigo • ${c.phone}` : 'Amigo en MessengerPidgeon',
+            statusText: c.phone ? `Amigo • ${c.phone}` : 'Amigo en PidgeX',
             categories: Array.from(new Set([...(c.categories || ['all']), 'friends' as ChatCategory])),
           };
         }
@@ -788,9 +1156,28 @@ export default function App() {
   };
 
   return (
-    <div className={`relative min-h-screen w-full font-sans antialiased overflow-x-hidden transition-colors duration-300 ${
-      isNightMode ? 'bg-[#0a0e16] text-[#dfe2ee]' : 'bg-[#e0f2fe] text-[#0c2340]'
-    }`}>
+    <div
+      style={{ filter: getFilterStyle(user.colorBlindnessMode) }}
+      className={`relative min-h-screen w-full font-sans antialiased overflow-x-hidden transition-colors duration-300 ${
+        isNightMode ? 'bg-[#0a0e16] text-[#dfe2ee]' : 'bg-[#e0f2fe] text-[#0c2340]'
+      }`}
+    >
+      {/* Weather & Ambient Effects Overlay */}
+      <WeatherEffectsOverlay effect={user.weatherEffect || 'none'} />
+      {/* SVG Color Blindness Filters for all types of color blindness */}
+      <svg className="absolute w-0 h-0 pointer-events-none">
+        <defs>
+          <filter id="protanopia-filter">
+            <feColorMatrix type="matrix" values="0.56667 0.43333 0 0 0  0.55833 0.44167 0 0 0  0 0.24167 0.75833 0 0  0 0 0 1 0" />
+          </filter>
+          <filter id="deuteranopia-filter">
+            <feColorMatrix type="matrix" values="0.625 0.375 0 0 0  0.7 0.3 0 0 0  0 0.3 0.7 0 0  0 0 0 1 0" />
+          </filter>
+          <filter id="tritanopia-filter">
+            <feColorMatrix type="matrix" values="0.95 0.05 0 0 0  0 0.433 0.567 0 0  0 0.475 0.525 0 0  0 0 0 1 0" />
+          </filter>
+        </defs>
+      </svg>
       {/* Dynamic Global Background Wallpaper Layer (Main menu, chats list, etc.) */}
       <div className="fixed inset-0 pointer-events-none z-0 overflow-hidden">
         {wallpaperBackgroundUrl && (
@@ -804,84 +1191,253 @@ export default function App() {
 
       {/* Main App Content Container */}
       <div className="relative z-10 min-h-screen w-full flex flex-col">
-        {/* If a conversation is active, render ChatView */}
-        {activeChat ? (
-          <ChatView
-            chat={activeChat}
-            user={user}
-            wallpapers={WALLPAPERS}
-            isNightMode={isNightMode}
-            onToggleNightMode={handleToggleNightMode}
-            onBack={() => setActiveChatId(null)}
-            onSendMessage={handleSendMessage}
-            onAddReaction={handleAddReaction}
-            onSelectWallpaper={handleSelectWallpaper}
-            onUpdateUser={handleUpdateUser}
-            onBlockContact={handleBlockContact}
-            onUnblockContact={handleUnblockContact}
-            onToggleDoNotDisturb={handleToggleDoNotDisturb}
-            onOpenWaitingRoom={() => {
-              setActiveChatId(null);
-              setActiveTab('games');
-            }}
-            onAddContactAsFriend={handleAddContactAsFriend}
-            onOpenAddFriend={() => setIsAddFriendModalOpen(true)}
-          />
+        {activeGroupGame === 'triviagrupal' ? (
+          <div key="triviagrupal" className="w-full h-full animate-in fade-in zoom-in-80 duration-1000 ease-out">
+            <TriviaGrupalGame groupName={activeChat?.name} onBack={() => setActiveGroupGame(null)} />
+          </div>
+        ) : activeGroupGame === 'dibujayadivina' ? (
+          <div key="dibujayadivina" className="w-full h-full animate-in slide-in-from-bottom-12 duration-1000 ease-out">
+            <DibujaYAdivinaGame groupName={activeChat?.name} onBack={() => setActiveGroupGame(null)} />
+          </div>
+        ) : activeGroupGame === 'stopgrupal' ? (
+          <div key="stopgrupal" className="w-full h-full animate-in zoom-in-75 duration-1000 ease-out">
+            <StopGrupalGame groupName={activeChat?.name} onBack={() => setActiveGroupGame(null)} />
+          </div>
+        ) : activeChat ? (
+          <div key={`chat_${activeChat.id}`} className="w-full h-full animate-in slide-in-from-right-12 duration-1000 ease-out">
+            <ChatView
+              chat={activeChat}
+              user={user}
+              wallpapers={WALLPAPERS}
+              allContacts={chats}
+              isNightMode={isNightMode}
+              onToggleNightMode={handleToggleNightMode}
+              onBack={() => {
+                setActiveChatId(null);
+                setActiveGroupGame(null);
+              }}
+              onSendMessage={handleSendMessage}
+              onAddReaction={handleAddReaction}
+              onSelectWallpaper={handleSelectWallpaper}
+              onUpdateUser={handleUpdateUser}
+              onBlockContact={handleBlockContact}
+              onUnblockContact={handleUnblockContact}
+              onToggleDoNotDisturb={handleToggleDoNotDisturb}
+              onOpenWaitingRoom={() => {
+                setActiveChatId(null);
+                setActiveTab('games');
+              }}
+              onDeleteMessage={handleDeleteMessage}
+              onClearChatMessages={handleClearChatMessages}
+              onAddContactAsFriend={handleAddContactAsFriend}
+              onOpenAddFriend={() => setIsAddFriendModalOpen(true)}
+              onUpdateGroupMembers={handleUpdateGroupMembers}
+              onLeaveGroup={handleLeaveGroup}
+              onStartGroupGame={(gameId) => setActiveGroupGame(gameId)}
+              onOpenTimeCapsule={() => setIsTimeCapsuleModalOpen(true)}
+              onExportChat={(c) => exportChatAsText(c)}
+              onSelectGradient={(chatId, gradient) => {
+                setChats((prev) =>
+                  prev.map((c) => (c.id === chatId ? { ...c, headerGradient: gradient } : c))
+                );
+              }}
+              onStartPrivateChat={(memberId, memberName) => {
+                const existing = chats.find((c) => c.type === 'direct' && (c.id === memberId || c.name === memberName));
+                if (existing) {
+                  setActiveChatId(existing.id);
+                } else {
+                  const newChatId = `direct_${Date.now()}`;
+                  const newChat: Chat = {
+                    id: newChatId,
+                    name: memberName,
+                    type: 'direct',
+                    avatarUrl: createSvgAvatar(memberName),
+                    isFriend: true,
+                    isOnline: true,
+                    statusText: 'Amigo en PidgeX',
+                    categories: ['all', 'friends'],
+                    unreadCount: 0,
+                    lastMessageText: '¡Chat privado iniciado!',
+                    lastMessageTime: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+                    messages: [],
+                  };
+                  setChats((prev) => [newChat, ...prev]);
+                  setActiveChatId(newChatId);
+                }
+              }}
+              onForwardMessage={(targetChatId, message) => {
+                setChats((prev) =>
+                  prev.map((c) => {
+                    if (c.id === targetChatId) {
+                      return {
+                        ...c,
+                        messages: [...c.messages, message],
+                        lastMessageText: message.text || `[${message.type}]`,
+                        lastMessageTime: message.timestamp,
+                      };
+                    }
+                    return c;
+                  })
+                );
+              }}
+            />
+          </div>
         ) : (
           <>
-            {/* Main Tabs */}
+            {/* Main Tabs with 1 Second Directional Slide Transitions */}
             {activeTab === 'chats' && (
-              <ChatsListView
-                chats={chats}
+              <div key="tab_chats" className={`w-full h-full animate-in ${lastTabDirection === 'right' ? 'slide-in-from-right-16' : 'slide-in-from-left-16'} duration-1000 ease-out`}>
+                <ChatsListView
+                  chats={chats}
+                  user={user}
+                  wallpapers={WALLPAPERS}
+                  statuses={statuses}
+                  isNightMode={isNightMode}
+                  onToggleNightMode={handleToggleNightMode}
+                  onSelectChat={(c) => {
+                    setChats((prev) =>
+                      prev.map((item) => (item.id === c.id ? { ...item, unreadCount: 0 } : item))
+                    );
+                    setActiveChatId(c.id);
+                  }}
+                  onSelectWallpaper={(wpId, customUrl) => handleSelectWallpaper(wpId, customUrl)}
+                  onToggleDoNotDisturb={handleToggleDoNotDisturb}
+                  onOpenProfile={() => handleSelectTab('settings')}
+                  onNewChat={() => setIsNewChatModalOpen(true)}
+                  onOpenNewGroup={() => setIsNewGroupModalOpen(true)}
+                  onAddFriend={handleAddFriend}
+                  onUnblockContact={handleUnblockContact}
+                  onAddStatus={handleAddStatus}
+                  onDeleteStatus={handleDeleteStatus}
+                  onReplyToStatus={handleReplyToStatus}
+                  onOpenContactProfile={(c) => setSelectedContactForProfile(c)}
+                  onOpenStarredMessages={() => setIsStarredModalOpen(true)}
+                  onOpenLocalRadar={() => setIsLocalRadarOpen(true)}
+                  isClassicMode={isClassicMode}
+                />
+              </div>
+            )}
+
+            {isLocalRadarOpen && (
+              <LocalRadarView
                 user={user}
-                wallpapers={WALLPAPERS}
-                isNightMode={isNightMode}
-                onToggleNightMode={handleToggleNightMode}
-                onSelectChat={(c) => {
-                  // Mark unread as read when opening
-                  setChats((prev) =>
-                    prev.map((item) => (item.id === c.id ? { ...item, unreadCount: 0 } : item))
-                  );
-                  setActiveChatId(c.id);
+                chats={chats}
+                onStartDirectChat={(target) => {
+                  setIsLocalRadarOpen(false);
+                  const existing = chats.find((c) => c.id === target.id || c.name === target.name);
+                  if (existing) {
+                    setActiveChatId(existing.id);
+                  } else {
+                    const newChatId = `chat_${Date.now()}`;
+                    const newChat: Chat = {
+                      id: newChatId,
+                      name: target.name,
+                      type: 'direct',
+                      avatarUrl: target.avatarUrl,
+                      statusText: 'Conectado por Red Mesh P2P',
+                      categories: ['all', 'friends'],
+                      unreadCount: 0,
+                      lastMessageText: '¡Conexión local establecida!',
+                      lastMessageTime: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+                      messages: [],
+                    };
+                    setChats((prev) => [newChat, ...prev]);
+                    setActiveChatId(newChatId);
+                  }
                 }}
-                onSelectWallpaper={(wpId, customUrl) => handleSelectWallpaper(wpId, customUrl)}
-                onToggleDoNotDisturb={handleToggleDoNotDisturb}
-                onOpenProfile={() => setActiveTab('settings')}
-                onNewChat={() => setIsNewChatModalOpen(true)}
-                onAddFriend={handleAddFriend}
-                onUnblockContact={handleUnblockContact}
+                onBack={() => setIsLocalRadarOpen(false)}
+                isNightMode={isNightMode}
               />
             )}
 
+
+
+
+
+
+
+
+
             {activeTab === 'marketplace' && (
-              <MarketplaceView
-                user={user}
-                chats={chats}
-                isNightMode={isNightMode}
-                onToggleNightMode={handleToggleNightMode}
-                onStartChatWithSeller={handleStartChatWithSeller}
-              />
+              <div key="tab_marketplace" className={`w-full h-full animate-in ${lastTabDirection === 'right' ? 'slide-in-from-right-16' : 'slide-in-from-left-16'} duration-1000 ease-out`}>
+                <MarketplaceView
+                  user={user}
+                  chats={chats}
+                  isNightMode={isNightMode}
+                  onToggleNightMode={handleToggleNightMode}
+                  onStartChatWithSeller={handleStartChatWithSeller}
+                />
+              </div>
             )}
 
             {activeTab === 'games' && (
-              <WaitingRoomView onBackToChats={() => setActiveTab('chats')} />
+              <div key="tab_games" className={`w-full h-full animate-in ${lastTabDirection === 'right' ? 'slide-in-from-right-16' : 'slide-in-from-left-16'} duration-1000 ease-out`}>
+                <WaitingRoomView
+                  onBackToChats={() => handleSelectTab('chats')}
+                  chats={chats}
+                  user={user}
+                  isNightMode={isNightMode}
+                  onSendMemeToChat={(chatId, memeDataUrl, caption) => {
+                    handleSendMessage(chatId, {
+                      senderId: 'me',
+                      senderName: user.name,
+                      senderAvatar: user.avatarUrl,
+                      type: 'image',
+                      mediaUrl: memeDataUrl,
+                      text: `🃏 Meme creado: ${caption}`,
+                      timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+                      isRead: true,
+                    });
+                  }}
+                />
+              </div>
+            )}
+
+            {activeTab === 'news' && (
+              <div key="tab_news" className={`w-full h-full animate-in ${lastTabDirection === 'right' ? 'slide-in-from-right-16' : 'slide-in-from-left-16'} duration-1000 ease-out`}>
+                <NewsView
+                  isNightMode={isNightMode}
+                  chats={chats}
+                  onShareToChat={handleShareArticleToChat}
+                />
+              </div>
             )}
 
             {activeTab === 'settings' && (
-              <SettingsProfileView
-                user={user}
-                wallpapers={WALLPAPERS}
-                firebaseUser={firebaseUser}
-                isCloudSynced={isCloudSynced}
-                isNightMode={isNightMode}
-                onGoogleLogin={handleGoogleLogin}
-                onGoogleLogout={handleGoogleLogout}
-                onUpdateUser={handleUpdateUser}
-                onToggleDoNotDisturb={handleToggleDoNotDisturb}
-                onApproveFriendRequest={handleApproveFriendRequest}
-                onRejectFriendRequest={handleRejectFriendRequest}
-                onDeleteAccount={handleDeleteAccount}
-              />
+              <div key="tab_settings" className={`w-full h-full animate-in ${lastTabDirection === 'right' ? 'slide-in-from-right-16' : 'slide-in-from-left-16'} duration-1000 ease-out`}>
+                <SettingsProfileView
+                  user={user}
+                  wallpapers={WALLPAPERS}
+                  firebaseUser={firebaseUser}
+                  isCloudSynced={isCloudSynced}
+                  isNightMode={isNightMode}
+                  onGoogleLogin={handleGoogleLogin}
+                  onGoogleLogout={handleGoogleLogout}
+                  onUpdateUser={handleUpdateUser}
+                  onToggleDoNotDisturb={handleToggleDoNotDisturb}
+                  onApproveFriendRequest={handleApproveFriendRequest}
+                  onRejectFriendRequest={handleRejectFriendRequest}
+                  onDeleteAccount={handleDeleteAccount}
+                  onAddScannedContact={(name, username) => {
+                    handleAddFriendDirect({
+                      name,
+                      username,
+                      avatarUrl: createSvgAvatar(name),
+                      initialMessage: '¡Hola! Nos escaneamos por código QR en PidgeX 📸',
+                    });
+                    setActiveTab('chats');
+                  }}
+                  isClassicMode={isClassicMode}
+                  onToggleClassicMode={() => {
+                    const next = !isClassicMode;
+                    setIsClassicMode(next);
+                    localStorage.setItem('pidge_classic_mode', String(next));
+                    setActiveTab('chats');
+                  }}
+                  onOpenTutorial={() => setIsTutorialOpen(true)}
+                  onOpenTour={() => setIsTourOpen(true)}
+                />
+              </div>
             )}
 
             {/* Bottom Persistent Navigation Dock */}
@@ -889,7 +1445,8 @@ export default function App() {
               activeTab={activeTab}
               unreadTotal={totalUnread}
               isNightMode={isNightMode}
-              onSelectTab={setActiveTab}
+              isClassicMode={isClassicMode}
+              onSelectTab={handleSelectTab}
             />
 
             {/* New Chat Modal */}
@@ -897,6 +1454,16 @@ export default function App() {
               isOpen={isNewChatModalOpen}
               onClose={() => setIsNewChatModalOpen(false)}
               onCreateChat={handleCreateChat}
+              currentUserId={user.id}
+            />
+
+            {/* New Group Modal */}
+            <NewGroupModal
+              isOpen={isNewGroupModalOpen}
+              onClose={() => setIsNewGroupModalOpen(false)}
+              onCreateGroup={handleCreateGroup}
+              chats={chats}
+              user={user}
             />
 
             {/* Add Friend Modal */}
@@ -904,6 +1471,7 @@ export default function App() {
               isOpen={isAddFriendModalOpen}
               onClose={() => setIsAddFriendModalOpen(false)}
               onAddFriend={handleAddFriend}
+              currentUserId={user.id}
             />
 
             {/* Send Voice Message Modal */}
@@ -915,8 +1483,86 @@ export default function App() {
               isNightMode={isNightMode}
               onSendVoiceMessage={handleSendVoiceMessageFromModal}
             />
+
+            {/* Interactive Tutorial Modal */}
+            <TutorialModal
+              isOpen={isTutorialOpen}
+              onClose={() => setIsTutorialOpen(false)}
+              isNightMode={isNightMode}
+            />
+
+            {/* Interactive Spotlight Tour with Pointers */}
+            <SpotlightTour
+              isOpen={isTourOpen}
+              onClose={() => setIsTourOpen(false)}
+              activeTab={activeTab}
+              onSelectTab={(tab) => setActiveTab(tab)}
+              isNightMode={isNightMode}
+            />
+
+
           </>
         )}
+
+        {/* Contact Profile Modal Pop-up */}
+        <ContactProfileModal
+          isOpen={Boolean(selectedContactForProfile)}
+          onClose={() => setSelectedContactForProfile(null)}
+          contact={selectedContactForProfile}
+          user={user}
+          isNightMode={isNightMode}
+          onStartChat={(c) => {
+            setActiveChatId(c.id);
+            setActiveTab('chats');
+          }}
+        />
+
+        {/* Time Capsule Modal */}
+        <TimeCapsuleModal
+          isOpen={isTimeCapsuleModalOpen}
+          onClose={() => setIsTimeCapsuleModalOpen(false)}
+          chats={chats}
+          user={user}
+          isNightMode={isNightMode}
+          onSendCapsuleMessage={(chatId, text) => {
+            handleSendMessage(chatId, {
+              senderId: 'me',
+              senderName: user.name,
+              senderAvatar: user.avatarUrl,
+              type: 'text',
+              text,
+              timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+              isRead: true,
+            });
+          }}
+        />
+
+        <StarredMessagesView
+          isOpen={isStarredModalOpen}
+          onClose={() => setIsStarredModalOpen(false)}
+          chats={chats}
+          isNightMode={isNightMode}
+          onJumpToChat={(chatId) => {
+            setActiveChatId(chatId);
+            setActiveTab('chats');
+          }}
+          onUnstarMessage={(chatId, messageId) => {
+            setChats((prev) =>
+              prev.map((c) => {
+                if (c.id === chatId) {
+                  return {
+                    ...c,
+                    messages: c.messages.map((m) => (m.id === messageId ? { ...m, isStarred: false } : m)),
+                  };
+                }
+                return c;
+              })
+            );
+          }}
+        />
+
+        {/* Virtual Pet Pikito */}
+        <VirtualPetWidget user={user} isNightMode={isNightMode} />
 
         {/* Floating Studios M.A P.J Badge Symbol (auto-hidden inside chats, non-blocking) */}
         <StudioWatermark hidden={Boolean(activeChatId)} />

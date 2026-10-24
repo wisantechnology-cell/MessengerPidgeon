@@ -5,12 +5,14 @@ interface VoicePlayerProps {
   durationText?: string;
   isSender?: boolean;
   audioUrl?: string;
+  voiceFilter?: 'normal' | 'chipmunk' | 'robot' | 'deep';
 }
 
 export const VoicePlayer: React.FC<VoicePlayerProps> = ({
   durationText = '0:15',
   isSender = false,
   audioUrl,
+  voiceFilter,
 }) => {
   const [isPlaying, setIsPlaying] = useState<boolean>(false);
   const [progress, setProgress] = useState<number>(0);
@@ -205,6 +207,14 @@ export const VoicePlayer: React.FC<VoicePlayerProps> = ({
           <span className={isSender ? 'text-white/90 font-mono text-[10px]' : 'text-[#8d90a0] font-mono text-[10px]'}>
             {displayTime}
           </span>
+          {voiceFilter && voiceFilter !== 'normal' && (
+            <span className={`text-[9px] font-bold px-1.5 py-0.5 rounded-full ${
+              voiceFilter === 'chipmunk' ? 'bg-pink-500/30 text-pink-200' :
+              voiceFilter === 'robot' ? 'bg-cyan-500/30 text-cyan-200' : 'bg-purple-500/30 text-purple-200'
+            }`}>
+              {voiceFilter === 'chipmunk' ? '🐿️ Ardilla' : voiceFilter === 'robot' ? '🤖 Robot' : '🦁 Grave'}
+            </span>
+          )}
           <button
             type="button"
             onClick={toggleRate}

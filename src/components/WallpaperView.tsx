@@ -148,7 +148,7 @@ export const WallpaperView: React.FC<WallpaperViewProps> = ({
                 </div>
               </div>
               <span className="text-[10px] text-[#38bdf8] font-bold bg-[#38bdf8]/10 px-2 py-0.5 rounded-full border border-[#38bdf8]/20">
-                MessengerPidgeon
+                PidgeX
               </span>
             </div>
 
@@ -185,7 +185,7 @@ export const WallpaperView: React.FC<WallpaperViewProps> = ({
         {/* Preset Wallpapers Grid */}
         <section className="flex flex-col gap-2.5">
           <span className="text-xs font-bold text-[#8d90a0] uppercase tracking-wider px-1">
-            Colección Oficial MessengerPidgeon ({wallpapers.length})
+            Colección Oficial PidgeX ({wallpapers.length})
           </span>
 
           <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">

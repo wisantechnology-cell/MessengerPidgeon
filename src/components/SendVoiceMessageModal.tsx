@@ -375,7 +375,7 @@ export const SendVoiceMessageModal: React.FC<SendVoiceMessageModalProps> = ({
                 <div>
                   <h4 className="font-bold text-sm leading-snug">{selectedChat.name}</h4>
                   <p className={`text-[11px] ${isNightMode ? 'text-[#8d90a0]' : 'text-sky-700/80'}`}>
-                    {selectedChat.phone || 'Contacto MessengerPidgeon'}
+                    {selectedChat.phone || 'Contacto PidgeX'}
                   </p>
                 </div>
               </div>

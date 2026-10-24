@@ -23,20 +23,25 @@ import {
   Upload,
   Smartphone,
   Phone,
+  Radio,
   Bell,
   BellOff,
   Moon,
   Mic,
 } from 'lucide-react';
 import { Chat, ChatCategory, UserProfile, Wallpaper } from '../types';
+import { StatusItem } from '../types/status';
 import { BirdLogo } from './BirdLogo';
 import { PotentialAcquaintancesSection } from './PotentialAcquaintancesSection';
+import { StatusSection } from './StatusSection';
 import { AddFriendData } from './AddFriendModal';
+import { getActiveMonthlyTheme } from '../utils/monthlyThemes';
 
 interface ChatsListViewProps {
   chats: Chat[];
   user: UserProfile;
   wallpapers?: Wallpaper[];
+  statuses: StatusItem[];
   isNightMode?: boolean;
   onToggleNightMode?: () => void;
   onSelectChat: (chat: Chat) => void;
@@ -50,28 +55,44 @@ interface ChatsListViewProps {
   onOpenVoiceMessageModal?: () => void;
   onAddFriend?: (data: AddFriendData) => void;
   onUnblockContact?: (chatId: string) => void;
+  onOpenNewGroup?: () => void;
+  onAddStatus: (mediaUrl: string, caption?: string) => void;
+  onDeleteStatus: (statusId: string) => void;
+  onReplyToStatus: (statusId: string, replyText: string) => void;
+  onUpdateUser?: (updated: Partial<UserProfile>) => void;
+  onOpenContactProfile?: (chat: Chat) => void;
+  onOpenStarredMessages?: () => void;
+  onOpenLocalRadar?: () => void;
+  isClassicMode?: boolean;
 }
 
 export const ChatsListView: React.FC<ChatsListViewProps> = ({
   chats,
   user,
   wallpapers,
+  statuses,
   isNightMode = false,
+  isClassicMode = false,
   onToggleNightMode,
   onSelectChat,
   onSelectWallpaper,
   onToggleDoNotDisturb,
   onOpenProfile,
+  onOpenStarredMessages,
+  onOpenLocalRadar,
   onNewChat,
   onOpenAddFriend,
   onOpenVoiceMessageModal,
   onAddFriend,
   onUnblockContact,
+  onOpenNewGroup,
+  onAddStatus,
+  onDeleteStatus,
+  onReplyToStatus,
+  onUpdateUser,
+  onOpenContactProfile,
 }) => {
-  const [showBlockedSection, setShowBlockedSection] = useState<boolean>(false);
-
-  const activeFriends = chats.filter((c) => !c.isBlocked && c.isFriend !== false);
-  const blockedContacts = chats.filter((c) => c.isBlocked || c.isFriend === false);
+  const activeFriends = chats.filter((c) => c.isFriend !== false);
 
   return (
     <div className={`relative flex flex-col w-full h-full min-h-screen bg-transparent transition-colors duration-300 ${
@@ -86,54 +107,76 @@ export const ChatsListView: React.FC<ChatsListViewProps> = ({
         <div className="h-16 px-4 flex items-center justify-between">
           <div className="flex items-center gap-2.5">
             <BirdLogo className="w-9 h-9" />
-            <span className={`text-xl font-bold tracking-tight ${
-              isNightMode ? 'text-[#dfe2ee]' : 'text-[#0c2340]'
-            }`}>
-              MessengerPidgeon
-            </span>
+            <div className="flex flex-col">
+              <span className={`text-xl font-serif font-black tracking-[0.14em] uppercase ${
+                isNightMode ? 'text-white' : 'text-[#0c2340]'
+              }`}>
+                PidgeX
+              </span>
+              <span className="text-[8px] font-bold tracking-[0.18em] text-[#00a8ff] -mt-1 uppercase">
+                NO HAY LÍMITES PARA CONECTAR.
+              </span>
+            </div>
           </div>
 
           <div className="flex items-center gap-2">
-            {/* Modo Nocturno Button (Luna a la izquierda de la campanita) */}
-            <button
-              onClick={() => onToggleNightMode?.()}
-              title={
-                isNightMode
-                  ? 'Modo Nocturno ACTIVO (clic para volver al modo azul claro)'
-                  : 'Activar Modo Nocturno (tonos más oscuros)'
-              }
-              aria-label="Modo Nocturno"
-              className={`w-9 h-9 rounded-full flex items-center justify-center transition-all cursor-pointer ${
-                isNightMode
-                  ? 'bg-blue-600/30 text-blue-300 border border-blue-500/40 shadow-sm shadow-blue-950/40'
-                  : 'bg-white/90 text-sky-700 hover:text-sky-900 border border-sky-200 shadow-sm hover:bg-sky-100/90'
-              }`}
-            >
-              <Moon className={`w-4 h-4 ${isNightMode ? 'fill-blue-300 text-blue-300' : 'text-sky-600'}`} />
-            </button>
+            {!isClassicMode && (
+              <>
+                {/* Modo Nocturno Button */}
+                <button
+                  onClick={() => onToggleNightMode?.()}
+                  title={
+                    isNightMode
+                      ? 'Modo Nocturno ACTIVO (clic para volver al modo azul claro)'
+                      : 'Activar Modo Nocturno (tonos más oscuros)'
+                  }
+                  aria-label="Modo Nocturno"
+                  className={`w-9 h-9 rounded-full flex items-center justify-center transition-all cursor-pointer ${
+                    isNightMode
+                      ? 'bg-blue-600/30 text-blue-300 border border-blue-500/40 shadow-sm shadow-blue-950/40'
+                      : 'bg-white/90 text-sky-700 hover:text-sky-900 border border-sky-200 shadow-sm hover:bg-sky-100/90'
+                  }`}
+                >
+                  <Moon className={`w-4 h-4 ${isNightMode ? 'fill-blue-300 text-blue-300' : 'text-sky-600'}`} />
+                </button>
 
-            {/* Campanita (Modo No Molestar) */}
-            <button
-              onClick={() => onToggleDoNotDisturb?.()}
-              title={
-                user.doNotDisturb
-                  ? 'Modo No Molestar ACTIVO (silenciado)'
-                  : 'Activar Modo No Molestar'
-              }
-              className={`w-9 h-9 rounded-full flex items-center justify-center transition-all cursor-pointer ${
-                user.doNotDisturb
-                  ? 'bg-amber-500/20 text-amber-500 border border-amber-500/40 shadow-sm'
-                  : isNightMode
-                  ? 'bg-[#1c2028]/80 text-[#8d90a0] hover:text-[#dfe2ee] border border-white/10'
-                  : 'bg-white/90 text-sky-700 hover:text-sky-900 border border-sky-200 shadow-sm hover:bg-sky-100/90'
-              }`}
-            >
-              {user.doNotDisturb ? (
-                <BellOff className="w-4 h-4 text-amber-500" />
-              ) : (
-                <Bell className="w-4 h-4" />
-              )}
-            </button>
+                {/* Mensajes Destacados (Starred ⭐) */}
+                <button
+                  onClick={() => onOpenStarredMessages?.()}
+                  title="Mensajes Destacados ⭐"
+                  className={`w-9 h-9 rounded-full flex items-center justify-center transition-all cursor-pointer ${
+                    isNightMode ? 'bg-amber-500/20 text-amber-300 border border-amber-500/40' : 'bg-white/90 text-amber-600 border border-amber-200 shadow-sm'
+                  }`}
+                >
+                  <Star className="w-4 h-4 fill-amber-400 text-amber-400" />
+                </button>
+
+                {/* Campanita (Modo No Molestar) */}
+                <button
+                  onClick={() => onToggleDoNotDisturb?.()}
+                  title={
+                    user.doNotDisturb
+                      ? 'Modo No Molestar ACTIVO (silenciado)'
+                      : 'Activar Modo No Molestar'
+                  }
+                  className={`w-9 h-9 rounded-full flex items-center justify-center transition-all cursor-pointer ${
+                    user.doNotDisturb
+                      ? 'bg-amber-500/20 text-amber-500 border border-amber-500/40 shadow-sm'
+                      : isNightMode
+                      ? 'bg-[#1c2028]/80 text-[#8d90a0] hover:text-[#dfe2ee] border border-white/10'
+                      : 'bg-white/90 text-sky-700 hover:text-sky-900 border border-sky-200 shadow-sm hover:bg-sky-100/90'
+                  }`}
+                >
+                  {user.doNotDisturb ? (
+                    <BellOff className="w-4 h-4 text-amber-500" />
+                  ) : (
+                    <Bell className="w-4 h-4" />
+                  )}
+                </button>
+              </>
+            )}
+
+
 
             <div
               onClick={onOpenProfile}
@@ -154,6 +197,24 @@ export const ChatsListView: React.FC<ChatsListViewProps> = ({
           </div>
         </div>
       </header>
+
+      {/* Offline Status Banner */}
+      {user.status === 'offline' && (
+        <div className="bg-neutral-900 border-b border-amber-500/30 px-4 py-2.5 flex items-center justify-between text-xs text-amber-200 z-30 shadow-md">
+          <div className="flex items-center gap-2">
+            <span className="w-2.5 h-2.5 rounded-full bg-neutral-400 animate-pulse" />
+            <span>📴 Modo Offline activo: Los mensajes se guardan localmente y se sincronizarán al conectarte.</span>
+          </div>
+          {onUpdateUser && (
+            <button
+              onClick={() => onUpdateUser({ status: 'online' })}
+              className="px-3 py-1 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-[11px] shadow transition-all cursor-pointer whitespace-nowrap"
+            >
+              Conectar Ahora
+            </button>
+          )}
+        </div>
+      )}
 
       {/* 2. Main Scrollable Container */}
       <main className="flex-1 w-full max-w-[640px] mx-auto px-4 pt-3 pb-28 flex flex-col gap-5 overflow-y-auto">
@@ -195,6 +256,15 @@ export const ChatsListView: React.FC<ChatsListViewProps> = ({
                 Prioritarias
               </span>
             </div>
+            {onOpenNewGroup && (
+              <button
+                onClick={onOpenNewGroup}
+                className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-gradient-to-r from-[#2563eb] to-[#00a6e0] hover:brightness-110 text-white text-xs font-bold shadow-md shadow-sky-950/20 active:scale-95 transition-all cursor-pointer"
+              >
+                <Users className="w-3.5 h-3.5" />
+                <span>+ Crear Grupo</span>
+              </button>
+            )}
           </div>
 
           <div className="flex flex-col gap-2">
@@ -240,12 +310,19 @@ export const ChatsListView: React.FC<ChatsListViewProps> = ({
                   }`}
                 >
                   {/* Avatar */}
-                  <div className="relative shrink-0 w-12 h-12">
+                  <div
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      onOpenContactProfile?.(c);
+                    }}
+                    className="relative shrink-0 w-12 h-12 cursor-pointer group"
+                    title="Ver perfil de usuario"
+                  >
                     {c.avatarUrl ? (
                       <img
                         src={c.avatarUrl}
                         alt={c.name}
-                        className="w-12 h-12 rounded-full object-cover"
+                        className="w-12 h-12 rounded-full object-cover group-hover:brightness-110 transition-all"
                       />
                     ) : (
                       <div className={`w-12 h-12 rounded-full flex items-center justify-center ${
@@ -264,12 +341,15 @@ export const ChatsListView: React.FC<ChatsListViewProps> = ({
                   {/* Info */}
                   <div className="flex flex-col flex-1 min-w-0">
                     <div className="flex items-center justify-between gap-1">
-                      <div className="flex items-center gap-1 truncate">
+                      <div className="flex items-center gap-1.5 truncate">
                         <h4 className={`font-semibold text-sm truncate ${
                           isNightMode ? 'text-[#dfe2ee]' : 'text-[#0c2340]'
                         }`}>
                           {c.name}
                         </h4>
+                        <span className="flex items-center gap-0.5 text-[10px] font-bold text-amber-500 bg-amber-500/10 px-1.5 py-0.2 rounded-full border border-amber-500/20 shrink-0" title="Racha de días chateando">
+                          🔥 {c.streakDays || Math.floor((c.id.length * 3) % 12) + 3}d
+                        </span>
                         {c.isRealTime && (
                           <span className="px-1.5 py-0.2 rounded bg-[#10b981]/20 text-[#10b981] dark:text-[#34d399] border border-[#10b981]/30 text-[10px] font-bold shrink-0">
                             En Vivo 🟢
@@ -355,78 +435,79 @@ export const ChatsListView: React.FC<ChatsListViewProps> = ({
               );
             })
             )}
-
-            {/* Blocked contacts section */}
-            {blockedContacts.length > 0 && (
-              <div className="mt-4 pt-3 border-t border-white/10 flex flex-col gap-2">
-                <button
-                  onClick={() => setShowBlockedSection(!showBlockedSection)}
-                  className="flex items-center justify-between px-2 py-1.5 rounded-xl hover:bg-white/5 text-xs text-[#8d90a0] hover:text-white transition-colors cursor-pointer"
-                >
-                  <div className="flex items-center gap-2">
-                    <Ban className="w-3.5 h-3.5 text-red-400" />
-                    <span className="font-semibold text-red-300">
-                      Contactos Bloqueados ({blockedContacts.length})
-                    </span>
-                  </div>
-                  {showBlockedSection ? (
-                    <ChevronDown className="w-4 h-4 text-[#8d90a0]" />
-                  ) : (
-                    <ChevronRight className="w-4 h-4 text-[#8d90a0]" />
-                  )}
-                </button>
-
-                {showBlockedSection && (
-                  <div className="flex flex-col gap-1.5 pl-1 animate-in fade-in duration-150">
-                    {blockedContacts.map((b) => (
-                      <div
-                        key={b.id}
-                        className="flex items-center justify-between p-2.5 rounded-xl bg-[#181216]/85 backdrop-blur-xl border border-red-500/20 shadow-md"
-                      >
-                        <div
-                          onClick={() => onSelectChat(b)}
-                          className="flex items-center gap-2.5 min-w-0 cursor-pointer flex-1"
-                        >
-                          <img
-                            src={b.avatarUrl}
-                            alt={b.name}
-                            className="w-8 h-8 rounded-full object-cover opacity-60 grayscale"
-                          />
-                          <div className="flex flex-col min-w-0">
-                            <span className="text-xs font-semibold text-[#c3c6d7] truncate">
-                              {b.name}
-                            </span>
-                            <span className="text-[10px] text-red-400/80">
-                              Bloqueado • Ya no es tu amigo
-                            </span>
-                          </div>
-                        </div>
-
-                        {onUnblockContact && (
-                          <button
-                            onClick={() => onUnblockContact(b.id)}
-                            className="px-2.5 py-1 rounded-lg bg-[#2563eb]/20 hover:bg-[#2563eb] text-[#7bd0ff] hover:text-white border border-[#2563eb]/30 text-[11px] font-bold transition-all cursor-pointer shrink-0 ml-2"
-                          >
-                            Desbloquear
-                          </button>
-                        )}
-                      </div>
-                    ))}
-                  </div>
-                )}
-              </div>
-            )}
           </div>
         </section>
 
         {/* Apartado de Posibles Conocidos (Solo si son amigos de tus amigos) */}
-        {onAddFriend && (
+        {!isClassicMode && onAddFriend && (
           <PotentialAcquaintancesSection
             chats={chats}
             onAddFriend={onAddFriend}
             onOpenAddFriend={onOpenAddFriend}
           />
         )}
+
+        {/* Statuses Section */}
+        {!isClassicMode && (
+          <StatusSection
+            user={user}
+            statuses={statuses}
+            isNightMode={isNightMode}
+            onAddStatus={onAddStatus}
+            onDeleteStatus={onDeleteStatus}
+            onReplyToStatus={onReplyToStatus}
+          />
+        )}
+
+        {/* Banner de Tema Mensual y Festividad con Decoraciones (Lo del mes, abajo de los estados) */}
+        {(() => {
+          const activeTheme = getActiveMonthlyTheme(user.monthlyTheme);
+          return (
+            <div className={`relative overflow-hidden p-4 rounded-2xl bg-gradient-to-r ${activeTheme.bannerGradient} text-white border border-white/20 shadow-xl flex items-center justify-between gap-3 animate-in fade-in duration-300`}>
+              {/* Background glowing blur */}
+              <div className="absolute -right-4 -bottom-4 w-24 h-24 bg-white/15 rounded-full blur-2xl pointer-events-none" />
+
+              {/* Floating decorative items */}
+              <div className="absolute right-3 top-2 flex items-center gap-1.5 opacity-90 z-10 bg-black/20 px-2 py-0.5 rounded-full backdrop-blur-md border border-white/20">
+                <span className="text-xs animate-bounce">{activeTheme.decorations[0] || '🎃'}</span>
+                <span className="text-xs animate-pulse">{activeTheme.decorations[1] || '🦇'}</span>
+                <span className="text-xs animate-bounce" style={{ animationDelay: '200ms' }}>{activeTheme.decorations[2] || '👻'}</span>
+                <Sparkles className="w-3.5 h-3.5 text-amber-300 animate-spin" style={{ animationDuration: '6s' }} />
+                <span className="text-[10px] font-extrabold text-amber-200 tracking-wider">Automático</span>
+              </div>
+
+              <div className="flex items-center gap-3.5 min-w-0 z-10 pr-28">
+                <div className="relative w-12 h-12 rounded-2xl bg-white/20 backdrop-blur-md flex items-center justify-center text-2xl shrink-0 shadow-lg border border-white/40 transform hover:scale-105 transition-transform">
+                  <span>{activeTheme.icon}</span>
+                  <div className="absolute -bottom-1 -right-1 text-sm bg-black/40 rounded-full px-1 border border-white/30 animate-bounce">
+                    {activeTheme.decorations[1] || '🦇'}
+                  </div>
+                </div>
+                <div className="flex flex-col min-w-0">
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <span className="font-black text-xs sm:text-sm tracking-wide text-white uppercase drop-shadow flex items-center gap-1.5">
+                      {activeTheme.festivityName}
+                      <span className="inline-block w-2 h-2 rounded-full bg-emerald-400 animate-ping" />
+                    </span>
+                  </div>
+                  <span className="text-[11px] text-white/90 truncate font-medium mt-0.5">
+                    {activeTheme.description}
+                  </span>
+                  <div className="flex items-center gap-1.5 mt-1 opacity-90">
+                    <span className="text-[10px] font-bold text-amber-300">Decoración temática activa:</span>
+                    <div className="flex items-center gap-1 bg-black/25 px-2 py-0.5 rounded-md border border-white/10">
+                      {activeTheme.decorations.map((dec, idx) => (
+                        <span key={idx} className="text-xs animate-pulse" style={{ animationDelay: `${idx * 300}ms` }}>
+                          {dec}
+                        </span>
+                      ))}
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+          );
+        })()}
       </main>
 
       {/* 7. Floating Action Button (New Chat) */}

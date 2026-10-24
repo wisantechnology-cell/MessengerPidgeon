@@ -1,0 +1,208 @@
+export interface MonthlyTheme {
+  id: string; // 'january' | 'february' | ... | 'december'
+  monthIndex: number; // 0 to 11
+  name: string;
+  festivityName: string;
+  icon: string;
+  decorations: string[];
+  primaryBg: string;
+  headerBg: string;
+  accentColor: string;
+  badgeBg: string;
+  cardBorder: string;
+  bannerGradient: string;
+  description: string;
+}
+
+export const MONTHLY_THEMES: MonthlyTheme[] = [
+  {
+    id: 'january',
+    monthIndex: 0,
+    name: 'Enero',
+    festivityName: 'Año Nuevo & Invierno Mágico',
+    icon: '🎆',
+    decorations: ['🎆', '❄️', '⭐', '🥂'],
+    primaryBg: 'bg-slate-900 text-white',
+    headerBg: 'bg-gradient-to-r from-indigo-950 via-slate-900 to-blue-950',
+    accentColor: 'text-amber-400',
+    badgeBg: 'bg-indigo-900/80 text-amber-300 border border-indigo-700/50',
+    cardBorder: 'border-indigo-800/40',
+    bannerGradient: 'from-blue-900 via-indigo-900 to-slate-900',
+    description: 'Celebración de inicio de año, fuegos artificiales y tonos azul noche con destellos dorados.',
+  },
+  {
+    id: 'february',
+    monthIndex: 1,
+    name: 'Febrero',
+    festivityName: 'San Valentín & Amor y Amistad',
+    icon: '💖',
+    decorations: ['💖', '💌', '🌹', '✨'],
+    primaryBg: 'bg-rose-950/20 text-slate-900',
+    headerBg: 'bg-gradient-to-r from-rose-900 via-pink-900 to-red-950 text-white',
+    accentColor: 'text-pink-300',
+    badgeBg: 'bg-rose-900/80 text-pink-200 border border-rose-700/50',
+    cardBorder: 'border-rose-300/60',
+    bannerGradient: 'from-rose-900 via-pink-800 to-red-900',
+    description: 'Mes del amor, corazones, tonos rosa pastel, carmín y romance en cada mensaje.',
+  },
+  {
+    id: 'march',
+    monthIndex: 2,
+    name: 'Marzo',
+    festivityName: 'Primavera & Renacimiento',
+    icon: '🌸',
+    decorations: ['🌸', '🌱', '🦋', '🌷'],
+    primaryBg: 'bg-emerald-950/10 text-slate-900',
+    headerBg: 'bg-gradient-to-r from-emerald-800 via-teal-800 to-green-900 text-white',
+    accentColor: 'text-emerald-300',
+    badgeBg: 'bg-emerald-800/80 text-emerald-100 border border-emerald-600/50',
+    cardBorder: 'border-emerald-300/60',
+    bannerGradient: 'from-emerald-800 via-teal-700 to-green-800',
+    description: 'Flores brotando, verde esmeralda fresco y tonos florales que alegran tus chats.',
+  },
+  {
+    id: 'april',
+    monthIndex: 3,
+    name: 'Abril',
+    festivityName: 'Pascua & Primavera Colorida',
+    icon: '🐰',
+    decorations: ['🐰', '🥚', '🌷', '✨'],
+    primaryBg: 'bg-purple-950/10 text-slate-900',
+    headerBg: 'bg-gradient-to-r from-purple-800 via-indigo-800 to-fuchsia-900 text-white',
+    accentColor: 'text-fuchsia-300',
+    badgeBg: 'bg-purple-900/80 text-fuchsia-200 border border-purple-700/50',
+    cardBorder: 'border-purple-300/60',
+    bannerGradient: 'from-purple-800 via-fuchsia-800 to-indigo-900',
+    description: 'Huevos de pascua, tonos lavanda, menta pastel y alegría primaveral.',
+  },
+  {
+    id: 'may',
+    monthIndex: 4,
+    name: 'Mayo',
+    festivityName: 'Día de las Madres & Rosas',
+    icon: '💐',
+    decorations: ['💐', '🌹', '💖', '✨'],
+    primaryBg: 'bg-pink-950/10 text-slate-900',
+    headerBg: 'bg-gradient-to-r from-pink-700 via-rose-700 to-amber-700 text-white',
+    accentColor: 'text-amber-200',
+    badgeBg: 'bg-pink-800/80 text-pink-100 border border-pink-600/50',
+    cardBorder: 'border-pink-300/60',
+    bannerGradient: 'from-pink-700 via-rose-800 to-amber-800',
+    description: 'Homenaje a mamá, rosas cálidas, magenta y acentos dorados llenos de afecto.',
+  },
+  {
+    id: 'june',
+    monthIndex: 5,
+    name: 'Junio',
+    festivityName: 'Solsticio de Verano & Sol',
+    icon: '☀️',
+    decorations: ['☀️', '🌴', '🕶️', '🌊'],
+    primaryBg: 'bg-amber-950/10 text-slate-900',
+    headerBg: 'bg-gradient-to-r from-amber-600 via-orange-600 to-yellow-600 text-white',
+    accentColor: 'text-yellow-200',
+    badgeBg: 'bg-amber-700/80 text-yellow-100 border border-amber-500/50',
+    cardBorder: 'border-amber-300/60',
+    bannerGradient: 'from-amber-600 via-orange-600 to-yellow-700',
+    description: 'Sol brillante, energía vibrante, amarillo cálido y azul cielo turquesa.',
+  },
+  {
+    id: 'july',
+    monthIndex: 6,
+    name: 'Julio',
+    festivityName: 'Vacaciones de Playa & Océano',
+    icon: '🏖️',
+    decorations: ['🏖️', '🌊', '🍉', '☀️'],
+    primaryBg: 'bg-sky-950/10 text-slate-900',
+    headerBg: 'bg-gradient-to-r from-sky-700 via-cyan-700 to-blue-800 text-white',
+    accentColor: 'text-amber-300',
+    badgeBg: 'bg-sky-800/80 text-sky-100 border border-sky-600/50',
+    cardBorder: 'border-sky-300/60',
+    bannerGradient: 'from-sky-700 via-cyan-700 to-blue-900',
+    description: 'Arena dorada, olas del mar, azul océano y relax veraniego total.',
+  },
+  {
+    id: 'august',
+    monthIndex: 7,
+    name: 'Agosto',
+    festivityName: 'Atardecer de Verano',
+    icon: '🌅',
+    decorations: ['🌅', '🌴', '🌻', '✨'],
+    primaryBg: 'bg-orange-950/10 text-slate-900',
+    headerBg: 'bg-gradient-to-r from-orange-700 via-amber-700 to-rose-800 text-white',
+    accentColor: 'text-yellow-300',
+    badgeBg: 'bg-orange-800/80 text-orange-100 border border-orange-600/50',
+    cardBorder: 'border-orange-300/60',
+    bannerGradient: 'from-orange-700 via-amber-800 to-rose-900',
+    description: 'Noches cálidas de agosto, tonos ámbar, atardecer naranja y morado crepuscular.',
+  },
+  {
+    id: 'september',
+    monthIndex: 8,
+    name: 'Septiembre',
+    festivityName: 'Fiestas Patrias & Otoño',
+    icon: '🇲🇽',
+    decorations: ['🇲🇽', '🔔', '🦅', '⭐'],
+    primaryBg: 'bg-green-950/10 text-slate-900',
+    headerBg: 'bg-gradient-to-r from-emerald-900 via-red-900 to-amber-800 text-white',
+    accentColor: 'text-amber-300',
+    badgeBg: 'bg-emerald-900/80 text-emerald-100 border border-emerald-700/50',
+    cardBorder: 'border-emerald-300/60',
+    bannerGradient: 'from-emerald-900 via-red-900 to-amber-900',
+    description: 'Celebraciones patrióticas, verde esmeralda, rojo carmín y aire otoñal.',
+  },
+  {
+    id: 'october',
+    monthIndex: 9,
+    name: 'Octubre',
+    festivityName: 'Halloween & Noche de Brujas',
+    icon: '🎃',
+    decorations: ['🎃', '🦇', '👻', '🍬'],
+    primaryBg: 'bg-purple-950/20 text-slate-900',
+    headerBg: 'bg-gradient-to-r from-purple-950 via-orange-900 to-neutral-950 text-white',
+    accentColor: 'text-orange-400',
+    badgeBg: 'bg-purple-900/90 text-orange-200 border border-purple-600/50',
+    cardBorder: 'border-orange-500/40',
+    bannerGradient: 'from-purple-950 via-orange-900 to-neutral-900',
+    description: 'Calabazas esculpidas, murciélagos, disfraces, dulces y la misteriosa magia de Halloween.',
+  },
+  {
+    id: 'november',
+    monthIndex: 10,
+    name: 'Noviembre',
+    festivityName: 'Día de Muertos & Cempasúchil',
+    icon: '🕯️',
+    decorations: ['🕯️', '💀', '🌼', '🍂'],
+    primaryBg: 'bg-amber-950/20 text-slate-900',
+    headerBg: 'bg-gradient-to-r from-amber-800 via-purple-900 to-yellow-800 text-white',
+    accentColor: 'text-yellow-300',
+    badgeBg: 'bg-amber-900/90 text-yellow-200 border border-amber-600/50',
+    cardBorder: 'border-amber-400/40',
+    bannerGradient: 'from-amber-800 via-purple-900 to-yellow-900',
+    description: 'Flores de cempasúchil naranja brillante, aroma a copal, papel picado morado y velas cálidas.',
+  },
+  {
+    id: 'december',
+    monthIndex: 11,
+    name: 'Diciembre',
+    festivityName: 'Navidad & Espíritu Navideño',
+    icon: '🎄',
+    decorations: ['🎄', '⭐', '❄️', '🎁'],
+    primaryBg: 'bg-red-950/20 text-slate-900',
+    headerBg: 'bg-gradient-to-r from-red-900 via-emerald-900 to-red-950 text-white',
+    accentColor: 'text-amber-300',
+    badgeBg: 'bg-red-900/90 text-amber-200 border border-amber-500/50',
+    cardBorder: 'border-red-400/40',
+    bannerGradient: 'from-red-900 via-emerald-900 to-green-950',
+    description: 'Rojo navideño, verde pino, nieve, luces brillantes y la magia de fin de año.',
+  },
+];
+
+export const getActiveMonthlyTheme = (userThemePref?: string): MonthlyTheme => {
+  const currentMonthIdx = new Date().getMonth(); // 0-11
+  if (userThemePref && userThemePref !== 'auto') {
+    const found = MONTHLY_THEMES.find((t) => t.id === userThemePref);
+    if (found) return found;
+  }
+  // Default to current month
+  return MONTHLY_THEMES[currentMonthIdx] || MONTHLY_THEMES[0];
+};
