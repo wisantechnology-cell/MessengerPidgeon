@@ -19,6 +19,10 @@ import {
   Compass,
   Smartphone,
   Tablet,
+  Wallpaper as WallpaperIcon,
+  Upload,
+  Link,
+  Image as ImageIcon,
 } from 'lucide-react';
 import { UserProfile, Wallpaper } from '../types';
 import { ensurePhoneStartsWith16 } from '../utils/phoneUtils';
@@ -26,6 +30,7 @@ import { DEFAULT_PIDGEON_AVATAR, PRESET_AVATARS, createSvgAvatar } from '../util
 import { isPhoneTakenByAnotherUser } from '../utils/phoneValidation';
 import { PidgeXFullLogo } from './BirdLogo';
 import { ProfileQrCardModal } from './ProfileQrCardModal';
+import { MONTHLY_THEMES } from '../utils/monthlyThemes';
 
 interface SettingsProfileViewProps {
   user: UserProfile;
@@ -46,6 +51,7 @@ interface SettingsProfileViewProps {
   onOpenTutorial?: () => void;
   onOpenTour?: () => void;
   onOpenInstallModal?: () => void;
+  onSelectWallpaper?: (id: string, customUrl?: string) => void;
 }
 
 export const SettingsProfileView: React.FC<SettingsProfileViewProps> = ({
@@ -67,6 +73,7 @@ export const SettingsProfileView: React.FC<SettingsProfileViewProps> = ({
   onOpenTutorial,
   onOpenTour,
   onOpenInstallModal,
+  onSelectWallpaper,
 }) => {
   const [activeTab, setActiveTab] = useState<'profile' | 'account'>('profile');
   const [name, setName] = useState<string>(user.name || 'USUARIO NUEVO');
@@ -82,6 +89,24 @@ export const SettingsProfileView: React.FC<SettingsProfileViewProps> = ({
   const [savedFeedback, setSavedFeedback] = useState<boolean>(false);
   const [phoneError, setPhoneError] = useState<string | null>(null);
   const [showQrCardModal, setShowQrCardModal] = useState<boolean>(false);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+  const [customInputUrl, setCustomInputUrl] = useState<string>(user.customWallpaperUrl || '');
+
+  const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (file) {
+      const reader = new FileReader();
+      reader.onload = (event) => {
+        if (event.target?.result) {
+          const resultUrl = event.target.result as string;
+          setCustomInputUrl(resultUrl);
+          if (onSelectWallpaper) onSelectWallpaper('custom', resultUrl);
+          onUpdateUser({ wallpaperId: 'custom', customWallpaperUrl: resultUrl });
+        }
+      };
+      reader.readAsDataURL(file);
+    }
+  };
 
   useEffect(() => {
     setName(user.name || 'USUARIO NUEVO');
@@ -122,7 +147,7 @@ export const SettingsProfileView: React.FC<SettingsProfileViewProps> = ({
   };
 
   return (
-    <div className={`flex flex-col w-full h-full min-h-screen ${isNightMode ? 'bg-[#0f131c] text-[#dfe2ee]' : 'bg-[#e0f2fe] text-[#0c2340]'}`}>
+    <div className={`flex flex-col w-full h-full min-h-screen ${isNightMode ? 'bg-[#0f131c]/75 text-[#dfe2ee]' : 'bg-[#e0f2fe]/75 text-[#0c2340]'} backdrop-blur-md`}>
       {/* Header */}
       <header className={`sticky top-0 z-40 backdrop-blur-xl border-b px-4 h-16 flex items-center justify-between ${
         isNightMode ? 'bg-[#0f131c]/90 border-white/5' : 'bg-white/90 border-sky-200/80'
@@ -309,6 +334,141 @@ export const SettingsProfileView: React.FC<SettingsProfileViewProps> = ({
                     {s.label}
                   </button>
                 ))}
+              </div>
+            </section>
+
+            {/* Selector de Tema Festivo Mensual */}
+            <section className="rounded-3xl bg-[#141822] border border-white/10 p-5 shadow-xl flex flex-col gap-3">
+              <div className="flex items-center gap-2.5 pb-2 border-b border-white/10">
+                <div className="w-8 h-8 rounded-xl bg-amber-500/20 text-amber-400 flex items-center justify-center">
+                  <Sparkles className="w-4 h-4" />
+                </div>
+                <div>
+                  <h4 className="text-xs font-bold text-white">Tema Festivo Mensual (Día de Muertos / Noviembre)</h4>
+                  <span className="text-[10px] text-[#8d90a0]">Elige la festividad activa de tus chats y banners</span>
+                </div>
+              </div>
+
+              <div className="grid grid-cols-2 sm:grid-cols-3 gap-2 max-h-56 overflow-y-auto pr-1">
+                <button
+                  onClick={() => onUpdateUser({ monthlyTheme: 'auto' })}
+                  className={`p-2.5 rounded-xl border text-left transition-all cursor-pointer ${
+                    !user.monthlyTheme || user.monthlyTheme === 'auto'
+                      ? 'bg-blue-600 border-blue-500 text-white shadow-md'
+                      : 'bg-[#1c2028] border-white/5 text-[#8d90a0] hover:text-white'
+                  }`}
+                >
+                  <div className="text-xs font-bold flex items-center gap-1.5">
+                    <span>📅</span>
+                    <span>Automático (Mes actual)</span>
+                  </div>
+                  <span className="text-[10px] opacity-80 mt-0.5 block">Sigue el calendario real</span>
+                </button>
+
+                {MONTHLY_THEMES.map((theme) => {
+                  const isSelected = user.monthlyTheme === theme.id;
+                  return (
+                    <button
+                      key={theme.id}
+                      onClick={() => onUpdateUser({ monthlyTheme: theme.id })}
+                      className={`p-2.5 rounded-xl border text-left transition-all cursor-pointer ${
+                        isSelected
+                          ? 'bg-amber-600 border-amber-500 text-white shadow-md'
+                          : 'bg-[#1c2028] border-white/5 text-[#8d90a0] hover:text-white'
+                      }`}
+                    >
+                      <div className="text-xs font-bold flex items-center gap-1.5 truncate">
+                        <span>{theme.icon}</span>
+                        <span className="truncate">{theme.name}</span>
+                      </div>
+                      <span className="text-[10px] opacity-80 mt-0.5 block truncate">{theme.festivityName}</span>
+                    </button>
+                  );
+                })}
+              </div>
+            </section>
+
+            {/* Selector de Fondo de Pantalla Global */}
+            <section className="rounded-3xl bg-[#141822] border border-white/10 p-5 shadow-xl flex flex-col gap-3">
+              <div className="flex items-center gap-2.5 pb-2 border-b border-white/10">
+                <div className="w-8 h-8 rounded-xl bg-sky-500/20 text-sky-400 flex items-center justify-center">
+                  <WallpaperIcon className="w-4 h-4" />
+                </div>
+                <div>
+                  <h4 className="text-xs font-bold text-white">Fondo de Pantalla Global</h4>
+                  <span className="text-[10px] text-[#8d90a0]">Cambia el fondo de pantalla en todas tus conversaciones</span>
+                </div>
+              </div>
+
+              <div className="grid grid-cols-2 sm:grid-cols-3 gap-2.5 max-h-60 overflow-y-auto pr-1">
+                {wallpapers.map((wp) => {
+                  const isSelected = user.wallpaperId === wp.id;
+                  return (
+                    <div
+                      key={wp.id}
+                      onClick={() => {
+                        if (onSelectWallpaper) {
+                          onSelectWallpaper(wp.id);
+                        }
+                        onUpdateUser({ wallpaperId: wp.id, customWallpaperUrl: '' });
+                      }}
+                      className={`group relative rounded-2xl overflow-hidden aspect-video border-2 cursor-pointer transition-all ${
+                        isSelected ? 'border-blue-500 ring-2 ring-blue-500/40 shadow-lg scale-98' : 'border-white/10 hover:border-white/30'
+                      }`}
+                    >
+                      <img src={wp.url} alt={wp.name} className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300" />
+                      <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-black/20 to-transparent flex items-end p-2">
+                        <span className="text-[11px] font-bold text-white truncate">{wp.name}</span>
+                      </div>
+                      {isSelected && (
+                        <div className="absolute top-2 right-2 w-5 h-5 rounded-full bg-blue-600 text-white flex items-center justify-center shadow">
+                          <Check className="w-3 h-3 stroke-[3]" />
+                        </div>
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
+
+              {/* Custom Image Upload & URL from device */}
+              <div className="mt-2 pt-3 border-t border-white/15 flex flex-col gap-2.5">
+                <input
+                  type="file"
+                  ref={fileInputRef}
+                  onChange={handleFileUpload}
+                  accept="image/*"
+                  className="hidden"
+                />
+
+                <div className="flex items-center gap-2">
+                  <button
+                    onClick={() => fileInputRef.current?.click()}
+                    className="flex-1 py-2.5 px-3 rounded-xl bg-gradient-to-r from-sky-600 to-blue-600 hover:from-sky-500 hover:to-blue-500 text-white text-xs font-bold shadow flex items-center justify-center gap-1.5 cursor-pointer transition-all"
+                  >
+                    <Upload className="w-3.5 h-3.5" />
+                    <span>Subir imagen guardada de mi celular</span>
+                  </button>
+                </div>
+
+                <div className="flex items-center gap-2">
+                  <input
+                    type="url"
+                    value={customInputUrl}
+                    onChange={(e) => setCustomInputUrl(e.target.value)}
+                    placeholder="O pega el enlace URL de una imagen..."
+                    className="flex-1 px-3 py-2 rounded-xl bg-[#1c2028] border border-white/10 text-xs text-white placeholder-gray-500 focus:outline-none focus:border-sky-500"
+                  />
+                  <button
+                    onClick={() => {
+                      if (!customInputUrl.trim()) return;
+                      if (onSelectWallpaper) onSelectWallpaper('custom', customInputUrl.trim());
+                      onUpdateUser({ wallpaperId: 'custom', customWallpaperUrl: customInputUrl.trim() });
+                    }}
+                    className="px-3 py-2 rounded-xl bg-white/10 hover:bg-white/20 text-white text-xs font-bold border border-white/10 transition-colors cursor-pointer"
+                  >
+                    Aplicar URL
+                  </button>
+                </div>
               </div>
             </section>
 

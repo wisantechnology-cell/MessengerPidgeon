@@ -470,6 +470,9 @@ export default function App() {
         snapshot.docs.forEach((d) => {
           const data = d.data();
           if (!data) return;
+          if (data.callerId === user.id || (data.callerPhone && getCleanPhone(data.callerPhone) === myPhoneClean)) {
+            return;
+          }
           const recPhone = getCleanPhone(data.receiverPhone);
           const isForMe =
             (recPhone && recPhone === myPhoneClean) ||
@@ -1831,6 +1834,7 @@ export default function App() {
                   onOpenStarredMessages={() => setIsStarredModalOpen(true)}
                   onOpenLocalRadar={() => setIsLocalRadarOpen(true)}
                   onOpenInstallModal={() => setIsInstallModalOpen(true)}
+                  onOpenAddFriend={() => setIsAddFriendModalOpen(true)}
                   isClassicMode={isClassicMode}
                 />
               </div>
@@ -1955,6 +1959,7 @@ export default function App() {
                   onOpenTutorial={() => setIsTutorialOpen(true)}
                   onOpenTour={() => setIsTourOpen(true)}
                   onOpenInstallModal={() => setIsInstallModalOpen(true)}
+                  onSelectWallpaper={(wpId, customUrl) => handleSelectWallpaper(wpId, customUrl)}
                 />
               </div>
             )}

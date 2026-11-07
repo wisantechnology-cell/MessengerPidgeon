@@ -64,6 +64,58 @@ export const CallModal: React.FC<CallModalProps> = ({
 
   const audioCtxRef = useRef<AudioContext | null>(null);
   const outRingIntervalRef = useRef<NodeJS.Timeout | null>(null);
+  const localVideoRef = useRef<HTMLVideoElement | null>(null);
+  const mediaStreamRef = useRef<MediaStream | null>(null);
+
+  useEffect(() => {
+    if (!isOpen || callStatus !== 'connected') {
+      if (mediaStreamRef.current) {
+        mediaStreamRef.current.getTracks().forEach((track) => track.stop());
+        mediaStreamRef.current = null;
+      }
+      return;
+    }
+
+    async function initMedia() {
+      try {
+        const stream = await navigator.mediaDevices.getUserMedia({
+          video: isVideo,
+          audio: { echoCancellation: true, noiseSuppression: true },
+        });
+        mediaStreamRef.current = stream;
+        if (localVideoRef.current) {
+          localVideoRef.current.srcObject = stream;
+        }
+      } catch (err) {
+        console.warn('Media devices access error (camera/mic):', err);
+      }
+    }
+
+    initMedia();
+
+    return () => {
+      if (mediaStreamRef.current) {
+        mediaStreamRef.current.getTracks().forEach((track) => track.stop());
+        mediaStreamRef.current = null;
+      }
+    };
+  }, [isOpen, callStatus, isVideo]);
+
+  useEffect(() => {
+    if (mediaStreamRef.current) {
+      mediaStreamRef.current.getAudioTracks().forEach((track) => {
+        track.enabled = !isMuted;
+      });
+    }
+  }, [isMuted]);
+
+  useEffect(() => {
+    if (mediaStreamRef.current) {
+      mediaStreamRef.current.getVideoTracks().forEach((track) => {
+        track.enabled = !isVideoOff;
+      });
+    }
+  }, [isVideoOff]);
 
   // Reset state on open/close
   useEffect(() => {
@@ -346,11 +398,17 @@ export const CallModal: React.FC<CallModalProps> = ({
               <span className="text-xs text-blue-300 mt-1">Transmisión AR segura PidgeX HD</span>
             </div>
 
-            <div className="absolute bottom-4 right-4 w-32 h-24 rounded-2xl bg-[#1c2028] border-2 border-white/20 shadow-2xl overflow-hidden flex flex-col items-center justify-center">
-              <div className="w-8 h-8 rounded-full bg-blue-600 flex items-center justify-center text-white text-xs font-bold mb-1 shadow">
+            <div className="absolute bottom-4 right-4 w-36 h-28 rounded-2xl bg-[#1c2028] border-2 border-white/20 shadow-2xl overflow-hidden flex flex-col items-center justify-center">
+              <video
+                ref={localVideoRef}
+                autoPlay
+                playsInline
+                muted
+                className="w-full h-full object-cover"
+              />
+              <div className="absolute bottom-1 left-1 px-1.5 py-0.5 rounded bg-black/60 text-[10px] font-bold text-white shadow">
                 Tú
               </div>
-              <span className="text-[10px] text-gray-300">Cámara Activa</span>
             </div>
           </div>
         ) : (

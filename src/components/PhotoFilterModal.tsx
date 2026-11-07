@@ -81,17 +81,25 @@ export const PhotoFilterModal: React.FC<PhotoFilterModalProps> = ({
         audio: false,
       });
       streamRef.current = stream;
-      if (videoRef.current) {
-        videoRef.current.srcObject = stream;
-        videoRef.current.play();
-      }
       setIsCameraActive(true);
       setCameraFacing(facing);
-    } catch {
-      // Fallback if camera is unavailable or denied in iframe
+      if (videoRef.current) {
+        videoRef.current.srcObject = stream;
+        videoRef.current.play().catch(() => {});
+      }
+    } catch (err) {
+      console.warn('Camera access error:', err);
       setIsCameraActive(false);
+      alert('No se pudo acceder a la cámara. Verifica los permisos de tu navegador o sube una foto de tu galería.');
     }
   };
+
+  useEffect(() => {
+    if (isCameraActive && streamRef.current && videoRef.current) {
+      videoRef.current.srcObject = streamRef.current;
+      videoRef.current.play().catch(() => {});
+    }
+  }, [isCameraActive]);
 
   const handleCaptureCamera = () => {
     if (videoRef.current && canvasRef.current) {

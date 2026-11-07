@@ -34,7 +34,6 @@ import {
 import { Chat, ChatCategory, UserProfile, Wallpaper } from '../types';
 import { StatusItem } from '../types/status';
 import { BirdLogo } from './BirdLogo';
-import { PotentialAcquaintancesSection } from './PotentialAcquaintancesSection';
 import { StatusSection } from './StatusSection';
 import { AddFriendData } from './AddFriendModal';
 import { getActiveMonthlyTheme } from '../utils/monthlyThemes';
@@ -489,14 +488,6 @@ export const ChatsListView: React.FC<ChatsListViewProps> = ({
           </div>
         </section>
 
-        {/* Apartado de Posibles Conocidos (Solo si son amigos de tus amigos) */}
-        {!isClassicMode && onAddFriend && (
-          <PotentialAcquaintancesSection
-            chats={chats}
-            onAddFriend={onAddFriend}
-            onOpenAddFriend={onOpenAddFriend}
-          />
-        )}
 
         {/* Statuses Section */}
         {!isClassicMode && (

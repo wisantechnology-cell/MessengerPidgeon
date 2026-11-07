@@ -191,16 +191,27 @@ export const SendVoiceMessageModal: React.FC<SendVoiceMessageModalProps> = ({
     setIsRecording(false);
     setIsPaused(false);
 
-    // Fallback if no real audio blob generated
-    if (!audioUrl) {
+    if (!audioUrl && audioChunksRef.current.length > 0) {
+      const audioBlob = new Blob(audioChunksRef.current, { type: 'audio/webm' });
+      const url = URL.createObjectURL(audioBlob);
+      setAudioUrl(url);
+    } else if (!audioUrl) {
       const fallbackUrl = createFallbackVoiceAudio(Math.max(2, seconds));
       setAudioUrl(fallbackUrl);
     }
   };
 
   const togglePreviewPlay = () => {
-    const finalUrl = audioUrl || createFallbackVoiceAudio(Math.max(2, seconds));
-    if (!audioUrl) setAudioUrl(finalUrl);
+    let finalUrl = audioUrl;
+    if (!finalUrl && audioChunksRef.current.length > 0) {
+      const audioBlob = new Blob(audioChunksRef.current, { type: 'audio/webm' });
+      finalUrl = URL.createObjectURL(audioBlob);
+      setAudioUrl(finalUrl);
+    }
+    if (!finalUrl) {
+      finalUrl = createFallbackVoiceAudio(Math.max(2, seconds));
+      setAudioUrl(finalUrl);
+    }
 
     if (!previewAudioRef.current) {
       const audio = new Audio(finalUrl);
@@ -239,7 +250,14 @@ export const SendVoiceMessageModal: React.FC<SendVoiceMessageModalProps> = ({
     }
 
     const durationText = formatTime(Math.max(1, seconds));
-    const finalUrl = audioUrl || createFallbackVoiceAudio(Math.max(2, seconds));
+    let finalUrl = audioUrl;
+    if (!finalUrl && audioChunksRef.current.length > 0) {
+      const audioBlob = new Blob(audioChunksRef.current, { type: 'audio/webm' });
+      finalUrl = URL.createObjectURL(audioBlob);
+    }
+    if (!finalUrl) {
+      finalUrl = createFallbackVoiceAudio(Math.max(2, seconds));
+    }
 
     onSendVoiceMessage(selectedChatId, durationText, finalUrl);
     onClose();

@@ -180,9 +180,16 @@ export const VoiceRecorder: React.FC<VoiceRecorderProps> = ({
 
     const finalDuration = formatTime(Math.max(1, seconds));
     let finalAudioUrl = audioUrl;
+
+    if (!finalAudioUrl && audioChunksRef.current.length > 0) {
+      const audioBlob = new Blob(audioChunksRef.current, { type: 'audio/webm' });
+      finalAudioUrl = URL.createObjectURL(audioBlob);
+    }
+
     if (!finalAudioUrl) {
       finalAudioUrl = createFallbackVoiceAudio(Math.max(2, seconds));
     }
+
     onSendVoice(finalDuration, finalAudioUrl, voiceFilter);
   };
 

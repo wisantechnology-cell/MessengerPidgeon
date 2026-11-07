@@ -10,7 +10,7 @@ export const INITIAL_USER: UserProfile = {
   phone: '16 612 345 678',
   email: 'wisantechnology@gmail.com',
   status: 'online',
-  wallpaperId: 'nebulosa_azul',
+  wallpaperId: 'dodos_doodle',
   wallpaperDim: 0.15,
   doNotDisturb: false,
   dndDuration: 'always',
@@ -27,12 +27,12 @@ export const INITIAL_USER: UserProfile = {
 
 export const WALLPAPERS: Wallpaper[] = [
   {
-    id: 'nebulosa_azul',
-    name: 'Nebulosa Azul',
-    url: 'https://lh3.googleusercontent.com/aida-public/AB6AXuAqFUCLQNdmovh9Ql0BFviUpT3A1FlQHRhjp44xlBQY9duR28bb-OH1J3BffijGxK2tqaQu0nsfxAoQn4nSRrzjY9CX791fZ9JqAew7-NEXw2efDfdWTyxt-FQD88qaTaHNuUwK7XOZRUfNJNiKr7jgsKe0TLfGwwrGCZOoC9lzHEzEgIYHUvWVJXq4i-TJtl9FzOPRjxtv4tyIdJCXjO27AaIeulCnPNlPjdKjAmhf25xuwAnxEbU3',
-    previewUrl: 'https://lh3.googleusercontent.com/aida-public/AB6AXuDt8jUckY5-G5FlRFYsNqyqOAkYsgfX6LV4li_NFWk1HPUvJS9lP2699AL39LrtWJVPIemjF3WXjTiemQa8vlFu6Eu4HKCwjW3P5bmBFjva2mCNMXS5jR3v6EFyhnk0bFvc6eHcifWpbgzH-LnWltgCLNb5xIklWjOO9F2EGKllgsormLjqOCcZw51yABaG9IV7WN4x2lxjZHby2tmwqaDc--4UtkNiXkeAbegKAu65uIcLoS-gSMy0',
-    description: 'Ondas cósmicas azules y partículas sutiles de neón',
-    category: 'Espacial',
+    id: 'dodos_doodle',
+    name: 'Dodos & Monstruos Doodle',
+    url: '/assets/aistudio/Dodos_NO_AVES_c686460b.jpg',
+    previewUrl: '/assets/aistudio/Dodos_NO_AVES_c686460b.jpg',
+    description: 'Fondo exclusivo de dodos y monstruos doodle',
+    category: 'Exclusivo',
   },
   {
     id: 'aurora',
