@@ -14,6 +14,7 @@ import {
   Zap,
 } from 'lucide-react';
 import { playSound } from '../../utils/gameAudio';
+import { PikitoMascot } from '../PikitoMascot';
 
 interface StopGrupalGameProps {
   onBack: () => void;
@@ -48,12 +49,12 @@ export const StopGrupalGame: React.FC<StopGrupalGameProps> = ({ onBack, groupNam
 
   // Group competitors list
   const [groupRankings, setGroupRankings] = useState<
-    { name: string; avatar: string; score: number; isMe?: boolean }[]
+    { name: string; initial: string; score: number; isMe?: boolean }[]
   >([
-    { name: 'Tú (Jugador)', avatar: '🕊️', score: 0, isMe: true },
-    { name: 'Ana (Amiga)', avatar: '👩‍🎨', score: 0 },
-    { name: 'Carlos (Líder)', avatar: '🚀', score: 0 },
-    { name: 'Sofía', avatar: '⭐', score: 0 },
+    { name: 'Tú (Jugador)', initial: 'P', score: 0, isMe: true },
+    { name: 'Ana (Amiga)', initial: 'A', score: 0 },
+    { name: 'Carlos (Líder)', initial: 'C', score: 0 },
+    { name: 'Sofía', initial: 'S', score: 0 },
   ]);
 
   // Timer countdown
@@ -183,11 +184,11 @@ export const StopGrupalGame: React.FC<StopGrupalGameProps> = ({ onBack, groupNam
         {/* Inputs List for Categories */}
         <div className="flex flex-col gap-2.5">
           {[
-            { key: 'nombre', label: '👤 Nombre de Persona', placeholder: `Escribe un nombre...` },
-            { key: 'ciudad', label: '🌍 Ciudad / País', placeholder: `Escribe una ciudad o país...` },
-            { key: 'animal', label: '🦁 Animal', placeholder: `Escribe un animal...` },
-            { key: 'comida', label: '🍕 Fruta / Comida', placeholder: `Escribe una fruta o comida...` },
-            { key: 'cosa', label: '📦 Cosa / Objeto', placeholder: `Escribe un objeto...` },
+            { key: 'nombre', label: 'Nombre de Persona', placeholder: `Escribe un nombre...` },
+            { key: 'ciudad', label: 'Ciudad / País', placeholder: `Escribe una ciudad o país...` },
+            { key: 'animal', label: 'Animal', placeholder: `Escribe un animal...` },
+            { key: 'comida', label: 'Fruta / Comida', placeholder: `Escribe una fruta o comida...` },
+            { key: 'cosa', label: 'Cosa / Objeto', placeholder: `Escribe un objeto...` },
           ].map((cat) => {
             const fieldKey = cat.key as keyof CategoryInput;
             const val = inputs[fieldKey];
@@ -204,7 +205,7 @@ export const StopGrupalGame: React.FC<StopGrupalGameProps> = ({ onBack, groupNam
                         isValid ? 'text-emerald-400' : 'text-red-400'
                       }`}
                     >
-                      {isValid ? '100 Pts ✔️' : '0 Pts ❌'}
+                      {isValid ? '+100 Pts' : '0 Pts'}
                     </span>
                   )}
                 </label>
@@ -277,7 +278,13 @@ export const StopGrupalGame: React.FC<StopGrupalGameProps> = ({ onBack, groupNam
               >
                 <div className="flex items-center gap-2">
                   <span className="font-bold text-[#8d90a0] text-xs">#{idx + 1}</span>
-                  <span>{p.avatar}</span>
+                  {p.isMe ? (
+                    <PikitoMascot size="xs" mood="happy" />
+                  ) : (
+                    <div className="w-6 h-6 rounded-full bg-slate-800 border border-white/10 flex items-center justify-center font-bold text-[10px] text-sky-300">
+                      {p.initial}
+                    </div>
+                  )}
                   <span>{p.name}</span>
                 </div>
                 <span className="font-mono font-bold text-amber-400">{p.score} pts</span>

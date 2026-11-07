@@ -22,12 +22,14 @@ import {
   Ban,
   Upload,
   Smartphone,
-  Phone,
+  Tablet,
   Radio,
   Bell,
   BellOff,
   Moon,
   Mic,
+  Flame,
+  WifiOff,
 } from 'lucide-react';
 import { Chat, ChatCategory, UserProfile, Wallpaper } from '../types';
 import { StatusItem } from '../types/status';
@@ -63,6 +65,7 @@ interface ChatsListViewProps {
   onOpenContactProfile?: (chat: Chat) => void;
   onOpenStarredMessages?: () => void;
   onOpenLocalRadar?: () => void;
+  onOpenInstallModal?: () => void;
   isClassicMode?: boolean;
 }
 
@@ -91,6 +94,7 @@ export const ChatsListView: React.FC<ChatsListViewProps> = ({
   onReplyToStatus,
   onUpdateUser,
   onOpenContactProfile,
+  onOpenInstallModal,
 }) => {
   const activeFriends = chats.filter((c) => c.isFriend !== false);
 
@@ -173,10 +177,24 @@ export const ChatsListView: React.FC<ChatsListViewProps> = ({
                     <Bell className="w-4 h-4" />
                   )}
                 </button>
+
+                {/* Botón Instalar en Celular / Tablet */}
+                {onOpenInstallModal && (
+                  <button
+                    onClick={onOpenInstallModal}
+                    title="Instalar en Celular o Tablet"
+                    aria-label="Instalar en Celular o Tablet"
+                    className={`w-9 h-9 rounded-full flex items-center justify-center transition-all cursor-pointer ${
+                      isNightMode
+                        ? 'bg-sky-500/20 text-sky-300 border border-sky-500/40 hover:bg-sky-500/35 shadow-sm'
+                        : 'bg-white/90 text-sky-700 hover:text-sky-900 border border-sky-200 shadow-sm hover:bg-sky-100/90'
+                    }`}
+                  >
+                    <Smartphone className="w-4 h-4 text-sky-400" />
+                  </button>
+                )}
               </>
             )}
-
-
 
             <div
               onClick={onOpenProfile}
@@ -202,8 +220,8 @@ export const ChatsListView: React.FC<ChatsListViewProps> = ({
       {user.status === 'offline' && (
         <div className="bg-neutral-900 border-b border-amber-500/30 px-4 py-2.5 flex items-center justify-between text-xs text-amber-200 z-30 shadow-md">
           <div className="flex items-center gap-2">
-            <span className="w-2.5 h-2.5 rounded-full bg-neutral-400 animate-pulse" />
-            <span>📴 Modo Offline activo: Los mensajes se guardan localmente y se sincronizarán al conectarte.</span>
+            <WifiOff className="w-4 h-4 text-amber-400 shrink-0" />
+            <span>Modo Offline activo: Los mensajes se guardan localmente y se sincronizarán al conectarte.</span>
           </div>
           {onUpdateUser && (
             <button
@@ -216,8 +234,39 @@ export const ChatsListView: React.FC<ChatsListViewProps> = ({
         </div>
       )}
 
-      {/* 2. Main Scrollable Container */}
-      <main className="flex-1 w-full max-w-[640px] mx-auto px-4 pt-3 pb-28 flex flex-col gap-5 overflow-y-auto">
+      {/* 2. Main Scrollable Container (Responsive for Phones and Tablets) */}
+      <main className="flex-1 w-full max-w-[760px] mx-auto px-4 pt-3 pb-28 flex flex-col gap-4 overflow-y-auto">
+        {/* Botón Instalar en Celular y Tablet */}
+        {onOpenInstallModal && (
+          <div className={`p-3 rounded-2xl border backdrop-blur-xl flex items-center justify-between gap-3 shadow-sm ${
+            isNightMode
+              ? 'bg-[#141822]/90 border-sky-500/25 text-[#dfe2ee]'
+              : 'bg-white/95 border-sky-200 text-[#0c2340]'
+          }`}>
+            <div className="flex items-center gap-2.5 min-w-0">
+              <div className="w-9 h-9 rounded-xl bg-sky-500/20 text-sky-400 flex items-center justify-center shrink-0">
+                <Smartphone className="w-4 h-4" />
+              </div>
+              <div className="flex flex-col min-w-0">
+                <span className={`font-bold text-xs truncate ${isNightMode ? 'text-white' : 'text-[#0c2340]'}`}>
+                  Instalar en Celular o Tablet
+                </span>
+                <span className="text-[11px] text-[#8d90a0]">
+                  Usa PidgeX en pantalla completa como app nativa
+                </span>
+              </div>
+            </div>
+
+            <button
+              onClick={onOpenInstallModal}
+              className="px-3.5 py-1.5 rounded-xl bg-gradient-to-r from-sky-500 to-blue-600 hover:from-sky-600 hover:to-blue-700 text-white text-xs font-bold transition-all shadow-md flex items-center justify-center gap-1.5 cursor-pointer active:scale-95 whitespace-nowrap"
+            >
+              <Tablet className="w-3.5 h-3.5" />
+              <span>Instalar</span>
+            </button>
+          </div>
+        )}
+
         {/* Banner Modo No Molestar */}
         {user.doNotDisturb && (
           <section className="flex items-center justify-between p-3.5 rounded-2xl bg-gradient-to-r from-amber-950/40 via-[#1a1714]/80 to-[#141822]/80 backdrop-blur-xl border border-amber-500/30 shadow-lg animate-in fade-in slide-in-from-top-2 duration-200">
@@ -347,12 +396,14 @@ export const ChatsListView: React.FC<ChatsListViewProps> = ({
                         }`}>
                           {c.name}
                         </h4>
-                        <span className="flex items-center gap-0.5 text-[10px] font-bold text-amber-500 bg-amber-500/10 px-1.5 py-0.2 rounded-full border border-amber-500/20 shrink-0" title="Racha de días chateando">
-                          🔥 {c.streakDays || Math.floor((c.id.length * 3) % 12) + 3}d
+                        <span className="flex items-center gap-1 text-[10px] font-bold text-amber-500 bg-amber-500/10 px-1.5 py-0.5 rounded-full border border-amber-500/20 shrink-0" title="Racha de días chateando">
+                          <Flame className="w-3 h-3 text-amber-500 fill-amber-500" />
+                          <span>{c.streakDays || Math.floor((c.id.length * 3) % 12) + 3}d</span>
                         </span>
                         {c.isRealTime && (
-                          <span className="px-1.5 py-0.2 rounded bg-[#10b981]/20 text-[#10b981] dark:text-[#34d399] border border-[#10b981]/30 text-[10px] font-bold shrink-0">
-                            En Vivo 🟢
+                          <span className="px-1.5 py-0.5 rounded bg-[#10b981]/20 text-[#10b981] dark:text-[#34d399] border border-[#10b981]/30 text-[10px] font-bold shrink-0 flex items-center gap-1">
+                            <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
+                            <span>En Vivo</span>
                           </span>
                         )}
                         {c.isVerified && (

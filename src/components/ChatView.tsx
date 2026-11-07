@@ -48,6 +48,48 @@ import { ForwardModal } from './ForwardModal';
 import { STICKERS } from '../data/mockData';
 import { VoiceRecorder } from './VoiceRecorder';
 import { VoicePlayer } from './VoicePlayer';
+import {
+  TrophyVectorIcon,
+  PaletteVectorIcon,
+  ZapVectorIcon,
+  ReactionHeartIcon,
+  ReactionThumbIcon,
+  ReactionFlameIcon,
+  ReactionPartyIcon,
+  ReactionClapIcon,
+  TikTokVectorIcon,
+  FacebookVectorIcon,
+} from './CustomVectorIcons';
+
+const REACTION_OPTIONS = [
+  { key: '❤️', label: 'Me encanta', icon: <ReactionHeartIcon className="w-4 h-4" /> },
+  { key: '👍', label: 'Me gusta', icon: <ReactionThumbIcon className="w-4 h-4" /> },
+  { key: '🔥', label: 'Fuego', icon: <ReactionFlameIcon className="w-4 h-4" /> },
+  { key: '🙌', label: 'Aplausos', icon: <ReactionClapIcon className="w-4 h-4" /> },
+  { key: '🎉', label: 'Fiesta', icon: <ReactionPartyIcon className="w-4 h-4" /> },
+];
+
+const renderReactionIcon = (reactionKey: string) => {
+  switch (reactionKey) {
+    case '❤️':
+    case 'love':
+      return <ReactionHeartIcon className="w-3.5 h-3.5" />;
+    case '👍':
+    case 'like':
+      return <ReactionThumbIcon className="w-3.5 h-3.5" />;
+    case '🔥':
+    case 'fire':
+      return <ReactionFlameIcon className="w-3.5 h-3.5" />;
+    case '🎉':
+    case 'party':
+      return <ReactionPartyIcon className="w-3.5 h-3.5" />;
+    case '🙌':
+    case 'clap':
+      return <ReactionClapIcon className="w-3.5 h-3.5" />;
+    default:
+      return <span className="text-xs">{reactionKey}</span>;
+  }
+};
 import { PhotoFilterModal } from './PhotoFilterModal';
 import { EmojiStickerPicker } from './EmojiStickerPicker';
 import { MediaModal } from './MediaModal';
@@ -87,6 +129,7 @@ interface ChatViewProps {
   onStartPrivateChat?: (memberId: string, memberName: string) => void;
   onForwardMessage?: (targetChatId: string, message: Message) => void;
   onExportChat?: (chat: Chat) => void;
+  onStartCall?: (chat: Chat, isVideo: boolean) => void;
 }
 
 interface VideoPreview {
@@ -179,6 +222,7 @@ export const ChatView: React.FC<ChatViewProps> = ({
   onStartPrivateChat,
   onForwardMessage,
   onExportChat,
+  onStartCall,
 }) => {
   const [inputText, setInputText] = useState<string>('');
   const [showChatThemeModal, setShowChatThemeModal] = useState<boolean>(false);
@@ -230,7 +274,7 @@ export const ChatView: React.FC<ChatViewProps> = ({
       senderName: user.name,
       senderAvatar: user.avatarUrl,
       type: 'text',
-      text: `🎮 ¡${user.name} ha solicitado iniciar una partida de ${gameTitle} en este grupo! 🚀`,
+      text: `¡${user.name} ha solicitado iniciar una partida de ${gameTitle} en este grupo!`,
       timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
       isRead: true,
     });
@@ -499,9 +543,9 @@ export const ChatView: React.FC<ChatViewProps> = ({
                       </div>
                       <button
                         onClick={() => handleStartGroupGameClick('triviagrupal', 'Trivia & Quiz Grupal')}
-                        className="w-full text-left px-3 py-2 rounded-xl text-xs text-[#dfe2ee] hover:bg-purple-600/20 hover:text-white flex items-center gap-2 cursor-pointer transition-colors"
+                        className="w-full text-left px-3 py-2 rounded-xl text-xs text-[#dfe2ee] hover:bg-purple-600/20 hover:text-white flex items-center gap-2.5 cursor-pointer transition-colors"
                       >
-                        <span className="text-base">🏆</span>
+                        <TrophyVectorIcon className="w-5 h-5 shrink-0" />
                         <div>
                           <div className="font-bold">Trivia & Quiz</div>
                           <div className="text-[10px] text-[#8d90a0]">Cultura general</div>
@@ -509,9 +553,9 @@ export const ChatView: React.FC<ChatViewProps> = ({
                       </button>
                       <button
                         onClick={() => handleStartGroupGameClick('dibujayadivina', 'Dibuja y Adivina')}
-                        className="w-full text-left px-3 py-2 rounded-xl text-xs text-[#dfe2ee] hover:bg-sky-600/20 hover:text-white flex items-center gap-2 cursor-pointer transition-colors"
+                        className="w-full text-left px-3 py-2 rounded-xl text-xs text-[#dfe2ee] hover:bg-sky-600/20 hover:text-white flex items-center gap-2.5 cursor-pointer transition-colors"
                       >
-                        <span className="text-base">🎨</span>
+                        <PaletteVectorIcon className="w-5 h-5 shrink-0" />
                         <div>
                           <div className="font-bold">Dibuja y Adivina</div>
                           <div className="text-[10px] text-[#8d90a0]">Arte en lienzo</div>
@@ -519,9 +563,9 @@ export const ChatView: React.FC<ChatViewProps> = ({
                       </button>
                       <button
                         onClick={() => handleStartGroupGameClick('stopgrupal', 'Tutti Frutti / STOP')}
-                        className="w-full text-left px-3 py-2 rounded-xl text-xs text-[#dfe2ee] hover:bg-orange-600/20 hover:text-white flex items-center gap-2 cursor-pointer transition-colors"
+                        className="w-full text-left px-3 py-2 rounded-xl text-xs text-[#dfe2ee] hover:bg-orange-600/20 hover:text-white flex items-center gap-2.5 cursor-pointer transition-colors"
                       >
-                        <span className="text-base">⚡</span>
+                        <ZapVectorIcon className="w-5 h-5 shrink-0" />
                         <div>
                           <div className="font-bold">Tutti Frutti / STOP</div>
                           <div className="text-[10px] text-[#8d90a0]">Basta de palabras</div>
@@ -587,7 +631,7 @@ export const ChatView: React.FC<ChatViewProps> = ({
                     senderName: user.name,
                     senderAvatar: user.avatarUrl,
                     type: 'text',
-                    text: `📞 ¡${user.name} ha iniciado una llamada de voz grupal! 🔊`,
+                    text: `¡${user.name} ha iniciado una llamada de voz grupal!`,
                     timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
                     isRead: true,
                   });
@@ -597,12 +641,16 @@ export const ChatView: React.FC<ChatViewProps> = ({
                     senderName: user.name,
                     senderAvatar: user.avatarUrl,
                     type: 'text',
-                    text: `📞 ¡${user.name} ha iniciado una llamada de voz! 🔊`,
+                    text: `¡${user.name} ha iniciado una llamada de voz!`,
                     timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
                     isRead: true,
                   });
                 }
-                setCallConfig({ isOpen: true, isVideo: false });
+                if (onStartCall) {
+                  onStartCall(chat, false);
+                } else {
+                  setCallConfig({ isOpen: true, isVideo: false });
+                }
               }}
               aria-label="Llamada de voz"
               className={`w-9 h-9 rounded-full flex items-center justify-center transition-colors shadow-sm cursor-pointer ${
@@ -619,7 +667,7 @@ export const ChatView: React.FC<ChatViewProps> = ({
                     senderName: user.name,
                     senderAvatar: user.avatarUrl,
                     type: 'text',
-                    text: `📹 ¡${user.name} ha iniciado una videollamada grupal! 🎥`,
+                    text: `¡${user.name} ha iniciado una videollamada grupal!`,
                     timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
                     isRead: true,
                   });
@@ -629,12 +677,16 @@ export const ChatView: React.FC<ChatViewProps> = ({
                     senderName: user.name,
                     senderAvatar: user.avatarUrl,
                     type: 'text',
-                    text: `📹 ¡${user.name} ha iniciado una videollamada! 🎥`,
+                    text: `¡${user.name} ha iniciado una videollamada!`,
                     timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
                     isRead: true,
                   });
                 }
-                setCallConfig({ isOpen: true, isVideo: true });
+                if (onStartCall) {
+                  onStartCall(chat, true);
+                } else {
+                  setCallConfig({ isOpen: true, isVideo: true });
+                }
               }}
               aria-label="Videollamada"
               className={`w-9 h-9 rounded-full flex items-center justify-center transition-colors shadow-sm cursor-pointer ${
@@ -709,7 +761,7 @@ export const ChatView: React.FC<ChatViewProps> = ({
                     className="w-full text-left px-2 py-1.5 rounded-lg text-xs text-[#dfe2ee] hover:bg-white/5 flex items-center gap-2 cursor-pointer"
                   >
                     <Palette className="w-3.5 h-3.5 text-purple-400" />
-                    <span>🎨 Cambiar Tema del Chat</span>
+                    <span>Cambiar Tema del Chat</span>
                   </button>
                   <button
                     onClick={() => setShowSecurityPopover(false)}
@@ -949,13 +1001,14 @@ export const ChatView: React.FC<ChatViewProps> = ({
                     isMe ? 'right-2' : 'left-2'
                   } z-30 bg-[#1c2028]/95 border border-white/10 rounded-full px-2 py-0.5 flex items-center gap-1 shadow-lg backdrop-blur-md animate-in fade-in duration-150`}
                 >
-                  {['❤️', '👍', '🔥', '🙌', '🎉'].map((emo) => (
+                  {REACTION_OPTIONS.map((item) => (
                     <button
-                      key={emo}
-                      onClick={() => onAddReaction(chat.id, msg.id, emo)}
-                      className="text-sm hover:scale-125 transition-transform"
+                      key={item.key}
+                      onClick={() => onAddReaction(chat.id, msg.id, item.key)}
+                      className="p-1 rounded-full hover:bg-white/10 hover:scale-125 transition-transform flex items-center justify-center cursor-pointer"
+                      title={item.label}
                     >
-                      {emo}
+                      {item.icon}
                     </button>
                   ))}
 
@@ -1020,10 +1073,10 @@ export const ChatView: React.FC<ChatViewProps> = ({
                             </div>
                           </div>
                           <div className="absolute top-2 left-2 px-2 py-0.5 rounded-md bg-black/70 backdrop-blur-md text-[10px] font-bold text-white flex items-center gap-1 shadow-sm">
-                            {videoPreview.platform === 'youtube' && <span className="text-red-500 font-extrabold">▶ YouTube</span>}
-                            {videoPreview.platform === 'tiktok' && <span className="text-pink-400 font-extrabold">🎵 TikTok</span>}
-                            {videoPreview.platform === 'facebook' && <span className="text-blue-400 font-extrabold">📘 Facebook</span>}
-                            {videoPreview.platform === 'generic' && <span className="text-sky-400 font-extrabold">🎬 Video</span>}
+                            {videoPreview.platform === 'youtube' && <span className="text-red-500 font-extrabold flex items-center gap-1">▶ YouTube</span>}
+                            {videoPreview.platform === 'tiktok' && <span className="text-pink-400 font-extrabold flex items-center gap-1"><TikTokVectorIcon className="w-3 h-3" /> TikTok</span>}
+                            {videoPreview.platform === 'facebook' && <span className="text-blue-400 font-extrabold flex items-center gap-1"><FacebookVectorIcon className="w-3 h-3" /> Facebook</span>}
+                            {videoPreview.platform === 'generic' && <span className="text-sky-400 font-extrabold flex items-center gap-1"><VideoIcon className="w-3 h-3" /> Video</span>}
                           </div>
                         </div>
                         <div className="p-2 bg-[#181c24] flex items-center justify-between text-xs">
@@ -1277,8 +1330,8 @@ export const ChatView: React.FC<ChatViewProps> = ({
                   } bg-[#181c24]/90 border border-white/10 rounded-full px-2 py-0.5 text-xs shadow-sm`}
                 >
                   {Object.entries(msg.reactions).map(([emo, count]) => (
-                    <span key={emo} className="flex items-center gap-0.5">
-                      <span>{emo}</span>
+                    <span key={emo} className="flex items-center gap-1 px-1.5 py-0.5 rounded-full bg-white/5">
+                      {renderReactionIcon(emo)}
                       {Number(count) > 1 && <span className="text-[10px] text-[#8d90a0] font-bold">{Number(count)}</span>}
                     </span>
                   ))}
@@ -2021,7 +2074,7 @@ export const ChatView: React.FC<ChatViewProps> = ({
             senderAvatar: user.avatarUrl,
             type: 'image',
             mediaUrl: dataUrl,
-            text: '🎨 Pizarra Colaborativa en Vivo',
+            text: 'Pizarra Colaborativa en Vivo',
             timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
             isRead: true,
           });
@@ -2039,7 +2092,7 @@ export const ChatView: React.FC<ChatViewProps> = ({
             senderAvatar: user.avatarUrl,
             type: 'poll',
             pollData,
-            text: `📊 Encuesta: ${pollData.question}`,
+            text: `Encuesta: ${pollData.question}`,
             timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
             isRead: true,
           });
@@ -2059,7 +2112,7 @@ export const ChatView: React.FC<ChatViewProps> = ({
             senderAvatar: user.avatarUrl,
             type: 'private',
             privateData: { text, pin, selfDestructSecs },
-            text: '🔒 [Mensaje Privado Confidencial protegido con PIN]',
+            text: '[Mensaje Privado Confidencial protegido con PIN]',
             timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
             isRead: true,
           });

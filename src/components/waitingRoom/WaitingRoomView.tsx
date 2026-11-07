@@ -10,6 +10,12 @@ import {
   Star,
   Users,
   HelpCircle,
+  BookOpen,
+  Mail,
+  Brain,
+  Grid,
+  Image as ImageIcon,
+  Video as VideoCam,
 } from 'lucide-react';
 import { BirdFlightGame } from './BirdFlightGame';
 import { MemoryGame } from './MemoryGame';
@@ -17,8 +23,18 @@ import { CatchLettersGame } from './CatchLettersGame';
 import { TicTacToeGame } from './TicTacToeGame';
 import { MemeStudioGame } from '../MemeStudioGame';
 import { OmegleGame } from './OmegleGame';
+import { TriviaGrupalGame } from './TriviaGrupalGame';
+import { DibujaYAdivinaGame } from './DibujaYAdivinaGame';
+import { StopGrupalGame } from './StopGrupalGame';
+import { GameTutorialModal } from './GameTutorialModal';
 import { BirdLogo } from '../BirdLogo';
 import { Chat, UserProfile } from '../../types';
+import { PikitoMascot } from '../PikitoMascot';
+import {
+  TrophyVectorIcon,
+  PaletteVectorIcon,
+  ZapVectorIcon,
+} from '../CustomVectorIcons';
 
 export type MiniGameId =
   | 'birdflight'
@@ -27,6 +43,9 @@ export type MiniGameId =
   | 'tictactoe'
   | 'memestudio'
   | 'omegle'
+  | 'triviagrupal'
+  | 'dibujayadivina'
+  | 'stopgrupal'
   | null;
 
 interface WaitingRoomViewProps {
@@ -45,6 +64,7 @@ export const WaitingRoomView: React.FC<WaitingRoomViewProps> = ({
   onSendMemeToChat,
 }) => {
   const [activeGame, setActiveGame] = useState<MiniGameId>(null);
+  const [tutorialGameId, setTutorialGameId] = useState<string | null>(null);
 
   // High score trackers from localStorage
   const birdFlightHigh = parseInt(localStorage.getItem('birdflight_highscore') || '0', 10);
@@ -56,8 +76,8 @@ export const WaitingRoomView: React.FC<WaitingRoomViewProps> = ({
       category: 'single',
       title: 'Pájaro Mensajero',
       subtitle: 'Vuelo & Obstáculos',
-      description: 'Guía al pájaro azul a través de las nubes y entrega tantas cartas como puedas.',
-      icon: '🕊️',
+      description: 'Guía al pájaro mensajero a través de las nubes y entrega tantas cartas como puedas esquivando obstáculos.',
+      icon: <PikitoMascot size="sm" mood="waving" />,
       color: 'from-[#0084ff] to-[#00a6e0]',
       badge: birdFlightHigh > 0 ? `Récord: ${birdFlightHigh}` : 'Arcade',
       badgeColor: 'bg-blue-500/20 text-[#7bd0ff]',
@@ -68,7 +88,7 @@ export const WaitingRoomView: React.FC<WaitingRoomViewProps> = ({
       title: 'Caza-Cartas',
       subtitle: 'Reflejos & Velocidad',
       description: 'Atrapa los sobres y sellos dorados que caen del cielo antes de que toquen el suelo.',
-      icon: '📬',
+      icon: <Mail className="w-6 h-6 text-white" />,
       color: 'from-amber-500 to-orange-500',
       badge: catchLettersHigh > 0 ? `Récord: ${catchLettersHigh}` : 'Frenético',
       badgeColor: 'bg-amber-500/20 text-amber-300',
@@ -79,7 +99,7 @@ export const WaitingRoomView: React.FC<WaitingRoomViewProps> = ({
       title: 'Memoria Mensajera',
       subtitle: 'Parejas & Concentración',
       description: 'Encuentra las 8 parejas de símbolos y cartas en el menor tiempo y movimientos posibles.',
-      icon: '🧠',
+      icon: <Brain className="w-6 h-6 text-white" />,
       color: 'from-emerald-500 to-teal-600',
       badge: 'Relajante',
       badgeColor: 'bg-emerald-500/20 text-emerald-300',
@@ -89,19 +109,52 @@ export const WaitingRoomView: React.FC<WaitingRoomViewProps> = ({
       category: 'single',
       title: 'Tres en Raya',
       subtitle: 'Estrategia vs IA o Amigo',
-      description: 'Pájaro Azul vs Sobre de Carta. Reta a la inteligencia artificial o juega con un amigo en el mismo dispositivo.',
-      icon: '⭕',
+      description: 'Pájaro Azul vs Sobre de Carta. Reta a la IA de PidgeX o juega 1 vs 1 en el mismo dispositivo.',
+      icon: <Grid className="w-6 h-6 text-white" />,
       color: 'from-purple-500 to-indigo-600',
       badge: '1 vs 1',
       badgeColor: 'bg-purple-500/20 text-purple-300',
     },
     {
+      id: 'triviagrupal' as const,
+      category: 'group',
+      title: 'Trivia Grupal',
+      subtitle: 'Cultura General & Velocidad',
+      description: 'Reta tus conocimientos contra el tiempo con preguntas de geografía, cine, tecnología y PidgeX.',
+      icon: <TrophyVectorIcon className="w-6 h-6" />,
+      color: 'from-indigo-600 to-blue-700',
+      badge: 'Multijugador',
+      badgeColor: 'bg-indigo-500/20 text-indigo-300',
+    },
+    {
+      id: 'dibujayadivina' as const,
+      category: 'group',
+      title: 'Dibuja y Adivina',
+      subtitle: 'Pintura & Deducción en Vivo',
+      description: 'Ilustra la palabra secreta en el lienzo o adivina en el chat los dibujos de tus compañeros.',
+      icon: <PaletteVectorIcon className="w-6 h-6" />,
+      color: 'from-amber-600 to-rose-600',
+      badge: 'En Vivo',
+      badgeColor: 'bg-rose-500/20 text-rose-300',
+    },
+    {
+      id: 'stopgrupal' as const,
+      category: 'group',
+      title: 'Stop Grupal (Basta)',
+      subtitle: 'Agilidad Mental & Vocabulario',
+      description: 'Escribe Nombre, Ciudad, Animal, Comida y Cosa con la letra elegida y canta ¡STOP!',
+      icon: <ZapVectorIcon className="w-6 h-6" />,
+      color: 'from-red-600 to-rose-700',
+      badge: 'Multijugador',
+      badgeColor: 'bg-red-500/20 text-red-300',
+    },
+    {
       id: 'memestudio' as const,
       category: 'single',
-      title: 'Meme Studio 🃏',
+      title: 'Meme Studio',
       subtitle: 'Creador de Memes',
-      description: 'Sube tu propia imagen o usa plantillas, añade texto superior e inferior, y compártelo con tus amigos.',
-      icon: '🃏',
+      description: 'Sube tu propia foto o usa plantillas, añade texto superior e inferior, y compártelo al instante.',
+      icon: <ImageIcon className="w-6 h-6 text-white" />,
       color: 'from-pink-600 to-purple-600',
       badge: 'Creativo',
       badgeColor: 'bg-pink-500/20 text-pink-300',
@@ -109,10 +162,10 @@ export const WaitingRoomView: React.FC<WaitingRoomViewProps> = ({
     {
       id: 'omegle' as const,
       category: 'single',
-      title: 'PidgeCam (Modo Extraños 🌍)',
+      title: 'PidgeCam (Modo Extraños)',
       subtitle: 'Videollamadas al Azar',
-      description: 'Conéctate mediante videollamada aleatoria con extraños de todo el mundo al estilo Omegle.',
-      icon: '🌐',
+      description: 'Conéctate mediante videollamada y chat aleatorio con usuarios reales de todo el mundo.',
+      icon: <VideoCam className="w-6 h-6 text-white" />,
       color: 'from-rose-500 to-pink-600',
       badge: 'En Vivo',
       badgeColor: 'bg-rose-500/20 text-rose-300',
@@ -130,12 +183,13 @@ export const WaitingRoomView: React.FC<WaitingRoomViewProps> = ({
           <div>
             <div className="flex items-center gap-2">
               <h1 className="text-base font-bold text-[#dfe2ee] tracking-tight">Sala de Espera PidgeX</h1>
-              <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-emerald-500/20 text-emerald-300 border border-emerald-500/30">
-                🕹️ Arcade
+              <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-emerald-500/20 text-emerald-300 border border-emerald-500/30 flex items-center gap-1">
+                <Gamepad2 className="w-3 h-3 text-emerald-400" />
+                <span>Arcade ({GAMES.length} Juegos)</span>
               </span>
             </div>
             <p className="text-[11px] text-[#8d90a0]">
-              Mini juegos arcade para disfrutar mientras esperas
+              Mini juegos individuales y grupales con tutoriales completos
             </p>
           </div>
         </div>
@@ -156,6 +210,9 @@ export const WaitingRoomView: React.FC<WaitingRoomViewProps> = ({
         {activeGame === 'memory' && <MemoryGame onBack={() => setActiveGame(null)} />}
         {activeGame === 'catchletters' && <CatchLettersGame onBack={() => setActiveGame(null)} />}
         {activeGame === 'tictactoe' && <TicTacToeGame onBack={() => setActiveGame(null)} />}
+        {activeGame === 'triviagrupal' && <TriviaGrupalGame groupName="Sala de Espera" onBack={() => setActiveGame(null)} />}
+        {activeGame === 'dibujayadivina' && <DibujaYAdivinaGame groupName="Sala de Espera" onBack={() => setActiveGame(null)} />}
+        {activeGame === 'stopgrupal' && <StopGrupalGame groupName="Sala de Espera" onBack={() => setActiveGame(null)} />}
         {activeGame === 'memestudio' && (
           <MemeStudioGame
             onBack={() => setActiveGame(null)}
@@ -182,13 +239,13 @@ export const WaitingRoomView: React.FC<WaitingRoomViewProps> = ({
                 <div className="flex flex-col gap-1 max-w-[280px]">
                   <div className="flex items-center gap-1.5 text-blue-400 text-xs font-bold uppercase tracking-wider">
                     <Sparkles className="w-3.5 h-3.5" />
-                    <span>Zona de Entretenimiento</span>
+                    <span>Zona de Entretenimiento & Arcade</span>
                   </div>
                   <h2 className="text-lg font-black text-white tracking-tight">
                     ¡Diviértete en la Sala de Espera!
                   </h2>
                   <p className="text-xs text-[#a6aab8] leading-relaxed">
-                    Juega en solitario o crea memes en el Meme Studio.
+                    Cada mini juego incluye su propio tutorial explicativo con reglas y controles.
                   </p>
                 </div>
                 <div className="w-14 h-14 rounded-2xl bg-white/5 border border-white/10 flex items-center justify-center shadow-lg shrink-0">
@@ -199,7 +256,11 @@ export const WaitingRoomView: React.FC<WaitingRoomViewProps> = ({
               <div className="mt-4 pt-3 border-t border-white/5 flex items-center justify-between text-xs text-[#8d90a0]">
                 <div className="flex items-center gap-1.5">
                   <Gamepad2 className="w-4 h-4 text-sky-400" />
-                  <span>Juegos Disponibles: <strong className="text-white">{GAMES.length} Arcade</strong></span>
+                  <span>Juegos Disponibles: <strong className="text-white">{GAMES.length} Juegos Arcade</strong></span>
+                </div>
+                <div className="flex items-center gap-1 text-emerald-400 font-semibold">
+                  <BookOpen className="w-3.5 h-3.5" />
+                  <span>Tutoriales incluidos</span>
                 </div>
               </div>
             </div>
@@ -229,16 +290,30 @@ export const WaitingRoomView: React.FC<WaitingRoomViewProps> = ({
                     </span>
                   </div>
 
-                  <p className="text-xs text-[#a6aab8] leading-relaxed">
+                  <p className="text-xs text-[#a6aab8] leading-relaxed line-clamp-2">
                     {game.description}
                   </p>
 
-                  <div className="flex items-center justify-between pt-2 border-t border-white/5 text-xs text-blue-400 font-bold">
-                    <span className="flex items-center gap-1 group-hover:translate-x-1 transition-transform">
+                  <div className="flex items-center justify-between pt-2 border-t border-white/5 text-xs">
+                    {/* Botón Tutorial Directo */}
+                    <button
+                      type="button"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        setTutorialGameId(game.id);
+                      }}
+                      className="flex items-center gap-1 px-2.5 py-1 rounded-xl bg-white/10 hover:bg-white/20 text-[#dfe2ee] text-[11px] font-bold border border-white/10 transition-colors cursor-pointer"
+                      title="Ver tutorial de este juego"
+                    >
+                      <BookOpen className="w-3.5 h-3.5 text-amber-300" />
+                      <span>Tutorial</span>
+                    </button>
+
+                    {/* Jugar ahora */}
+                    <span className="flex items-center gap-1 text-blue-400 font-bold group-hover:translate-x-1 transition-transform">
                       <span>Jugar ahora</span>
                       <ArrowRight className="w-3.5 h-3.5" />
                     </span>
-                    <Play className="w-3.5 h-3.5 fill-current opacity-70 group-hover:opacity-100" />
                   </div>
                 </div>
               ))}
@@ -246,6 +321,14 @@ export const WaitingRoomView: React.FC<WaitingRoomViewProps> = ({
           </>
         )}
       </main>
+
+      {/* Mini Game Tutorial Modal */}
+      <GameTutorialModal
+        gameId={tutorialGameId}
+        isOpen={Boolean(tutorialGameId)}
+        onClose={() => setTutorialGameId(null)}
+        isNightMode={isNightMode}
+      />
     </div>
   );
 };

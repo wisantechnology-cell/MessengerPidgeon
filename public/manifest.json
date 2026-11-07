@@ -1,0 +1,43 @@
+{
+  "id": "/",
+  "name": "PidgeX - Mensajería & Juegos",
+  "short_name": "PidgeX",
+  "description": "App de mensajería privada, llamadas en vivo, red mesh local y minijuegos grupales.",
+  "start_url": "/?source=pwa",
+  "scope": "/",
+  "display": "standalone",
+  "orientation": "any",
+  "background_color": "#0a0e16",
+  "theme_color": "#0284c7",
+  "categories": ["social", "games", "communication"],
+  "icons": [
+    {
+      "src": "/pidgex-logo.svg",
+      "sizes": "192x192 512x512",
+      "type": "image/svg+xml",
+      "purpose": "any"
+    },
+    {
+      "src": "/pidgex-logo.svg",
+      "sizes": "192x192 512x512",
+      "type": "image/svg+xml",
+      "purpose": "maskable"
+    }
+  ],
+  "shortcuts": [
+    {
+      "name": "Nuevo Chat",
+      "short_name": "Chat",
+      "description": "Iniciar una conversación en PidgeX",
+      "url": "/?action=new_chat",
+      "icons": [{ "src": "/pidgex-logo.svg", "sizes": "96x96" }]
+    },
+    {
+      "name": "Sala de Juegos",
+      "short_name": "Juegos",
+      "description": "Jugar minijuegos en tiempo real",
+      "url": "/?tab=games",
+      "icons": [{ "src": "/pidgex-logo.svg", "sizes": "96x96" }]
+    }
+  ]
+}

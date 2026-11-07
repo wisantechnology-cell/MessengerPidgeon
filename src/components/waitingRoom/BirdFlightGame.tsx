@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { Play, RotateCcw, Trophy, Volume2, VolumeX, ArrowLeft } from 'lucide-react';
+import { Play, RotateCcw, Trophy, Volume2, VolumeX, ArrowLeft, Lightbulb } from 'lucide-react';
 import { playSound } from '../../utils/gameAudio';
+import { PikitoMascot } from '../PikitoMascot';
 
 interface BirdFlightGameProps {
   onBack: () => void;
@@ -386,8 +387,8 @@ export const BirdFlightGame: React.FC<BirdFlightGameProps> = ({ onBack }) => {
         {/* Idle Start Overlay */}
         {gameState === 'idle' && (
           <div className="absolute inset-0 bg-black/60 backdrop-blur-sm flex flex-col items-center justify-center p-6 text-center">
-            <div className="w-16 h-16 rounded-full bg-white flex items-center justify-center shadow-xl shadow-blue-500/30 mb-3 animate-bounce">
-              <span className="text-3xl">🕊️</span>
+            <div className="mb-3 animate-bounce">
+              <PikitoMascot size="lg" mood="waving" />
             </div>
             <h3 className="text-xl font-black text-white mb-1 tracking-tight">Pájaro Mensajero</h3>
             <p className="text-xs text-[#94a3b8] mb-5 max-w-[220px]">
@@ -409,7 +410,7 @@ export const BirdFlightGame: React.FC<BirdFlightGameProps> = ({ onBack }) => {
         {/* Game Over Overlay */}
         {gameState === 'gameover' && (
           <div className="absolute inset-0 bg-black/75 backdrop-blur-md flex flex-col items-center justify-center p-6 text-center animate-in fade-in zoom-in-95 duration-200">
-            <span className="text-4xl mb-2">💥</span>
+            <PikitoMascot size="lg" mood="sleepy" className="mb-2" />
             <h3 className="text-xl font-black text-white mb-1">¡Fin del Vuelo!</h3>
             <div className="flex items-center gap-4 my-4 bg-[#141822]/80 px-6 py-3 rounded-2xl border border-white/10">
               <div className="flex flex-col items-center">
@@ -437,8 +438,9 @@ export const BirdFlightGame: React.FC<BirdFlightGameProps> = ({ onBack }) => {
         )}
       </div>
 
-      <p className="text-[11px] text-[#8d90a0] mt-3 text-center">
-        💡 Consejo: Toca la pantalla o usa la <kbd className="px-1.5 py-0.5 bg-[#1c2028] rounded border border-white/10 text-white font-mono text-[10px]">Barra Espaciadora</kbd> para elevar el vuelo.
+      <p className="text-[11px] text-[#8d90a0] mt-3 text-center flex items-center justify-center gap-1.5">
+        <Lightbulb className="w-3.5 h-3.5 text-amber-400 shrink-0" />
+        <span>Consejo: Toca la pantalla o usa la <kbd className="px-1.5 py-0.5 bg-[#1c2028] rounded border border-white/10 text-white font-mono text-[10px]">Barra Espaciadora</kbd> para elevar el vuelo.</span>
       </p>
     </div>
   );

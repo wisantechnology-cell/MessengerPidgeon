@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { X, Sparkles, Send, Flame, HelpCircle, Trophy } from 'lucide-react';
+import { X, Sparkles, Send, Flame, HelpCircle, Trophy, RefreshCw } from 'lucide-react';
 import { UserProfile } from '../types';
 
 interface TruthOrDareModalProps {
@@ -22,8 +22,8 @@ const DARES = [
   "Manda una nota de voz imitando a tu animal favorito.",
   "Escribe un mensaje en mayúsculas diciendo '¡SOY EL REY DEL MUNDO!' en el grupo.",
   "Manda una foto haciendo una cara graciosa.",
-  "Comparte el último emoji que usaste y explica por qué.",
   "Di 3 cosas que te hagan sonreír sin parar.",
+  "Cuenta un chiste corto en una nota de voz rápida.",
 ];
 
 export const TruthOrDareModal: React.FC<TruthOrDareModalProps> = ({
@@ -59,7 +59,7 @@ export const TruthOrDareModal: React.FC<TruthOrDareModalProps> = ({
             <div className="w-8 h-8 rounded-xl bg-orange-500/20 text-orange-400 flex items-center justify-center">
               <Flame className="w-4 h-4" />
             </div>
-            <h3 className="text-base font-bold">Verdad o Reto 🎯</h3>
+            <h3 className="text-base font-bold">Verdad o Reto</h3>
           </div>
           <button onClick={onClose} className="w-8 h-8 rounded-full bg-black/10 dark:bg-white/10 flex items-center justify-center cursor-pointer">
             <X className="w-4 h-4" />
@@ -78,7 +78,7 @@ export const TruthOrDareModal: React.FC<TruthOrDareModalProps> = ({
             }`}
           >
             <HelpCircle className="w-4 h-4" />
-            <span>Verdad 💡</span>
+            <span>Verdad</span>
           </button>
           <button
             onClick={() => {
@@ -90,7 +90,7 @@ export const TruthOrDareModal: React.FC<TruthOrDareModalProps> = ({
             }`}
           >
             <Flame className="w-4 h-4" />
-            <span>Reto 🔥</span>
+            <span>Reto</span>
           </button>
         </div>
 
@@ -106,9 +106,10 @@ export const TruthOrDareModal: React.FC<TruthOrDareModalProps> = ({
           </p>
           <button
             onClick={handleShuffle}
-            className="mt-1 px-3 py-1 rounded-lg bg-white/10 hover:bg-white/20 text-white text-[11px] font-bold transition-all cursor-pointer"
+            className="mt-1 px-3 py-1.5 rounded-lg bg-white/10 hover:bg-white/20 text-white text-[11px] font-bold transition-all cursor-pointer flex items-center gap-1.5"
           >
-            🎲 Cambiar Pregunta
+            <RefreshCw className="w-3.5 h-3.5" />
+            <span>Cambiar Pregunta</span>
           </button>
         </div>
 

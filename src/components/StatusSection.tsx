@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Plus, X, Eye, Send, Trash2, MessageCircle, Sparkles, Smile, CheckCheck } from 'lucide-react';
+import { Plus, X, Eye, Send, Trash2, MessageCircle, Sparkles, Smile, CheckCheck, Globe, Users, Pin, Lock } from 'lucide-react';
 import { StatusItem, StatusReply } from '../types/status';
 import { UserProfile } from '../types';
 
@@ -200,7 +200,8 @@ export const StatusSection: React.FC<StatusSectionProps> = ({
                         : isNightMode ? 'bg-white/5 border-white/10 text-[#8d90a0]' : 'bg-sky-50 border-sky-200 text-sky-800'
                     }`}
                   >
-                    <span>🌍 Todos</span>
+                    <Globe className="w-3.5 h-3.5" />
+                    <span>Todos</span>
                   </button>
                   <button
                     type="button"
@@ -211,7 +212,8 @@ export const StatusSection: React.FC<StatusSectionProps> = ({
                         : isNightMode ? 'bg-white/5 border-white/10 text-[#8d90a0]' : 'bg-sky-50 border-sky-200 text-sky-800'
                     }`}
                   >
-                    <span>👥 Solo Contactos</span>
+                    <Users className="w-3.5 h-3.5" />
+                    <span>Solo Contactos</span>
                   </button>
                 </div>
               </div>
@@ -277,8 +279,9 @@ export const StatusSection: React.FC<StatusSectionProps> = ({
               className="max-h-[50vh] max-w-full object-contain"
             />
             {activeStatusModal.title && (
-              <div className="absolute top-3 left-3 bg-black/70 backdrop-blur-md px-3 py-1 rounded-xl border border-white/10 text-white text-xs font-bold shadow-lg">
-                📌 {activeStatusModal.title}
+              <div className="absolute top-3 left-3 bg-black/70 backdrop-blur-md px-3 py-1 rounded-xl border border-white/10 text-white text-xs font-bold shadow-lg flex items-center gap-1.5">
+                <Pin className="w-3.5 h-3.5 text-sky-400" />
+                <span>{activeStatusModal.title}</span>
               </div>
             )}
           </div>
@@ -363,8 +366,9 @@ export const StatusSection: React.FC<StatusSectionProps> = ({
                 </div>
               </>
             ) : (
-              <div className="text-center py-3 px-4 bg-[#141822] text-[#8d90a0] text-xs italic border-t border-white/10">
-                🔒 Solo el creador puede chatear en este estado (modo visualización)
+              <div className="text-center py-3 px-4 bg-[#141822] text-[#8d90a0] text-xs italic border-t border-white/10 flex items-center justify-center gap-1.5">
+                <Lock className="w-3.5 h-3.5 text-slate-400" />
+                <span>Solo el creador puede chatear en este estado (modo visualización)</span>
               </div>
             )}
           </div>

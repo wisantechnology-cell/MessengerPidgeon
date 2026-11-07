@@ -128,7 +128,7 @@ export const OmegleGame: React.FC<OmegleGameProps> = ({
               <Sparkles className="w-5 h-5 animate-pulse" />
             </div>
             <div>
-              <h3 className="text-base font-bold">PidgeCam Real (Videollamada 🌍)</h3>
+              <h3 className="text-base font-bold">PidgeCam Real (Videollamada)</h3>
               <p className="text-[11px] text-[#8d90a0]">Conexiones en directo 100% video con usuarios reales</p>
             </div>
           </div>

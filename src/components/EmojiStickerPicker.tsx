@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Smile, X, Sparkles, Search } from 'lucide-react';
+import { Smile, X, Sparkles, ThumbsUp, Briefcase, Dog } from 'lucide-react';
 import { StickerItem } from '../types';
 
 interface EmojiStickerPickerProps {
@@ -9,30 +9,36 @@ interface EmojiStickerPickerProps {
   onSelectSticker?: (sticker: StickerItem) => void;
 }
 
-const EMOJI_CATEGORIES = [
+interface EmojiCategory {
+  name: string;
+  icon: React.ReactNode;
+  emojis: string[];
+}
+
+const EMOJI_CATEGORIES: EmojiCategory[] = [
   {
     name: 'Frecuentes',
-    icon: '✨',
+    icon: <Sparkles className="w-3.5 h-3.5 text-amber-400" />,
     emojis: ['👍', '❤️', '🔥', '🙌', '🎉', '🚀', '✨', '😂', '😍', '👏', '💼', '💯', '🕊️', '🤝', '💀', '😭', '🤭', '🐱'],
   },
   {
     name: 'Caras & Emociones',
-    icon: '😀',
+    icon: <Smile className="w-3.5 h-3.5 text-sky-400" />,
     emojis: ['😀', '😃', '😄', '😁', '😆', '😅', '🤣', '😂', '🙂', '😉', '😊', '😇', '🥰', '😍', '🤩', '😘', '😋', '😎', '🥳', '😏', '😒', '😞', '😔', '😟', '😕', '🙁', '😣', '😖', '😫', '😩', '🥺', '😢', '😭', '😤', '😠', '😡', '🤬', '🤯', '😳', '🥵', '🥶', '😱', '😨', '😰', '😥', '😓', '🤗', '🤔', '🫣', '🤭', '🫢', '🤫', '🫠'],
   },
   {
     name: 'Gestos & Manos',
-    icon: '👍',
+    icon: <ThumbsUp className="w-3.5 h-3.5 text-emerald-400" />,
     emojis: ['👋', '🤚', '🖐️', '✋', '🖖', '👌', '🤌', '🤏', '✌️', '🤞', '🫰', '🤟', '🤘', '🤙', '👈', '👉', '👆', '🖕', '👇', '☝️', '👍', '👎', '✊', '👊', '🤛', '🤜', '👏', '🙌', '👐', '🤲', '🤝', '🙏', '💅', '🤳', '💪'],
   },
   {
     name: 'Animales & Naturaleza',
-    icon: '🐱',
+    icon: <Dog className="w-3.5 h-3.5 text-orange-400" />,
     emojis: ['🐱', '🐶', '🐕', '🐩', '🐈', '🦁', '🐯', '🦊', '🐻', '🐼', '🐨', '🐸', '🕊️', '🦅', '🦆', '🦜', '🦉', '🦚', '🦩', '🐦', '🌸', '🌺', '🍀', '🌟', '🌙', '⚡', '🔥'],
   },
   {
     name: 'Objetos & Símbolos',
-    icon: '💼',
+    icon: <Briefcase className="w-3.5 h-3.5 text-purple-400" />,
     emojis: ['💼', '💻', '📱', '⌨️', '🖥️', '📊', '📈', '📁', '📄', '✏️', '📌', '📎', '💡', '🔔', '🚀', '🎯', '🏆', '💯', '☕', '🍮', '🍿', '🍕', '🎉', '✨', '❤️', '🔥', '💀', '👀'],
   },
 ];

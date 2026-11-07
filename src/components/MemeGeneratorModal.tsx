@@ -44,7 +44,7 @@ export const MemeGeneratorModal: React.FC<MemeGeneratorModalProps> = ({
 
   const [selectedTemplate, setSelectedTemplate] = useState(MEME_TEMPLATES[0]);
   const [topText, setTopText] = useState('CUANDO PROGRAMAS SIN ERRORES');
-  const [bottomText, setBottomText] = useState('Y COMPILA A LA PRIMERA 😎');
+  const [bottomText, setBottomText] = useState('Y COMPILA A LA PRIMERA');
 
   const handleSend = () => {
     const caption = `${topText} / ${bottomText}`;

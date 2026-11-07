@@ -37,6 +37,45 @@
       },
       "required": ["id", "name", "type"]
     },
+    "ChatMessage": {
+      "title": "Chat Message",
+      "description": "Messages exchanged inside chats",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "maxLength": 128 },
+        "chatId": { "type": "string", "maxLength": 128 },
+        "senderId": { "type": "string", "maxLength": 128 },
+        "senderName": { "type": "string", "maxLength": 100 },
+        "senderAvatar": { "type": "string", "maxLength": 500 },
+        "type": { "type": "string" },
+        "text": { "type": "string", "maxLength": 5000 },
+        "mediaUrl": { "type": "string", "maxLength": 1000000 },
+        "timestamp": { "type": "string" },
+        "timestampMs": { "type": "number" },
+        "isRead": { "type": "boolean" }
+      },
+      "required": ["id", "chatId", "senderId", "type"]
+    },
+    "CallSession": {
+      "title": "Call Session",
+      "description": "Audio and video call sessions between users",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "maxLength": 128 },
+        "callerId": { "type": "string", "maxLength": 128 },
+        "callerName": { "type": "string", "maxLength": 100 },
+        "callerPhone": { "type": "string", "maxLength": 30 },
+        "callerAvatar": { "type": "string", "maxLength": 500 },
+        "receiverId": { "type": "string", "maxLength": 128 },
+        "receiverPhone": { "type": "string", "maxLength": 30 },
+        "receiverName": { "type": "string", "maxLength": 100 },
+        "chatId": { "type": "string", "maxLength": 128 },
+        "isVideo": { "type": "boolean" },
+        "status": { "type": "string" },
+        "createdAt": { "type": "number" }
+      },
+      "required": ["callerId", "callerName", "status", "createdAt"]
+    },
     "MarketplaceProduct": {
       "title": "Marketplace Product",
       "description": "Purchases and items for sale",
@@ -79,6 +118,14 @@
     "/chats/{chatId}": {
       "schema": { "$ref": "#/entities/Chat" },
       "description": "User chats and conversations"
+    },
+    "/chats/{chatId}/messages/{messageId}": {
+      "schema": { "$ref": "#/entities/ChatMessage" },
+      "description": "Messages sent inside a chat"
+    },
+    "/calls/{callId}": {
+      "schema": { "$ref": "#/entities/CallSession" },
+      "description": "Real-time calls between users"
     },
     "/marketplaceProducts/{productId}": {
       "schema": { "$ref": "#/entities/MarketplaceProduct" },

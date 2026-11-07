@@ -19,6 +19,8 @@ import {
   Zap,
 } from 'lucide-react';
 import { playSound } from '../../utils/gameAudio';
+import { PikitoMascot } from '../PikitoMascot';
+import { PaletteVectorIcon } from '../CustomVectorIcons';
 
 interface DrawGuessGameProps {
   onBack: () => void;
@@ -28,7 +30,8 @@ interface DrawGuessGameProps {
 interface GuessItem {
   id: string;
   sender: string;
-  avatar: string;
+  initial: string;
+  isMe?: boolean;
   word: string;
   timestamp: string;
   isCorrect?: boolean;
@@ -64,10 +67,10 @@ const SIMULATED_GUESSES = [
 ];
 
 const GROUP_MEMBERS = [
-  { name: 'Ana (Amiga)', avatar: '👩‍🎨' },
-  { name: 'Carlos (Líder)', avatar: '🚀' },
-  { name: 'Sofía', avatar: '⭐' },
-  { name: 'Mateo', avatar: '🎮' },
+  { name: 'Ana (Amiga)', initial: 'A' },
+  { name: 'Carlos (Líder)', initial: 'C' },
+  { name: 'Sofía', initial: 'S' },
+  { name: 'Mateo', initial: 'M' },
 ];
 
 export const DibujaYAdivinaGame: React.FC<DrawGuessGameProps> = ({ onBack, groupName }) => {
@@ -109,7 +112,7 @@ export const DibujaYAdivinaGame: React.FC<DrawGuessGameProps> = ({ onBack, group
       const newGuess: GuessItem = {
         id: Math.random().toString(),
         sender: member.name,
-        avatar: member.avatar,
+        initial: member.initial,
         word: randomWord,
         timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' }),
       };
@@ -184,7 +187,8 @@ export const DibujaYAdivinaGame: React.FC<DrawGuessGameProps> = ({ onBack, group
     const newGuess: GuessItem = {
       id: Math.random().toString(),
       sender: 'Tú (Jugador)',
-      avatar: '🕊️',
+      initial: 'P',
+      isMe: true,
       word: guessInput.trim(),
       timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
     };
@@ -305,7 +309,10 @@ export const DibujaYAdivinaGame: React.FC<DrawGuessGameProps> = ({ onBack, group
           </div>
         ) : (
           <div className="p-2.5 rounded-xl bg-[#1c2028] border border-white/5 flex items-center justify-between text-xs">
-            <span className="text-[#8d90a0] font-semibold">👀 Alguien está dibujando en el grupo...</span>
+            <span className="text-[#8d90a0] font-semibold flex items-center gap-1.5">
+              <Eye className="w-3.5 h-3.5 text-sky-400" />
+              <span>Alguien está dibujando en el grupo...</span>
+            </span>
             <span className="text-amber-400 font-bold">¡Intenta decir la palabra!</span>
           </div>
         )}
@@ -329,8 +336,9 @@ export const DibujaYAdivinaGame: React.FC<DrawGuessGameProps> = ({ onBack, group
           />
 
           {role === 'guesser' && (
-            <div className="absolute top-2 right-2 px-2.5 py-1 rounded-full bg-black/60 backdrop-blur-md text-[10px] text-sky-300 border border-sky-500/30 font-bold">
-              👀 Viendo lienzo en vivo
+            <div className="absolute top-2 right-2 px-2.5 py-1 rounded-full bg-black/60 backdrop-blur-md text-[10px] text-sky-300 border border-sky-500/30 font-bold flex items-center gap-1">
+              <Eye className="w-3 h-3 text-sky-400" />
+              <span>Viendo lienzo en vivo</span>
             </div>
           )}
         </div>
@@ -385,18 +393,19 @@ export const DibujaYAdivinaGame: React.FC<DrawGuessGameProps> = ({ onBack, group
               <span>¡Palabra Correcta Elegida!</span>
             </div>
             <p className="text-xs text-emerald-100">
-              <strong>{selectedWinner.sender}</strong> dijo <strong>"{selectedWinner.word}"</strong> y fue elegida como la correcta por el dibujante. 🎉
+              <strong>{selectedWinner.sender}</strong> dijo <strong>"{selectedWinner.word}"</strong> y fue elegida como la correcta por el dibujante.
             </p>
             <button
               onClick={resetRound}
-              className="mt-1 px-4 py-1.5 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold shadow-md cursor-pointer"
+              className="mt-1 px-4 py-1.5 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold shadow-md cursor-pointer flex items-center gap-1.5"
             >
-              Hacer Otro Dibujo 🎨
+              <Pencil className="w-3.5 h-3.5" />
+              <span>Hacer Otro Dibujo</span>
             </button>
           </div>
         )}
 
-        {/* Group Words & Guesses Section ("Los demás dicen palabras y tú eliges la correcta") */}
+        {/* Group Words & Guesses Section */}
         <div className="flex flex-col gap-2 pt-2 border-t border-white/10">
           <div className="flex items-center justify-between px-1">
             <span className="text-xs font-bold text-[#8d90a0] flex items-center gap-1.5">
@@ -405,7 +414,7 @@ export const DibujaYAdivinaGame: React.FC<DrawGuessGameProps> = ({ onBack, group
             </span>
             {role === 'artist' && !roundEnded && (
               <span className="text-[11px] text-amber-400 font-bold">
-                👇 Elige la palabra correcta
+                Elige la palabra correcta
               </span>
             )}
           </div>
@@ -414,7 +423,7 @@ export const DibujaYAdivinaGame: React.FC<DrawGuessGameProps> = ({ onBack, group
           <div className="max-h-48 overflow-y-auto flex flex-col gap-1.5 p-2 rounded-2xl bg-[#1c2028] border border-white/5">
             {guesses.length === 0 ? (
               <div className="py-6 text-center text-xs text-[#8d90a0] flex flex-col items-center gap-1">
-                <span>💬 Aún no hay palabras. Los demás integrantes irán diciendo sus intentos...</span>
+                <span>Aún no hay palabras. Los demás integrantes irán diciendo sus intentos...</span>
                 {role === 'artist' && <span>(Comienza a dibujar en el lienzo para recibir palabras)</span>}
               </div>
             ) : (
@@ -428,7 +437,13 @@ export const DibujaYAdivinaGame: React.FC<DrawGuessGameProps> = ({ onBack, group
                   }`}
                 >
                   <div className="flex items-center gap-2 min-w-0">
-                    <span className="text-base shrink-0">{g.avatar}</span>
+                    {g.isMe ? (
+                      <PikitoMascot size="xs" mood="happy" />
+                    ) : (
+                      <div className="w-6 h-6 rounded-full bg-slate-800 border border-white/10 flex items-center justify-center font-bold text-[10px] text-sky-300 shrink-0">
+                        {g.initial}
+                      </div>
+                    )}
                     <div className="flex flex-col min-w-0">
                       <span className="text-[10px] text-[#8d90a0] font-semibold truncate">
                         {g.sender} • {g.timestamp}
@@ -451,8 +466,9 @@ export const DibujaYAdivinaGame: React.FC<DrawGuessGameProps> = ({ onBack, group
                   )}
 
                   {g.isCorrect && (
-                    <span className="px-2 py-1 bg-emerald-500/20 text-emerald-300 font-bold rounded-lg text-[10px]">
-                      ✔️ Correcta
+                    <span className="px-2 py-1 bg-emerald-500/20 text-emerald-300 font-bold rounded-lg text-[10px] flex items-center gap-1">
+                      <CheckCircle2 className="w-3 h-3 text-emerald-400" />
+                      <span>Correcta</span>
                     </span>
                   )}
                 </div>

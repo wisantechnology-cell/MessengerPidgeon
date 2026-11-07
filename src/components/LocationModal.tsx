@@ -21,7 +21,7 @@ export const LocationModal: React.FC<LocationModalProps> = ({
 }) => {
   if (!isOpen) return null;
 
-  const [address, setAddress] = useState<string>('📍 Centro de la Ciudad, Calle Principal #123');
+  const [address, setAddress] = useState<string>('Centro de la Ciudad, Calle Principal #123');
   const [lat] = useState<number>(19.4326);
   const [lng] = useState<number>(-99.1332);
 
@@ -42,7 +42,7 @@ export const LocationModal: React.FC<LocationModalProps> = ({
               <MapPin className="w-5 h-5" />
             </div>
             <div>
-              <h3 className="text-base font-bold">Compartir Ubicación 📍</h3>
+              <h3 className="text-base font-bold">Compartir Ubicación</h3>
               <p className="text-[11px] text-[#8d90a0]">Envía tu posición GPS o punto de encuentro</p>
             </div>
           </div>

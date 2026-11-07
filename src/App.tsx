@@ -23,6 +23,10 @@ import {
   getDocs,
   query,
   where,
+  addDoc,
+  updateDoc,
+  onSnapshot,
+  orderBy,
   OperationType,
   handleFirestoreError
 } from './firebase';
@@ -32,6 +36,8 @@ import { StarredMessagesView } from './components/StarredMessagesView';
 import { LocalRadarView } from './components/LocalRadarView';
 import { TutorialModal } from './components/TutorialModal';
 import { SpotlightTour } from './components/SpotlightTour';
+import { IncomingCallModal, IncomingCallData } from './components/IncomingCallModal';
+import { CallModal } from './components/CallModal';
 import { soundEffects } from './utils/soundEffects';
 import { exportChatAsText } from './utils/exportChat';
 
@@ -54,8 +60,21 @@ import { VirtualPetWidget } from './components/VirtualPetWidget';
 import { ContactProfileModal } from './components/ContactProfileModal';
 import { WeatherEffectsOverlay } from './components/WeatherEffectsOverlay';
 import { TimeCapsuleModal } from './components/TimeCapsuleModal';
-import { ensurePhoneStartsWith16 } from './utils/phoneUtils';
+import { ensurePhoneStartsWith16, generateUniquePidgePhone } from './utils/phoneUtils';
 import { createSvgAvatar } from './utils/avatarUtils';
+import { InstallPwaModal } from './components/InstallPwaModal';
+
+export const getCleanPhone = (phone?: string): string => (phone || '').replace(/\D/g, '');
+
+export const getDirectChatId = (phoneA?: string, phoneB?: string): string => {
+  const cleanA = getCleanPhone(phoneA);
+  const cleanB = getCleanPhone(phoneB);
+  if (!cleanA || !cleanB) {
+    return `chat_direct_${Date.now()}`;
+  }
+  const sorted = [cleanA, cleanB].sort();
+  return `direct_${sorted[0]}_${sorted[1]}`;
+};
 
 const USER_STORAGE_KEY = 'birdmessage_user_profile_v1';
 const CHATS_STORAGE_KEY = 'birdmessage_chats_data_v7';
@@ -195,6 +214,10 @@ export default function App() {
           const currentBio = isLegacyOrEmptyBio(parsed.bio) ? 'Soy nuevo en PidgeX' : parsed.bio.trim();
           const currentUsername = !parsed.username || parsed.username === '@anarodriguez' || parsed.username === '@carlosmendoza' || parsed.username === '@elenagomez' ? '@usuarionuevo' : parsed.username;
 
+          // Ensure unique phone number per device so users and family members don't share identical numbers
+          const hasCustomPhone = parsed.phone && parsed.phone !== '16 612 345 678' && parsed.phone.trim().length >= 8;
+          const assignedPhone = hasCustomPhone ? ensurePhoneStartsWith16(parsed.phone) : generateUniquePidgePhone();
+
           return {
             ...INITIAL_USER,
             ...parsed,
@@ -202,7 +225,7 @@ export default function App() {
             bio: currentBio,
             username: currentUsername,
             avatarUrl: currentAvatar,
-            phone: ensurePhoneStartsWith16(parsed.phone || INITIAL_USER.phone),
+            phone: assignedPhone,
             parentPhone: parsed.parentPhone ? ensurePhoneStartsWith16(parsed.parentPhone) : INITIAL_USER.parentPhone,
           };
         }
@@ -211,9 +234,11 @@ export default function App() {
       // ignore
     }
     const randomId = `user_${Math.random().toString(36).substring(2, 7)}`;
+    const randomPhone = generateUniquePidgePhone();
     return {
       ...INITIAL_USER,
       id: randomId,
+      phone: randomPhone,
     };
   });
 
@@ -349,10 +374,18 @@ export default function App() {
   const [isClassicMode, setIsClassicMode] = useState<boolean>(localStorage.getItem('pidge_classic_mode') === 'true');
   const [isTutorialOpen, setIsTutorialOpen] = useState<boolean>(!localStorage.getItem('pidge_tutorial_seen'));
   const [isTourOpen, setIsTourOpen] = useState<boolean>(!localStorage.getItem('pidge_spotlight_seen'));
-
+  const [isInstallModalOpen, setIsInstallModalOpen] = useState<boolean>(false);
 
   const [firebaseUser, setFirebaseUser] = useState<any>(null);
   const [isCloudSynced, setIsCloudSynced] = useState<boolean>(false);
+  const [activeCallSession, setActiveCallSession] = useState<{
+    callId: string;
+    chat: Chat;
+    isVideo: boolean;
+    isCaller: boolean;
+    initialCallStatus: 'calling' | 'connected';
+  } | null>(null);
+  const [incomingCallData, setIncomingCallData] = useState<IncomingCallData | null>(null);
 
   useEffect(() => {
     try {
@@ -412,19 +445,304 @@ export default function App() {
     }
   }, [user]);
 
-  // Sync chats and acquaintances to Firestore
+  // Real-time Incoming Calls Listener
   useEffect(() => {
-    if (chats && chats.length > 0) {
-      chats.forEach(async (chat) => {
-        try {
-          const chatRef = doc(db, 'chats', chat.id);
-          await setDoc(chatRef, chat, { merge: true });
-        } catch (e) {
-          console.error('Error saving chat to Firestore:', e);
-        }
+    if (!user || !user.phone) return;
+    const myPhoneClean = getCleanPhone(user.phone);
+    if (!myPhoneClean) return;
+
+    const callsCol = collection(db, 'calls');
+    const unsubscribe = onSnapshot(
+      callsCol,
+      (snapshot) => {
+        const now = Date.now();
+        let foundCall: IncomingCallData | null = null;
+
+        snapshot.docs.forEach((d) => {
+          const data = d.data();
+          if (!data) return;
+          const recPhone = getCleanPhone(data.receiverPhone);
+          const isForMe =
+            (recPhone && recPhone === myPhoneClean) ||
+            (data.receiverId && data.receiverId === user.id);
+
+          // Only detect active ringing calls created in the last 90 seconds
+          if (isForMe && data.status === 'ringing' && now - (data.createdAt || 0) < 90000) {
+            foundCall = {
+              id: d.id,
+              callerId: data.callerId || 'unknown',
+              callerName: data.callerName || 'Contacto PidgeX',
+              callerPhone: data.callerPhone || '',
+              callerAvatar: data.callerAvatar || '',
+              isVideo: Boolean(data.isVideo),
+              isGroup: Boolean(data.isGroup),
+              chatId: data.chatId,
+            };
+          }
+        });
+
+        setIncomingCallData(foundCall);
+      },
+      (err) => {
+        console.warn('Real-time calls listener error:', err);
+      }
+    );
+
+    return () => unsubscribe();
+  }, [user.phone, user.id]);
+
+  // Real-time Chat Discovery (e.g. when brother adds user or initiates contact)
+  useEffect(() => {
+    if (!user || !user.phone) return;
+    const myPhoneClean = getCleanPhone(user.phone);
+    if (!myPhoneClean) return;
+
+    const chatsCol = collection(db, 'chats');
+    const unsubscribe = onSnapshot(
+      chatsCol,
+      (snapshot) => {
+        snapshot.docs.forEach((d) => {
+          const data = d.data();
+          if (!data) return;
+          const participantPhones: string[] = data.participantPhones || [];
+          if (participantPhones.includes(myPhoneClean)) {
+            const otherPhoneClean = participantPhones.find((p) => p !== myPhoneClean) || '';
+            const usersMap = data.usersMap || {};
+            const otherUserInfo = usersMap[otherPhoneClean] || {};
+
+            const friendName = otherUserInfo.name || (data.name && data.name !== user.name ? data.name : 'Contacto PidgeX');
+            const friendPhone = otherUserInfo.phone || otherPhoneClean;
+            const friendAvatar = otherUserInfo.avatarUrl || createSvgAvatar(friendName);
+
+            setChats((prev) => {
+              const existing = prev.find((c) => c.id === d.id);
+              if (existing) {
+                if (data.lastMessageText && data.lastMessageText !== existing.lastMessageText) {
+                  return prev.map((c) =>
+                    c.id === d.id
+                      ? {
+                          ...c,
+                          lastMessageText: data.lastMessageText,
+                          lastMessageTime: data.lastMessageTime || c.lastMessageTime,
+                        }
+                      : c
+                  );
+                }
+                return prev;
+              }
+
+              const newChat: Chat = {
+                id: d.id,
+                name: friendName,
+                phone: friendPhone ? ensurePhoneStartsWith16(friendPhone) : undefined,
+                isFriend: true,
+                avatarUrl: friendAvatar,
+                isVerified: true,
+                isOnline: true,
+                statusText: friendPhone ? `Amigo • ${friendPhone}` : 'Amigo en PidgeX',
+                type: data.type || 'direct',
+                categories: ['all', 'friends'],
+                unreadCount: 1,
+                lastMessageText: data.lastMessageText || '¡Nuevo mensaje!',
+                lastMessageTime: data.lastMessageTime || new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+                lastMessageRead: false,
+                messages: [],
+              };
+              return [newChat, ...prev];
+            });
+          }
+        });
+      },
+      (err) => {
+        console.warn('Real-time chats discovery error:', err);
+      }
+    );
+
+    return () => unsubscribe();
+  }, [user.phone, user.name]);
+
+  // Real-time messages listener for active chat
+  useEffect(() => {
+    if (!activeChatId) return;
+
+    const msgsQuery = query(
+      collection(db, 'chats', activeChatId, 'messages'),
+      orderBy('timestampMs', 'asc')
+    );
+
+    const myPhoneClean = getCleanPhone(user.phone);
+
+    const unsubscribe = onSnapshot(
+      msgsQuery,
+      (snapshot) => {
+        if (snapshot.empty) return;
+
+        const cloudMessages: Message[] = snapshot.docs.map((d) => {
+          const data = d.data();
+          const isMine =
+            (data.senderPhone && data.senderPhone === myPhoneClean) ||
+            (data.senderId && data.senderId === user.id) ||
+            data.senderId === 'me';
+
+          return {
+            id: data.id || d.id,
+            chatId: activeChatId,
+            senderId: isMine ? 'me' : (data.senderId || 'contact'),
+            senderName: isMine ? user.name : (data.senderName || 'Contacto'),
+            senderAvatar: isMine ? user.avatarUrl : data.senderAvatar,
+            type: data.type || 'text',
+            text: data.text || undefined,
+            mediaUrl: data.mediaUrl || undefined,
+            mediaName: data.mediaName || undefined,
+            mediaSize: data.mediaSize || undefined,
+            mediaDuration: data.mediaDuration || undefined,
+            filter: data.filter || undefined,
+            stickerTitle: data.stickerTitle || undefined,
+            stickerUrl: data.stickerUrl || undefined,
+            timestamp: data.timestamp || new Date(data.timestampMs || Date.now()).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+            isRead: true,
+            reactions: data.reactions || {},
+          };
+        });
+
+        setChats((prev) =>
+          prev.map((c) => {
+            if (c.id === activeChatId) {
+              const existingMap = new Map(c.messages.map((m) => [m.id, m]));
+              let hasNew = false;
+              cloudMessages.forEach((cm) => {
+                if (!existingMap.has(cm.id)) {
+                  existingMap.set(cm.id, cm);
+                  hasNew = true;
+                }
+              });
+
+              if (!hasNew && existingMap.size === c.messages.length) {
+                return c;
+              }
+
+              const merged = Array.from(existingMap.values());
+              const last = merged[merged.length - 1];
+              return {
+                ...c,
+                messages: merged,
+                lastMessageText: last ? (last.text || `[${last.type}]`) : c.lastMessageText,
+                lastMessageTime: last ? last.timestamp : c.lastMessageTime,
+              };
+            }
+            return c;
+          })
+        );
+      },
+      (err) => {
+        console.warn('Realtime messages listener error:', err);
+      }
+    );
+
+    return () => unsubscribe();
+  }, [activeChatId, user.phone, user.id, user.name, user.avatarUrl]);
+
+  // Handlers for Calls
+  const handleStartCall = async (chat: Chat, isVideo: boolean) => {
+    const callerPhoneClean = getCleanPhone(user.phone);
+    const receiverPhoneClean = getCleanPhone(chat.phone);
+
+    try {
+      const callDocRef = await addDoc(collection(db, 'calls'), {
+        callerId: user.id || 'me',
+        callerName: user.name,
+        callerAvatar: user.avatarUrl,
+        callerPhone: callerPhoneClean,
+        receiverPhone: receiverPhoneClean,
+        receiverName: chat.name,
+        receiverAvatar: chat.avatarUrl,
+        isVideo,
+        isGroup: chat.type === 'group',
+        chatId: chat.id,
+        status: 'ringing', // STRICTLY ringing - caller timer will NOT start until receiver answers!
+        createdAt: Date.now(),
+      });
+
+      setActiveCallSession({
+        callId: callDocRef.id,
+        chat,
+        isVideo,
+        isCaller: true,
+        initialCallStatus: 'calling',
+      });
+    } catch (e) {
+      console.error('Error starting call:', e);
+      setActiveCallSession({
+        callId: `local_${Date.now()}`,
+        chat,
+        isVideo,
+        isCaller: true,
+        initialCallStatus: 'calling',
       });
     }
-  }, [chats]);
+  };
+
+  const handleAcceptIncomingCall = async (call: IncomingCallData) => {
+    try {
+      const callDocRef = doc(db, 'calls', call.id);
+      await updateDoc(callDocRef, {
+        status: 'accepted',
+        acceptedAt: Date.now(),
+      });
+    } catch (e) {
+      console.error('Error accepting call:', e);
+    }
+
+    let matchingChat = chats.find(
+      (c) =>
+        (c.phone && getCleanPhone(c.phone) === getCleanPhone(call.callerPhone)) ||
+        c.name === call.callerName ||
+        c.id === call.callerId
+    );
+
+    if (!matchingChat) {
+      matchingChat = {
+        id: call.chatId || `chat_call_${Date.now()}`,
+        name: call.callerName,
+        phone: call.callerPhone,
+        avatarUrl: call.callerAvatar || createSvgAvatar(call.callerName),
+        type: call.isGroup ? 'group' : 'direct',
+        isFriend: true,
+        isOnline: true,
+        statusText: call.callerPhone ? `Amigo • ${call.callerPhone}` : 'En llamada PidgeX',
+        categories: ['all', 'friends'],
+        unreadCount: 0,
+        lastMessageText: 'Llamada conectada',
+        lastMessageTime: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+        messages: [],
+      };
+      setChats((prev) => [matchingChat!, ...prev]);
+    }
+
+    setIncomingCallData(null);
+
+    // Open call modal directly connected for receiver
+    setActiveCallSession({
+      callId: call.id,
+      chat: matchingChat,
+      isVideo: Boolean(call.isVideo),
+      isCaller: false,
+      initialCallStatus: 'connected',
+    });
+  };
+
+  const handleDeclineIncomingCall = async (call: IncomingCallData) => {
+    try {
+      const callDocRef = doc(db, 'calls', call.id);
+      await updateDoc(callDocRef, {
+        status: 'declined',
+        declinedAt: Date.now(),
+      });
+    } catch (e) {
+      console.error('Error declining call:', e);
+    }
+    setIncomingCallData(null);
+  };
 
   const handleGoogleLogin = async () => {
     try {
@@ -571,7 +889,7 @@ export default function App() {
           const queue = JSON.parse(savedQueue);
           if (Array.isArray(queue) && queue.length > 0) {
             localStorage.removeItem('birdmessage_offline_queue');
-            alert(`🟢 ¡Conexión en línea restaurada! Se han sincronizado automáticamente ${queue.length} mensajes guardados en modo offline.`);
+            alert(`¡Conexión en línea restaurada! Se han sincronizado automáticamente ${queue.length} mensajes guardados en modo offline.`);
           }
         }
       } catch (e) {
@@ -589,7 +907,7 @@ export default function App() {
       const textLower = messageData.text.toLowerCase();
       const hasProfanity = BAD_WORDS.some((word) => textLower.includes(word));
       if (hasProfanity) {
-        alert(`⚠️ [CONTROL PARENTAL ACTIVADO]: Se ha detectado una palabra no permitida en tu mensaje ("${messageData.text}"). Se ha enviado una alerta automática a ${user.parentName || 'tus padres'} (${user.parentPhone || '16 600 000 000'}).`);
+        alert(`[CONTROL PARENTAL ACTIVADO]: Se ha detectado una palabra no permitida en tu mensaje ("${messageData.text}"). Se ha enviado una alerta automática a ${user.parentName || 'tus padres'} (${user.parentPhone || '16 600 000 000'}).`);
       }
     }
 
@@ -639,10 +957,10 @@ export default function App() {
         if (c.id === chatId) {
           const updatedMessages = [...c.messages, newMessage];
           let lastText = newMessage.text || '';
-          if (newMessage.type === 'image') lastText = '📷 Foto adjunta';
-          if (newMessage.type === 'voice') lastText = '🎤 Mensaje de voz';
-          if (newMessage.type === 'sticker') lastText = `✨ Sticker: ${newMessage.stickerTitle || 'Sticker'}`;
-          if (newMessage.type === 'video') lastText = '📹 Video adjunto';
+          if (newMessage.type === 'image') lastText = 'Foto adjunta';
+          if (newMessage.type === 'voice') lastText = 'Mensaje de voz';
+          if (newMessage.type === 'sticker') lastText = `Sticker: ${newMessage.stickerTitle || 'Sticker'}`;
+          if (newMessage.type === 'video') lastText = 'Video adjunto';
 
           return {
             ...c,
@@ -656,6 +974,49 @@ export default function App() {
         return c;
       })
     );
+
+    // Sync to Firestore in real-time
+    try {
+      const myPhoneClean = getCleanPhone(user.phone);
+      const msgDocRef = doc(db, 'chats', chatId, 'messages', newMessage.id);
+      setDoc(msgDocRef, {
+        id: newMessage.id,
+        chatId,
+        senderId: user.id || 'me',
+        senderPhone: myPhoneClean,
+        senderName: user.name,
+        senderAvatar: user.avatarUrl,
+        type: newMessage.type,
+        text: newMessage.text || null,
+        mediaUrl: newMessage.mediaUrl || null,
+        mediaName: newMessage.mediaName || null,
+        mediaSize: newMessage.mediaSize || null,
+        mediaDuration: newMessage.mediaDuration || null,
+        filter: newMessage.filter || null,
+        stickerTitle: newMessage.stickerTitle || null,
+        stickerUrl: newMessage.stickerUrl || null,
+        timestamp: newMessage.timestamp,
+        timestampMs: Date.now(),
+        isRead: false,
+      }).catch((err) => console.warn('Error saving message doc:', err));
+
+      let lastText = newMessage.text || '';
+      if (newMessage.type === 'image') lastText = 'Foto adjunta';
+      if (newMessage.type === 'voice') lastText = 'Mensaje de voz';
+      if (newMessage.type === 'sticker') lastText = `Sticker: ${newMessage.stickerTitle || 'Sticker'}`;
+      if (newMessage.type === 'video') lastText = 'Video adjunto';
+
+      const chatDocRef = doc(db, 'chats', chatId);
+      setDoc(chatDocRef, {
+        lastMessageText: lastText,
+        lastMessageTime: newMessage.timestamp,
+        lastMessageSenderPhone: myPhoneClean,
+        lastMessageSenderName: user.name,
+        updatedAt: Date.now(),
+      }, { merge: true }).catch((err) => console.warn('Error updating chat doc:', err));
+    } catch (e) {
+      console.warn('Firestore message sync error:', e);
+    }
   };
 
   const handleSendVoiceMessageFromModal = (
@@ -680,7 +1041,7 @@ export default function App() {
       senderId: 'me',
       senderName: user.name,
       type: 'text',
-      text: `📰 Noticia compartida:\n"${title}"\n🔗 ${url}`,
+      text: `Noticia compartida:\n"${title}"\n${url}`,
       timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
       isRead: true,
     });
@@ -696,10 +1057,10 @@ export default function App() {
           let lastText = 'Conversación vacía';
           if (lastMsg) {
             lastText = lastMsg.text || '';
-            if (lastMsg.type === 'image') lastText = '📷 Foto adjunta';
-            if (lastMsg.type === 'voice') lastText = '🎤 Mensaje de voz';
-            if (lastMsg.type === 'sticker') lastText = `✨ Sticker: ${lastMsg.stickerTitle || 'Sticker'}`;
-            if (lastMsg.type === 'video') lastText = '📹 Video adjunto';
+            if (lastMsg.type === 'image') lastText = 'Foto adjunta';
+            if (lastMsg.type === 'voice') lastText = 'Mensaje de voz';
+            if (lastMsg.type === 'sticker') lastText = `Sticker: ${lastMsg.stickerTitle || 'Sticker'}`;
+            if (lastMsg.type === 'video') lastText = 'Video adjunto';
           }
           return {
             ...c,
@@ -803,9 +1164,11 @@ export default function App() {
     initialMessage?: string,
     phone?: string
   ) => {
-    const newChatId = `chat_${Date.now()}`;
-    const firstMsgTime = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
     const finalPhone = phone ? ensurePhoneStartsWith16(phone) : undefined;
+    const newChatId = finalPhone && user.phone
+      ? getDirectChatId(user.phone, finalPhone)
+      : `chat_${Date.now()}`;
+    const firstMsgTime = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
 
     const newChat: Chat = {
       id: newChatId,
@@ -838,8 +1201,49 @@ export default function App() {
         : [],
     };
 
-    setChats((prev) => [newChat, ...prev]);
+    setChats((prev) => {
+      const idx = prev.findIndex((c) => c.id === newChatId);
+      if (idx >= 0) {
+        const copy = [...prev];
+        copy[idx] = { ...copy[idx], ...newChat };
+        return copy;
+      }
+      return [newChat, ...prev];
+    });
     setActiveChatId(newChatId);
+
+    // Sync to Firestore
+    try {
+      const userPhoneClean = getCleanPhone(user.phone);
+      const friendPhoneClean = getCleanPhone(finalPhone);
+
+      const chatDocRef = doc(db, 'chats', newChatId);
+      setDoc(chatDocRef, {
+        id: newChatId,
+        name: contactName,
+        type: 'direct',
+        participantPhones: [userPhoneClean, friendPhoneClean].filter(Boolean),
+        participants: [user.id || 'me'],
+        usersMap: {
+          [userPhoneClean]: {
+            id: user.id || 'me',
+            name: user.name,
+            avatarUrl: user.avatarUrl,
+            phone: user.phone,
+          },
+          [friendPhoneClean]: {
+            name: contactName,
+            avatarUrl,
+            phone: finalPhone,
+          },
+        },
+        lastMessageText: newChat.lastMessageText,
+        lastMessageTime: newChat.lastMessageTime,
+        updatedAt: Date.now(),
+      }, { merge: true }).catch((err) => console.warn('Error syncing chat doc:', err));
+    } catch (e) {
+      console.warn('Firestore create chat sync error:', e);
+    }
   };
 
   // Create Group Chat
@@ -873,7 +1277,7 @@ export default function App() {
           senderId: 'system',
           senderName: 'PidgeX Sistema',
           type: 'text',
-          text: `🎉 ¡Grupo "${groupName}" creado con éxito por ${user.name}! Agrega integrantes por contacto o por número de teléfono.`,
+          text: `¡Grupo "${groupName}" creado con éxito por ${user.name}! Agrega integrantes por contacto o por número de teléfono.`,
           timestamp: firstMsgTime,
           isRead: true,
         },
@@ -914,7 +1318,7 @@ export default function App() {
             senderId: 'system',
             senderName: 'Sistema',
             type: 'text',
-            text: `🚪 ${user.name} se ha salido del grupo.`,
+            text: `${user.name} se ha salido del grupo.`,
             timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
             isRead: true,
           };
@@ -950,21 +1354,38 @@ export default function App() {
         ...prev,
         pendingFriendRequests: [...(prev.pendingFriendRequests || []), newRequest],
       }));
-      alert(`🔒 [Control Parental Activado]: Para agregar a ${data.name}, ${user.parentName || 'tus padres'} deben aprobarlo primero. La solicitud se ha enviado al panel parental.`);
+      alert(`[Control Parental Activado]: Para agregar a ${data.name}, ${user.parentName || 'tus padres'} deben aprobarlo primero. La solicitud se ha enviado al panel parental.`);
       return;
     }
     handleAddFriendDirect(data);
   };
 
   const handleAddFriendDirect = (data: AddFriendData) => {
-    const newChatId = `chat_friend_${Date.now()}`;
-    const firstMsgTime = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
     const finalPhone = data.phone ? ensurePhoneStartsWith16(data.phone) : undefined;
+    const newChatId = finalPhone && user.phone
+      ? getDirectChatId(user.phone, finalPhone)
+      : `chat_friend_${Date.now()}`;
+    const firstMsgTime = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
 
     const friendCategories: ChatCategory[] = ['all', 'friends'];
     if (data.category && data.category !== 'all' && data.category !== 'friends') {
       friendCategories.push(data.category);
     }
+
+    const initialMsgs: Message[] = data.initialMessage
+      ? [
+          {
+            id: `msg_init_${Date.now()}`,
+            chatId: newChatId,
+            senderId: 'me',
+            senderName: user.name,
+            type: 'text',
+            text: data.initialMessage,
+            timestamp: firstMsgTime,
+            isRead: true,
+          },
+        ]
+      : [];
 
     const newChat: Chat = {
       id: newChatId,
@@ -982,24 +1403,69 @@ export default function App() {
       lastMessageText: data.initialMessage || '¡Amigo agregado con éxito!',
       lastMessageTime: firstMsgTime,
       lastMessageRead: true,
-      messages: data.initialMessage
-        ? [
-            {
-              id: `msg_init_${Date.now()}`,
-              chatId: newChatId,
-              senderId: 'me',
-              senderName: user.name,
-              type: 'text',
-              text: data.initialMessage,
-              timestamp: firstMsgTime,
-              isRead: true,
-            },
-          ]
-        : [],
+      messages: initialMsgs,
     };
 
-    setChats((prev) => [newChat, ...prev]);
+    setChats((prev) => {
+      const idx = prev.findIndex((c) => c.id === newChatId);
+      if (idx >= 0) {
+        const copy = [...prev];
+        copy[idx] = { ...copy[idx], ...newChat, messages: [...copy[idx].messages, ...initialMsgs] };
+        return copy;
+      }
+      return [newChat, ...prev];
+    });
     setActiveChatId(newChatId);
+
+    // Sync to Firestore with participantPhones and usersMap so brother can discover it
+    try {
+      const userPhoneClean = getCleanPhone(user.phone);
+      const friendPhoneClean = getCleanPhone(finalPhone);
+
+      const chatDocRef = doc(db, 'chats', newChatId);
+      setDoc(chatDocRef, {
+        id: newChatId,
+        name: data.name,
+        type: 'direct',
+        participantPhones: [userPhoneClean, friendPhoneClean].filter(Boolean),
+        participants: [user.id || 'me'],
+        usersMap: {
+          [userPhoneClean]: {
+            id: user.id || 'me',
+            name: user.name,
+            avatarUrl: user.avatarUrl,
+            phone: user.phone,
+          },
+          [friendPhoneClean]: {
+            name: data.name,
+            avatarUrl: data.avatarUrl,
+            phone: finalPhone,
+          },
+        },
+        lastMessageText: newChat.lastMessageText,
+        lastMessageTime: newChat.lastMessageTime,
+        updatedAt: Date.now(),
+      }, { merge: true }).catch((err) => console.warn('Error syncing chat doc:', err));
+
+      if (data.initialMessage) {
+        const msgDocRef = doc(db, 'chats', newChatId, 'messages', `msg_init_${Date.now()}`);
+        setDoc(msgDocRef, {
+          id: `msg_init_${Date.now()}`,
+          chatId: newChatId,
+          senderId: user.id || 'me',
+          senderPhone: userPhoneClean,
+          senderName: user.name,
+          senderAvatar: user.avatarUrl,
+          type: 'text',
+          text: data.initialMessage,
+          timestamp: firstMsgTime,
+          timestampMs: Date.now(),
+          isRead: false,
+        }).catch((err) => console.warn('Error syncing initial msg doc:', err));
+      }
+    } catch (e) {
+      console.warn('Firestore direct chat sync error:', e);
+    }
   };
 
   const handleApproveFriendRequest = (requestId: string) => {
@@ -1069,7 +1535,7 @@ export default function App() {
       senderId: user.id || 'current_user',
       senderName: user.name || 'Tú',
       type: 'text',
-      text: `🛒 *Pregunta de BirdMarketplace*\nArtículo: **${product.title}**\nPrecio: $${product.price}\n\n💬 "${inquiryMessage}"`,
+      text: `*Pregunta de BirdMarketplace*\nArtículo: **${product.title}**\nPrecio: $${product.price}\n\n"${inquiryMessage}"`,
       mediaUrl: product.imageUrl,
       timestamp,
       isRead: true,
@@ -1083,7 +1549,7 @@ export default function App() {
             ? {
                 ...c,
                 messages: [...c.messages, inquiryMsgObj],
-                lastMessageText: `🛒 ${product.title}: ${inquiryMessage}`,
+                lastMessageText: `${product.title}: ${inquiryMessage}`,
                 lastMessageTime: timestamp,
                 lastMessageRead: true,
                 unreadCount: 0,
@@ -1105,7 +1571,7 @@ export default function App() {
         type: 'direct',
         categories: ['all', 'friends'],
         unreadCount: 0,
-        lastMessageText: `🛒 ${product.title}: ${inquiryMessage}`,
+        lastMessageText: `${product.title}: ${inquiryMessage}`,
         lastMessageTime: timestamp,
         lastMessageRead: true,
         messages: [inquiryMsgObj],
@@ -1113,6 +1579,47 @@ export default function App() {
 
       setChats((prev) => [newChat, ...prev]);
       setActiveChatId(chatId);
+    }
+
+    // Sync marketplace inquiry to Firestore so seller receives it immediately
+    try {
+      const userPhoneClean = getCleanPhone(user.phone);
+      const sellerPhoneClean = getCleanPhone(product.sellerPhone || '');
+
+      const chatDocRef = doc(db, 'chats', chatId);
+      setDoc(chatDocRef, {
+        id: chatId,
+        name: product.sellerName,
+        type: 'direct',
+        participantPhones: [userPhoneClean, sellerPhoneClean].filter(Boolean),
+        participants: [user.id || 'me', product.sellerId],
+        usersMap: {
+          [userPhoneClean]: {
+            id: user.id || 'me',
+            name: user.name,
+            avatarUrl: user.avatarUrl,
+            phone: user.phone,
+          },
+          [sellerPhoneClean]: {
+            id: product.sellerId,
+            name: product.sellerName,
+            avatarUrl: product.sellerAvatarUrl,
+            phone: product.sellerPhone,
+          },
+        },
+        lastMessageText: `${product.title}: ${inquiryMessage}`,
+        lastMessageTime: timestamp,
+        updatedAt: Date.now(),
+      }, { merge: true }).catch((err) => console.warn('Error syncing seller chat:', err));
+
+      const msgDocRef = doc(db, 'chats', chatId, 'messages', inquiryMsgObj.id);
+      setDoc(msgDocRef, {
+        ...inquiryMsgObj,
+        senderPhone: userPhoneClean,
+        timestampMs: Date.now(),
+      }).catch((err) => console.warn('Error syncing seller inquiry msg:', err));
+    } catch (e) {
+      console.warn('Firestore seller chat error:', e);
     }
   };
 
@@ -1280,6 +1787,7 @@ export default function App() {
                   })
                 );
               }}
+              onStartCall={handleStartCall}
             />
           </div>
         ) : (
@@ -1313,6 +1821,7 @@ export default function App() {
                   onOpenContactProfile={(c) => setSelectedContactForProfile(c)}
                   onOpenStarredMessages={() => setIsStarredModalOpen(true)}
                   onOpenLocalRadar={() => setIsLocalRadarOpen(true)}
+                  onOpenInstallModal={() => setIsInstallModalOpen(true)}
                   isClassicMode={isClassicMode}
                 />
               </div>
@@ -1384,7 +1893,7 @@ export default function App() {
                       senderAvatar: user.avatarUrl,
                       type: 'image',
                       mediaUrl: memeDataUrl,
-                      text: `🃏 Meme creado: ${caption}`,
+                      text: `Meme creado: ${caption}`,
                       timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
                       isRead: true,
                     });
@@ -1423,7 +1932,7 @@ export default function App() {
                       name,
                       username,
                       avatarUrl: createSvgAvatar(name),
-                      initialMessage: '¡Hola! Nos escaneamos por código QR en PidgeX 📸',
+                      initialMessage: '¡Hola! Nos escaneamos por código QR en PidgeX.',
                     });
                     setActiveTab('chats');
                   }}
@@ -1436,6 +1945,7 @@ export default function App() {
                   }}
                   onOpenTutorial={() => setIsTutorialOpen(true)}
                   onOpenTour={() => setIsTourOpen(true)}
+                  onOpenInstallModal={() => setIsInstallModalOpen(true)}
                 />
               </div>
             )}
@@ -1566,6 +2076,47 @@ export default function App() {
 
         {/* Floating Studios M.A P.J Badge Symbol (auto-hidden inside chats, non-blocking) */}
         <StudioWatermark hidden={Boolean(activeChatId)} />
+
+        {/* Real-time Outgoing & Active Call Modal */}
+        {activeCallSession && (
+          <CallModal
+            isOpen={Boolean(activeCallSession)}
+            onClose={() => {
+              if (activeCallSession.callId) {
+                try {
+                  const callRef = doc(db, 'calls', activeCallSession.callId);
+                  updateDoc(callRef, { status: 'ended', endedAt: Date.now() }).catch(() => {});
+                } catch (e) {
+                  console.warn('Error ending call doc:', e);
+                }
+              }
+              setActiveCallSession(null);
+            }}
+            contactName={activeCallSession.chat.name}
+            contactAvatar={activeCallSession.chat.avatarUrl}
+            isVideo={activeCallSession.isVideo}
+            isGroup={activeCallSession.chat.type === 'group'}
+            groupMembers={activeCallSession.chat.groupMembers || []}
+            callId={activeCallSession.callId}
+            isCaller={activeCallSession.isCaller}
+            initialCallStatus={activeCallSession.initialCallStatus}
+          />
+        )}
+
+        {/* Real-time Incoming Call Modal */}
+        <IncomingCallModal
+          call={incomingCallData}
+          onAccept={handleAcceptIncomingCall}
+          onDecline={handleDeclineIncomingCall}
+          isNightMode={isNightMode}
+        />
+
+        {/* PWA Mobile & Tablet Install Guide Modal */}
+        <InstallPwaModal
+          isOpen={isInstallModalOpen}
+          onClose={() => setIsInstallModalOpen(false)}
+          isNightMode={isNightMode}
+        />
       </div>
     </div>
   );

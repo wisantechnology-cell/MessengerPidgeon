@@ -13,6 +13,14 @@ import {
   HelpCircle,
   RefreshCw,
   ShoppingBag,
+  Laptop,
+  Gamepad2,
+  Shirt,
+  Armchair,
+  Bike,
+  Car,
+  UtensilsCrossed,
+  BookOpen,
 } from 'lucide-react';
 import {
   MarketplaceCategory,
@@ -31,15 +39,15 @@ interface PublishProductModalProps {
   onPublish: (product: Omit<MarketplaceProduct, 'id' | 'createdAt'>) => void;
 }
 
-const CATEGORIES: { id: MarketplaceCategory; label: string; icon: string }[] = [
-  { id: 'tech', label: 'Tecnología & Móviles', icon: '💻' },
-  { id: 'gaming', label: 'Videojuegos & Consolas', icon: '🎮' },
-  { id: 'fashion', label: 'Ropa & Calzado', icon: '👕' },
-  { id: 'home', label: 'Hogar & Muebles', icon: '🛋️' },
-  { id: 'sports', label: 'Deportes & Bicicletas', icon: '🚲' },
-  { id: 'vehicles', label: 'Vehículos & Accesorios', icon: '🚗' },
-  { id: 'food', label: 'Comida & Alimentos', icon: '🍔' },
-  { id: 'books', label: 'Libros & Coleccionables', icon: '📚' },
+const CATEGORIES: { id: MarketplaceCategory; label: string; icon: React.ReactNode }[] = [
+  { id: 'tech', label: 'Tecnología & Móviles', icon: <Laptop className="w-3.5 h-3.5" /> },
+  { id: 'gaming', label: 'Videojuegos & Consolas', icon: <Gamepad2 className="w-3.5 h-3.5" /> },
+  { id: 'fashion', label: 'Ropa & Calzado', icon: <Shirt className="w-3.5 h-3.5" /> },
+  { id: 'home', label: 'Hogar & Muebles', icon: <Armchair className="w-3.5 h-3.5" /> },
+  { id: 'sports', label: 'Deportes & Bicicletas', icon: <Bike className="w-3.5 h-3.5" /> },
+  { id: 'vehicles', label: 'Vehículos & Accesorios', icon: <Car className="w-3.5 h-3.5" /> },
+  { id: 'food', label: 'Comida & Alimentos', icon: <UtensilsCrossed className="w-3.5 h-3.5" /> },
+  { id: 'books', label: 'Libros & Coleccionables', icon: <BookOpen className="w-3.5 h-3.5" /> },
 ];
 
 const CONDITIONS: { id: ProductCondition; label: string; desc: string }[] = [
@@ -107,12 +115,19 @@ export const PublishProductModal: React.FC<PublishProductModalProps> = ({
   const capturePhoto = () => {
     if (!videoRef.current) return;
     const canvas = document.createElement('canvas');
-    canvas.width = videoRef.current.videoWidth || 640;
-    canvas.height = videoRef.current.videoHeight || 480;
+    const maxWidth = 960;
+    let width = videoRef.current.videoWidth || 640;
+    let height = videoRef.current.videoHeight || 480;
+    if (width > maxWidth) {
+      height = Math.round((height * maxWidth) / width);
+      width = maxWidth;
+    }
+    canvas.width = width;
+    canvas.height = height;
     const ctx = canvas.getContext('2d');
     if (ctx) {
-      ctx.drawImage(videoRef.current, 0, 0, canvas.width, canvas.height);
-      const dataUrl = canvas.toDataURL('image/jpeg', 0.85);
+      ctx.drawImage(videoRef.current, 0, 0, width, height);
+      const dataUrl = canvas.toDataURL('image/jpeg', 0.8);
       setImageUrl(dataUrl);
     }
     stopCamera();
@@ -124,7 +139,27 @@ export const PublishProductModal: React.FC<PublishProductModalProps> = ({
       const reader = new FileReader();
       reader.onload = (event) => {
         if (event.target?.result) {
-          setImageUrl(event.target.result as string);
+          const img = new Image();
+          img.onload = () => {
+            const maxWidth = 960;
+            let width = img.width;
+            let height = img.height;
+            if (width > maxWidth) {
+              height = Math.round((height * maxWidth) / width);
+              width = maxWidth;
+            }
+            const canvas = document.createElement('canvas');
+            canvas.width = width;
+            canvas.height = height;
+            const ctx = canvas.getContext('2d');
+            if (ctx) {
+              ctx.drawImage(img, 0, 0, width, height);
+              setImageUrl(canvas.toDataURL('image/jpeg', 0.8));
+            } else {
+              setImageUrl(event.target?.result as string);
+            }
+          };
+          img.src = event.target.result as string;
         }
       };
       reader.readAsDataURL(file);

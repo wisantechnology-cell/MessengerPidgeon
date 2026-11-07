@@ -17,6 +17,8 @@ import {
   Bot,
 } from 'lucide-react';
 import { playSound } from '../../utils/gameAudio';
+import { PikitoMascot } from '../PikitoMascot';
+import { TrophyVectorIcon } from '../CustomVectorIcons';
 
 interface TriviaQuestion {
   id: number;
@@ -30,7 +32,7 @@ interface TriviaQuestion {
 const TRIVIA_QUESTIONS: TriviaQuestion[] = [
   {
     id: 1,
-    category: '🌍 Geografía',
+    category: 'Geografía',
     question: '¿Cuál es el río más largo del mundo?',
     options: ['Río Amazonas', 'Río Nilo', 'Río Misisipi', 'Río Yangtze'],
     correctIndex: 0,
@@ -38,7 +40,7 @@ const TRIVIA_QUESTIONS: TriviaQuestion[] = [
   },
   {
     id: 2,
-    category: '🚀 Tecnología',
+    category: 'Tecnología',
     question: '¿Qué lenguaje de programación es famoso por ejecutarse en navegadores web?',
     options: ['Python', 'C++', 'JavaScript', 'Rust'],
     correctIndex: 2,
@@ -46,7 +48,7 @@ const TRIVIA_QUESTIONS: TriviaQuestion[] = [
   },
   {
     id: 3,
-    category: '🎬 Cine & Entretenimiento',
+    category: 'Cine & Entretenimiento',
     question: '¿Cuál es la película más taquillera de la historia del cine?',
     options: ['Titanic', 'Avengers: Endgame', 'Avatar', 'Star Wars: El despertar de la fuerza'],
     correctIndex: 2,
@@ -54,7 +56,7 @@ const TRIVIA_QUESTIONS: TriviaQuestion[] = [
   },
   {
     id: 4,
-    category: '🕊️ PidgeX Trivia',
+    category: 'PidgeX Trivia',
     question: '¿Con qué prefijo comienzan los números de teléfono oficiales en PidgeX?',
     options: ['Prefijo 34', 'Prefijo 16', 'Prefijo 52', 'Prefijo 99'],
     correctIndex: 1,
@@ -62,7 +64,7 @@ const TRIVIA_QUESTIONS: TriviaQuestion[] = [
   },
   {
     id: 5,
-    category: '🧠 Ciencia',
+    category: 'Ciencia',
     question: '¿Cuál es el planeta más grande de nuestro Sistema Solar?',
     options: ['Saturno', 'Neptuno', 'Júpiter', 'Tierra'],
     correctIndex: 2,
@@ -70,7 +72,7 @@ const TRIVIA_QUESTIONS: TriviaQuestion[] = [
   },
   {
     id: 6,
-    category: '🎨 Arte & Historia',
+    category: 'Arte & Historia',
     question: '¿Quién pintó la famosa obra de la Mona Lisa?',
     options: ['Vincent van Gogh', 'Leonardo da Vinci', 'Pablo Picasso', 'Claude Monet'],
     correctIndex: 1,
@@ -78,7 +80,7 @@ const TRIVIA_QUESTIONS: TriviaQuestion[] = [
   },
   {
     id: 7,
-    category: '⚽ Deportes',
+    category: 'Deportes',
     question: '¿En qué país se celebró la Copa Mundial de Fútbol de 2022?',
     options: ['Brasil', 'Qatar', 'Alemania', 'Rusia'],
     correctIndex: 1,
@@ -86,7 +88,7 @@ const TRIVIA_QUESTIONS: TriviaQuestion[] = [
   },
   {
     id: 8,
-    category: '🎵 Música',
+    category: 'Música',
     question: '¿Qué instrumento tiene 88 teclas entre blancas y negras?',
     options: ['Acordeón', 'Piano', 'Sintetizador', 'Arpa'],
     correctIndex: 1,
@@ -97,7 +99,7 @@ const TRIVIA_QUESTIONS: TriviaQuestion[] = [
 interface PlayerScore {
   id: string;
   name: string;
-  avatar: string;
+  initial: string;
   score: number;
   streak: number;
   isMe?: boolean;
@@ -118,10 +120,10 @@ export const TriviaGrupalGame: React.FC<TriviaGrupalGameProps> = ({ onBack, grou
 
   // Group players list
   const [players, setPlayers] = useState<PlayerScore[]>([
-    { id: 'me', name: 'Tú (Jugador Principal)', avatar: '🕊️', score: 0, streak: 0, isMe: true },
-    { id: 'p2', name: 'Ana (Amiga)', avatar: '👩‍🎨', score: 0, streak: 0 },
-    { id: 'p3', name: 'Carlos (Líder)', avatar: '🚀', score: 0, streak: 0 },
-    { id: 'p4', name: 'Sofía', avatar: '⭐', score: 0, streak: 0 },
+    { id: 'me', name: 'Tú (Jugador Principal)', initial: 'P', score: 0, streak: 0, isMe: true },
+    { id: 'p2', name: 'Ana (Amiga)', initial: 'A', score: 0, streak: 0 },
+    { id: 'p3', name: 'Carlos (Líder)', initial: 'C', score: 0, streak: 0 },
+    { id: 'p4', name: 'Sofía', initial: 'S', score: 0, streak: 0 },
   ]);
 
   const currentQ = TRIVIA_QUESTIONS[currentQuestionIdx];
@@ -207,10 +209,10 @@ export const TriviaGrupalGame: React.FC<TriviaGrupalGameProps> = ({ onBack, grou
     setTimeLeft(12);
     setGameEnded(false);
     setPlayers([
-      { id: 'me', name: 'Tú (Jugador Principal)', avatar: '🕊️', score: 0, streak: 0, isMe: true },
-      { id: 'p2', name: 'Ana (Amiga)', avatar: '👩‍🎨', score: 0, streak: 0 },
-      { id: 'p3', name: 'Carlos (Líder)', avatar: '🚀', score: 0, streak: 0 },
-      { id: 'p4', name: 'Sofía', avatar: '⭐', score: 0, streak: 0 },
+      { id: 'me', name: 'Tú (Jugador Principal)', initial: 'P', score: 0, streak: 0, isMe: true },
+      { id: 'p2', name: 'Ana (Amiga)', initial: 'A', score: 0, streak: 0 },
+      { id: 'p3', name: 'Carlos (Líder)', initial: 'C', score: 0, streak: 0 },
+      { id: 'p4', name: 'Sofía', initial: 'S', score: 0, streak: 0 },
     ]);
   };
 
@@ -332,7 +334,7 @@ export const TriviaGrupalGame: React.FC<TriviaGrupalGameProps> = ({ onBack, grou
                     onClick={handleNextQuestion}
                     className="px-4 py-1.5 rounded-xl bg-gradient-to-r from-[#2563eb] to-[#00a6e0] hover:brightness-110 text-white text-xs font-bold shadow-md cursor-pointer"
                   >
-                    {currentQuestionIdx < TRIVIA_QUESTIONS.length - 1 ? 'Siguiente ➔' : 'Ver Resultados 🏆'}
+                    {currentQuestionIdx < TRIVIA_QUESTIONS.length - 1 ? 'Siguiente ➔' : 'Ver Resultados'}
                   </button>
                 </div>
                 <p className="text-[11px] text-[#8d90a0] italic">{currentQ.explanation}</p>
@@ -346,7 +348,10 @@ export const TriviaGrupalGame: React.FC<TriviaGrupalGameProps> = ({ onBack, grou
                   <Trophy className="w-3.5 h-3.5 text-amber-400" />
                   <span>Tabla de Posiciones del Grupo</span>
                 </span>
-                <span className="text-[10px] text-emerald-400 font-bold">En Vivo ⚡</span>
+                <span className="text-[10px] text-emerald-400 font-bold flex items-center gap-1">
+                  <Zap className="w-3 h-3 fill-emerald-400 text-emerald-400" />
+                  <span>En Vivo</span>
+                </span>
               </div>
 
               <div className="flex flex-col gap-1.5">
@@ -363,7 +368,13 @@ export const TriviaGrupalGame: React.FC<TriviaGrupalGameProps> = ({ onBack, grou
                       <span className="w-5 text-center font-bold text-[#8d90a0] text-xs">
                         #{idx + 1}
                       </span>
-                      <span className="text-base">{p.avatar}</span>
+                      {p.isMe ? (
+                        <PikitoMascot size="xs" mood="happy" />
+                      ) : (
+                        <div className="w-6 h-6 rounded-full bg-slate-800 border border-white/10 flex items-center justify-center font-bold text-[10px] text-sky-300">
+                          {p.initial}
+                        </div>
+                      )}
                       <span>{p.name}</span>
                       {p.streak > 1 && (
                         <span className="px-1.5 py-0.2 rounded-full bg-orange-500/20 text-orange-300 text-[10px] font-bold flex items-center gap-0.5">
@@ -381,14 +392,14 @@ export const TriviaGrupalGame: React.FC<TriviaGrupalGameProps> = ({ onBack, grou
         ) : (
           /* Game Ended / Podio final */
           <div className="flex flex-col items-center gap-4 py-4 text-center animate-in zoom-in-95 duration-200">
-            <div className="w-16 h-16 rounded-3xl bg-amber-500/20 border border-amber-500/40 flex items-center justify-center text-3xl shadow-xl shadow-amber-950/40">
-              🏆
+            <div className="w-16 h-16 rounded-3xl bg-amber-500/20 border border-amber-500/40 flex items-center justify-center shadow-xl shadow-amber-950/40">
+              <TrophyVectorIcon className="w-9 h-9" />
             </div>
             <div className="flex flex-col gap-1">
               <h2 className="text-xl font-black text-white">¡Partida Completada!</h2>
               <p className="text-xs text-[#8d90a0]">
                 {players[0]?.isMe
-                  ? '🎉 ¡Felicidades! Has ganado el primer lugar en la trivia del grupo.'
+                  ? '¡Felicidades! Has ganado el primer lugar en la trivia del grupo.'
                   : `¡Gran esfuerzo! El ganador del grupo fue ${players[0]?.name}.`}
               </p>
             </div>
@@ -407,10 +418,16 @@ export const TriviaGrupalGame: React.FC<TriviaGrupalGameProps> = ({ onBack, grou
                   }`}
                 >
                   <div className="flex items-center gap-2.5">
-                    <span className="text-sm">
-                      {idx === 0 ? '🥇' : idx === 1 ? '🥈' : idx === 2 ? '🥉' : `#${idx + 1}`}
+                    <span className="w-6 h-6 rounded-full bg-white/10 flex items-center justify-center font-bold text-xs text-amber-300">
+                      #{idx + 1}
                     </span>
-                    <span className="text-base">{p.avatar}</span>
+                    {p.isMe ? (
+                      <PikitoMascot size="xs" mood={idx === 0 ? 'excited' : 'happy'} />
+                    ) : (
+                      <div className="w-6 h-6 rounded-full bg-slate-800 border border-white/10 flex items-center justify-center font-bold text-[10px] text-sky-300">
+                        {p.initial}
+                      </div>
+                    )}
                     <span>{p.name}</span>
                   </div>
                   <span className="font-mono font-extrabold text-sm">{p.score} pts</span>

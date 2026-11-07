@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { Mic, Trash2, Send, Pause, Play, RotateCcw, Volume2, Sparkles } from 'lucide-react';
 import { createFallbackVoiceAudio } from '../utils/audioUtils';
+import { SquirrelVoiceIcon, RobotVoiceIcon, DeepVoiceIcon } from './CustomVectorIcons';
 
 interface VoiceRecorderProps {
   onSendVoice: (durationText: string, audioBlobUrl?: string, voiceFilter?: 'normal' | 'chipmunk' | 'robot' | 'deep') => void;
@@ -221,8 +222,10 @@ export const VoiceRecorder: React.FC<VoiceRecorderProps> = ({
             {formatTime(seconds)}
           </span>
           {voiceFilter !== 'normal' && (
-            <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-purple-500/20 text-purple-300 border border-purple-500/30">
-              {voiceFilter === 'chipmunk' ? '🐿️ Ardilla' : voiceFilter === 'robot' ? '🤖 Robot' : '🦁 Grave'}
+            <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-purple-500/20 text-purple-300 border border-purple-500/30 flex items-center gap-1">
+              {voiceFilter === 'chipmunk' && <><SquirrelVoiceIcon className="w-3.5 h-3.5" /> Ardilla</>}
+              {voiceFilter === 'robot' && <><RobotVoiceIcon className="w-3.5 h-3.5" /> Robot</>}
+              {voiceFilter === 'deep' && <><DeepVoiceIcon className="w-3.5 h-3.5" /> Grave</>}
             </span>
           )}
         </div>
@@ -301,10 +304,10 @@ export const VoiceRecorder: React.FC<VoiceRecorderProps> = ({
           <span className="font-bold text-[#8d90a0]">Efecto de Voz:</span>
           <div className="flex items-center gap-1.5">
             {[
-              { id: 'normal', label: 'Normal' },
-              { id: 'chipmunk', label: '🐿️ Ardilla' },
-              { id: 'robot', label: '🤖 Robot' },
-              { id: 'deep', label: '🦁 Grave' },
+              { id: 'normal', label: 'Normal', icon: null },
+              { id: 'chipmunk', label: 'Ardilla', icon: <SquirrelVoiceIcon className="w-3.5 h-3.5" /> },
+              { id: 'robot', label: 'Robot', icon: <RobotVoiceIcon className="w-3.5 h-3.5" /> },
+              { id: 'deep', label: 'Grave', icon: <DeepVoiceIcon className="w-3.5 h-3.5" /> },
             ].map((f) => (
               <button
                 key={f.id}
@@ -312,13 +315,14 @@ export const VoiceRecorder: React.FC<VoiceRecorderProps> = ({
                   setVoiceFilter(f.id as any);
                   setShowFilterPicker(false);
                 }}
-                className={`px-2.5 py-1 rounded-lg font-bold transition-all cursor-pointer ${
+                className={`px-2.5 py-1 rounded-lg font-bold transition-all cursor-pointer flex items-center gap-1.5 ${
                   voiceFilter === f.id
                     ? 'bg-purple-600 text-white shadow'
                     : 'bg-white/5 text-[#8d90a0] hover:text-white'
                 }`}
               >
-                {f.label}
+                {f.icon}
+                <span>{f.label}</span>
               </button>
             ))}
           </div>

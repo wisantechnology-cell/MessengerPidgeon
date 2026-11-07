@@ -56,7 +56,7 @@ export const PrivateMessageModal: React.FC<PrivateMessageModalProps> = ({
               <Lock className="w-5 h-5" />
             </div>
             <div>
-              <h3 className="text-base font-bold">Mensaje Privado Confidencial 🔒</h3>
+              <h3 className="text-base font-bold">Mensaje Privado Confidencial</h3>
               <p className="text-[11px] text-[#8d90a0]">Protegido con PIN y autodestrucción</p>
             </div>
           </div>

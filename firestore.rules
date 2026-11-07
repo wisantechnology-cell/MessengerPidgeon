@@ -19,7 +19,6 @@ service cloud.firestore {
 
     function isValidChat(data) {
       return data.keys().hasAll(['id', 'name', 'type']) &&
-        data.keys().hasOnly(['id', 'name', 'username', 'phone', 'isFriend', 'isBlocked', 'avatarUrl', 'isVerified', 'isOnline', 'statusText', 'type', 'categories', 'unreadCount', 'pinned', 'lastMessageText', 'lastMessageTime', 'lastMessageRead', 'hasAiSuggestion', 'customWallpaperId', 'customWallpaperUrl', 'isTyping', 'isRealTime', 'roomId', 'onlineCount', 'activeUsers', 'messages']) &&
         data.id is string && data.id.size() <= 128 &&
         data.name is string && data.name.size() <= 100 &&
         data.type is string;
@@ -51,11 +50,20 @@ service cloud.firestore {
       allow get, list, create, update, delete: if true;
     }
 
+    match /chats/{chatId}/messages/{messageId} {
+      allow get, list, create, update, delete: if true;
+    }
+
+    match /calls/{callId} {
+      allow get, list, create, update, delete: if true;
+    }
+
+    match /omegle_queue/{queueId} {
+      allow get, list, create, update, delete: if true;
+    }
+
     match /marketplaceProducts/{productId} {
-      allow get, list: if true;
-      allow create: if isSignedIn() && isValidId(productId) && isValidMarketplaceProduct(incoming());
-      allow update: if isSignedIn() && isValidId(productId) && isValidMarketplaceProduct(incoming());
-      allow delete: if isSignedIn() && isValidId(productId);
+      allow get, list, create, update, delete: if true;
     }
 
     match /gameScores/{scoreId} {

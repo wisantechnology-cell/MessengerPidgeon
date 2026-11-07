@@ -1,12 +1,14 @@
 import React, { useState, useEffect } from 'react';
-import { RotateCcw, ArrowLeft, Volume2, VolumeX, Bot, Users } from 'lucide-react';
+import { RotateCcw, ArrowLeft, Volume2, VolumeX, Bot, Users, Mail } from 'lucide-react';
 import { playSound } from '../../utils/gameAudio';
+import { PikitoMascot } from '../PikitoMascot';
+import { TrophyVectorIcon } from '../CustomVectorIcons';
 
 interface TicTacToeGameProps {
   onBack: () => void;
 }
 
-type Player = 'X' | 'O'; // X = Bird 🕊️, O = Letter ✉️
+type Player = 'X' | 'O';
 type Board = (Player | null)[];
 
 export const TicTacToeGame: React.FC<TicTacToeGameProps> = ({ onBack }) => {
@@ -206,8 +208,9 @@ export const TicTacToeGame: React.FC<TicTacToeGameProps> = ({ onBack }) => {
               : 'bg-[#141822] border-white/5'
           }`}
         >
-          <span className="text-[10px] font-bold text-[#7bd0ff] uppercase flex items-center gap-1">
-            🕊️ Pájaro Azul (Tú)
+          <span className="text-[10px] font-bold text-[#7bd0ff] uppercase flex items-center gap-1.5">
+            <PikitoMascot size="xs" mood="happy" />
+            <span>Pikito (Tú)</span>
           </span>
           <span className="text-xl font-black text-white">{scores.x}</span>
         </div>
@@ -224,8 +227,9 @@ export const TicTacToeGame: React.FC<TicTacToeGameProps> = ({ onBack }) => {
               : 'bg-[#141822] border-white/5'
           }`}
         >
-          <span className="text-[10px] font-bold text-amber-400 uppercase flex items-center gap-1">
-            ✉️ Carta ({mode === 'ai' ? 'IA' : 'J2'})
+          <span className="text-[10px] font-bold text-amber-400 uppercase flex items-center gap-1.5">
+            <Mail className="w-3.5 h-3.5" />
+            <span>Carta ({mode === 'ai' ? 'IA' : 'J2'})</span>
           </span>
           <span className="text-xl font-black text-white">{scores.o}</span>
         </div>
@@ -250,14 +254,14 @@ export const TicTacToeGame: React.FC<TicTacToeGameProps> = ({ onBack }) => {
                 }`}
               >
                 {cell === 'X' && (
-                  <span className="text-4xl sm:text-5xl animate-in zoom-in-50 duration-150 drop-shadow-md">
-                    🕊️
-                  </span>
+                  <div className="animate-in zoom-in-50 duration-150">
+                    <PikitoMascot size="lg" mood="happy" />
+                  </div>
                 )}
                 {cell === 'O' && (
-                  <span className="text-4xl sm:text-5xl animate-in zoom-in-50 duration-150 drop-shadow-md">
-                    ✉️
-                  </span>
+                  <div className="animate-in zoom-in-50 duration-150">
+                    <Mail className="w-12 h-12 text-amber-400 drop-shadow-md" />
+                  </div>
                 )}
               </button>
             );
@@ -266,22 +270,22 @@ export const TicTacToeGame: React.FC<TicTacToeGameProps> = ({ onBack }) => {
 
         {/* Winner / Draw Result Banner Overlay */}
         {winner && (
-          <div className="absolute inset-0 bg-black/80 backdrop-blur-md rounded-3xl flex flex-col items-center justify-center p-6 text-center animate-in fade-in zoom-in-95 duration-200">
+          <div className="absolute inset-0 bg-black/85 backdrop-blur-md rounded-3xl flex flex-col items-center justify-center p-6 text-center animate-in fade-in zoom-in-95 duration-200">
             {winner === 'draw' ? (
               <>
-                <span className="text-4xl mb-2">🤝</span>
+                <Users className="w-10 h-10 text-slate-300 mb-2" />
                 <h3 className="text-xl font-black text-white mb-1">¡Partida Empatada!</h3>
                 <p className="text-xs text-[#8d90a0] mb-4">Ningún jugador cedió terreno en esta ronda.</p>
               </>
             ) : winner === 'X' ? (
               <>
-                <span className="text-4xl mb-2 animate-bounce">🏆</span>
-                <h3 className="text-xl font-black text-[#7bd0ff] mb-1">¡Ganó el Pájaro Azul!</h3>
+                <TrophyVectorIcon className="w-12 h-12 mb-2 animate-bounce" />
+                <h3 className="text-xl font-black text-[#7bd0ff] mb-1">¡Ganó Pikito!</h3>
                 <p className="text-xs text-[#8d90a0] mb-4">¡Excelente estrategia y reflejos!</p>
               </>
             ) : (
               <>
-                <span className="text-4xl mb-2">✉️</span>
+                <Mail className="w-12 h-12 text-amber-400 mb-2 animate-bounce" />
                 <h3 className="text-xl font-black text-amber-300 mb-1">
                   ¡Ganó {mode === 'ai' ? 'la IA' : 'el Jugador 2'}!
                 </h3>

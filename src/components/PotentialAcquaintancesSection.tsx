@@ -65,7 +65,7 @@ export const PotentialAcquaintancesSection: React.FC<PotentialAcquaintancesSecti
       username: friend.username,
       avatarUrl: friend.avatarUrl,
       category: friend.category,
-      initialMessage: `¡Hola ${friend.name}! Te vi en posibles conocidos porque somos amigos de ${mutualName}. ¡Encantado de conectar en PidgeX! 🕊️✨`,
+      initialMessage: `¡Hola ${friend.name}! Te vi en posibles conocidos porque somos amigos de ${mutualName}. ¡Encantado de conectar en PidgeX!`,
     });
 
     setAddedIds((prev) => [...prev, friend.id]);

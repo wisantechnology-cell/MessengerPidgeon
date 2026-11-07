@@ -1,6 +1,27 @@
-import React, { useState, useEffect } from 'react';
-import { Phone, PhoneOff, Mic, MicOff, Video, VideoOff, Users, Volume2, Sparkles, Glasses, Crown, PartyPopper } from 'lucide-react';
+import React, { useState, useEffect, useRef } from 'react';
+import {
+  Phone,
+  PhoneOff,
+  Mic,
+  MicOff,
+  Video,
+  VideoOff,
+  Users,
+  Volume2,
+  Sparkles,
+  Glasses,
+  Crown,
+  PartyPopper,
+} from 'lucide-react';
 import { GroupMember } from '../types';
+import { db, doc, onSnapshot, updateDoc } from '../firebase';
+import {
+  ReactionHeartIcon,
+  ReactionThumbIcon,
+  ReactionFlameIcon,
+  ReactionPartyIcon,
+  ReactionClapIcon,
+} from './CustomVectorIcons';
 
 interface CallModalProps {
   isOpen: boolean;
@@ -10,11 +31,14 @@ interface CallModalProps {
   isVideo: boolean;
   isGroup?: boolean;
   groupMembers?: GroupMember[];
+  callId?: string;
+  isCaller?: boolean;
+  initialCallStatus?: 'calling' | 'connected';
 }
 
 interface FloatingReaction {
   id: number;
-  emoji: string;
+  reactionType: 'heart' | 'flame' | 'party' | 'thumb' | 'clap';
   left: number;
 }
 
@@ -26,14 +50,22 @@ export const CallModal: React.FC<CallModalProps> = ({
   isVideo,
   isGroup = false,
   groupMembers = [],
+  callId,
+  isCaller = true,
+  initialCallStatus = 'calling',
 }) => {
-  const [callStatus, setCallStatus] = useState<'calling' | 'connected'>('calling');
+  const [callStatus, setCallStatus] = useState<'calling' | 'connected' | 'declined'>(initialCallStatus);
   const [callDuration, setCallDuration] = useState<number>(0);
   const [isMuted, setIsMuted] = useState<boolean>(false);
   const [isVideoOff, setIsVideoOff] = useState<boolean>(!isVideo);
   const [videoFilter, setVideoFilter] = useState<'none' | 'sunglasses' | 'crown' | 'hat'>('none');
   const [reactions, setReactions] = useState<FloatingReaction[]>([]);
+  const [declineReason, setDeclineReason] = useState<string | null>(null);
 
+  const audioCtxRef = useRef<AudioContext | null>(null);
+  const outRingIntervalRef = useRef<NodeJS.Timeout | null>(null);
+
+  // Reset state on open/close
   useEffect(() => {
     if (!isOpen) {
       setCallStatus('calling');
@@ -41,16 +73,100 @@ export const CallModal: React.FC<CallModalProps> = ({
       setIsVideoOff(!isVideo);
       setVideoFilter('none');
       setReactions([]);
+      setDeclineReason(null);
+      return;
+    }
+    setCallStatus(initialCallStatus);
+  }, [isOpen, initialCallStatus, isVideo]);
+
+  // Outgoing ringing audio (tuuuu... tuuuu...) when caller is waiting for receiver to pick up
+  useEffect(() => {
+    if (!isOpen || callStatus !== 'calling' || !isCaller) {
+      if (outRingIntervalRef.current) clearInterval(outRingIntervalRef.current);
+      if (audioCtxRef.current) {
+        audioCtxRef.current.close().catch(() => {});
+        audioCtxRef.current = null;
+      }
       return;
     }
 
-    const timer = setTimeout(() => {
-      setCallStatus('connected');
-    }, 2500);
+    try {
+      const AudioCtx = window.AudioContext || (window as any).webkitAudioContext;
+      if (AudioCtx) {
+        audioCtxRef.current = new AudioCtx();
 
-    return () => clearTimeout(timer);
-  }, [isOpen, isVideo]);
+        const playTone = () => {
+          if (!audioCtxRef.current) return;
+          const ctx = audioCtxRef.current;
+          if (ctx.state === 'suspended') ctx.resume().catch(() => {});
 
+          const now = ctx.currentTime;
+          const osc = ctx.createOscillator();
+          const gain = ctx.createGain();
+
+          osc.type = 'sine';
+          osc.frequency.setValueAtTime(425, now); // European/LatAm standard ring tone 425Hz
+
+          gain.gain.setValueAtTime(0, now);
+          gain.gain.linearRampToValueAtTime(0.08, now + 0.05);
+          gain.gain.setValueAtTime(0.08, now + 1.0);
+          gain.gain.linearRampToValueAtTime(0, now + 1.2);
+
+          osc.connect(gain);
+          gain.connect(ctx.destination);
+
+          osc.start(now);
+          osc.stop(now + 1.2);
+        };
+
+        playTone();
+        outRingIntervalRef.current = setInterval(playTone, 3500);
+      }
+    } catch (e) {
+      console.warn('Outgoing ring audio error:', e);
+    }
+
+    return () => {
+      if (outRingIntervalRef.current) clearInterval(outRingIntervalRef.current);
+      if (audioCtxRef.current) {
+        audioCtxRef.current.close().catch(() => {});
+        audioCtxRef.current = null;
+      }
+    };
+  }, [isOpen, callStatus, isCaller]);
+
+  // Real-time Firestore sync with calls/{callId}
+  useEffect(() => {
+    if (!isOpen || !callId) return;
+
+    const callDocRef = doc(db, 'calls', callId);
+    const unsubscribe = onSnapshot(callDocRef, (snap) => {
+      if (!snap.exists()) {
+        onClose();
+        return;
+      }
+      const data = snap.data();
+      if (!data) return;
+
+      if (data.status === 'accepted') {
+        setCallStatus('connected');
+      } else if (data.status === 'declined') {
+        setCallStatus('declined');
+        setDeclineReason(`${contactName} ha rechazado la llamada.`);
+        setTimeout(() => {
+          onClose();
+        }, 2200);
+      } else if (data.status === 'ended') {
+        onClose();
+      }
+    }, (err) => {
+      console.warn('Call snapshot error:', err);
+    });
+
+    return () => unsubscribe();
+  }, [isOpen, callId, contactName, onClose]);
+
+  // Call timer - ONLY counts up when callStatus is strictly 'connected'
   useEffect(() => {
     let interval: NodeJS.Timeout;
     if (isOpen && callStatus === 'connected') {
@@ -58,19 +174,45 @@ export const CallModal: React.FC<CallModalProps> = ({
         setCallDuration((d) => d + 1);
       }, 1000);
     }
-    return () => clearTimeout(interval);
+    return () => clearInterval(interval);
   }, [isOpen, callStatus]);
 
-  const sendReaction = (emoji: string) => {
+  const handleHangUp = async () => {
+    if (callId) {
+      try {
+        await updateDoc(doc(db, 'calls', callId), { status: 'ended' });
+      } catch (e) {
+        console.warn('Error ending call:', e);
+      }
+    }
+    onClose();
+  };
+
+  const sendReaction = (reactionType: 'heart' | 'flame' | 'party' | 'thumb' | 'clap') => {
     const newReaction: FloatingReaction = {
       id: Date.now() + Math.random(),
-      emoji,
+      reactionType,
       left: Math.floor(Math.random() * 80) + 10,
     };
     setReactions((prev) => [...prev, newReaction]);
     setTimeout(() => {
       setReactions((prev) => prev.filter((r) => r.id !== newReaction.id));
     }, 3000);
+  };
+
+  const renderReactionSvg = (type: 'heart' | 'flame' | 'party' | 'thumb' | 'clap') => {
+    switch (type) {
+      case 'heart':
+        return <ReactionHeartIcon className="w-9 h-9 drop-shadow-lg" />;
+      case 'flame':
+        return <ReactionFlameIcon className="w-9 h-9 drop-shadow-lg" />;
+      case 'party':
+        return <ReactionPartyIcon className="w-9 h-9 drop-shadow-lg" />;
+      case 'thumb':
+        return <ReactionThumbIcon className="w-9 h-9 drop-shadow-lg" />;
+      case 'clap':
+        return <ReactionClapIcon className="w-9 h-9 drop-shadow-lg" />;
+    }
   };
 
   if (!isOpen) return null;
@@ -90,33 +232,46 @@ export const CallModal: React.FC<CallModalProps> = ({
         {reactions.map((r) => (
           <div
             key={r.id}
-            className="absolute bottom-24 text-3xl animate-bounce duration-1000 transition-all"
+            className="absolute bottom-24 animate-bounce duration-1000 transition-all"
             style={{
               left: `${r.left}%`,
               animation: 'floatUp 3s ease-out forwards',
             }}
           >
-            {r.emoji}
+            {renderReactionSvg(r.reactionType)}
           </div>
         ))}
       </div>
 
       {/* Top indicator */}
-      <div className="flex flex-col items-center gap-1 mt-6 z-20">
+      <div className="flex flex-col items-center gap-1.5 mt-6 z-20">
         <div className="flex items-center gap-1.5 px-3 py-1 rounded-full bg-blue-500/20 text-[#38bdf8] border border-blue-500/30 text-[11px] font-bold uppercase tracking-wider shadow-md">
           {isGroup ? <Users className="w-3.5 h-3.5" /> : isVideoCallActive ? <Video className="w-3.5 h-3.5" /> : <Phone className="w-3.5 h-3.5" />}
           <span>{isGroup ? 'Llamada Grupal Cifrada PidgeX' : isVideoCallActive ? 'Videollamada AR PidgeX' : 'Llamada de Voz Cifrada PidgeX'}</span>
         </div>
         <h3 className="text-2xl font-black text-white tracking-tight mt-1">{contactName}</h3>
-        <span className="text-sm text-[#8d90a0]">
-          {callStatus === 'calling'
-            ? isGroup ? 'Conectando a los participantes del grupo...' : isVideoCallActive ? 'Iniciando videollamada AR...' : 'Llamando...'
-            : isGroup
-            ? `En llamada grupal • ${groupMembers.length + 1} en línea • ${formatDuration(callDuration)}`
-            : isVideoCallActive
-            ? `Videollamada AR en vivo • ${formatDuration(callDuration)}`
-            : `Conectado • ${formatDuration(callDuration)}`}
-        </span>
+
+        <div className="flex items-center gap-2">
+          {callStatus === 'calling' && (
+            <span className="w-2.5 h-2.5 rounded-full bg-amber-400 animate-ping" />
+          )}
+          {callStatus === 'connected' && (
+            <span className="w-2.5 h-2.5 rounded-full bg-emerald-400 animate-pulse" />
+          )}
+          <span className={`text-sm font-medium ${callStatus === 'declined' ? 'text-red-400 font-bold' : callStatus === 'connected' ? 'text-emerald-300' : 'text-amber-300'}`}>
+            {callStatus === 'declined'
+              ? (declineReason || 'Llamada rechazada')
+              : callStatus === 'calling'
+              ? isCaller
+                ? 'Llamando... (Esperando a que conteste)'
+                : 'Conectando llamada...'
+              : isGroup
+              ? `En llamada grupal • ${groupMembers.length + 1} en línea • ${formatDuration(callDuration)}`
+              : isVideoCallActive
+              ? `Videollamada AR en vivo • ${formatDuration(callDuration)}`
+              : `Conectado • ${formatDuration(callDuration)}`}
+          </span>
+        </div>
       </div>
 
       {/* Main Area: Video feed or Group grid or Audio Avatar */}
@@ -149,7 +304,15 @@ export const CallModal: React.FC<CallModalProps> = ({
                   />
                 </div>
                 <span className="text-xs font-bold text-white truncate max-w-[120px]">{member.name}</span>
-                <span className="text-[10px] text-[#8d90a0]">{member.isLeader ? '⭐ Líder' : 'Integrante'}</span>
+                <span className="text-[10px] text-[#8d90a0]">
+                  {member.isLeader ? (
+                    <span className="inline-flex items-center gap-0.5 text-amber-400 font-bold">
+                      <Crown className="w-3 h-3 fill-amber-400" /> Líder
+                    </span>
+                  ) : (
+                    'Integrante'
+                  )}
+                </span>
               </div>
             ))}
           </div>
@@ -164,18 +327,18 @@ export const CallModal: React.FC<CallModalProps> = ({
                 />
                 {/* AR Filter Mask overlay */}
                 {videoFilter === 'sunglasses' && (
-                  <div className="absolute top-12 left-1/2 -translate-x-1/2 text-4xl select-none animate-bounce">
-                    🕶️
+                  <div className="absolute top-11 left-1/2 -translate-x-1/2 p-2 rounded-2xl bg-black/60 border border-white/20 select-none animate-bounce">
+                    <Glasses className="w-10 h-10 text-white" />
                   </div>
                 )}
                 {videoFilter === 'crown' && (
-                  <div className="absolute -top-6 left-1/2 -translate-x-1/2 text-4xl select-none animate-bounce">
-                    👑
+                  <div className="absolute -top-7 left-1/2 -translate-x-1/2 p-2 rounded-2xl bg-amber-500/20 border border-amber-400/40 select-none animate-bounce">
+                    <Crown className="w-10 h-10 text-amber-400 fill-amber-400" />
                   </div>
                 )}
                 {videoFilter === 'hat' && (
-                  <div className="absolute -top-7 left-1/2 -translate-x-1/2 text-4xl select-none animate-bounce">
-                    🎩
+                  <div className="absolute -top-7 left-1/2 -translate-x-1/2 p-2 rounded-2xl bg-purple-500/20 border border-purple-400/40 select-none animate-bounce">
+                    <PartyPopper className="w-10 h-10 text-purple-300" />
                   </div>
                 )}
               </div>
@@ -191,64 +354,72 @@ export const CallModal: React.FC<CallModalProps> = ({
             </div>
           </div>
         ) : (
-          <div className="relative">
+          <div className="relative flex flex-col items-center">
             {callStatus === 'calling' && (
-              <div className="absolute -inset-4 rounded-full bg-[#38bdf8]/20 animate-ping" />
+              <div className="absolute -inset-8 rounded-full bg-blue-500/20 animate-ping" style={{ animationDuration: '2.5s' }} />
+            )}
+            {callStatus === 'connected' && (
+              <div className="absolute -inset-4 rounded-full bg-emerald-500/20 animate-pulse" />
             )}
             <img
               src={contactAvatar}
               alt={contactName}
-              className="w-36 h-36 rounded-full object-cover border-4 border-[#2563eb] shadow-2xl relative z-10"
+              className={`w-36 h-36 rounded-full object-cover border-4 shadow-2xl relative z-10 transition-all ${
+                callStatus === 'connected' ? 'border-emerald-500 scale-105' : 'border-[#2563eb]'
+              }`}
             />
           </div>
         )}
       </div>
 
       {/* AR Filter Masks Selector Bar (for video calls) */}
-      {isVideoCallActive && (
+      {isVideoCallActive && callStatus === 'connected' && (
         <div className="flex items-center gap-2 bg-[#1c2028]/80 px-4 py-2 rounded-full border border-white/10 backdrop-blur-md mb-2 z-20 shadow-lg">
           <span className="text-[11px] font-bold text-[#8d90a0] mr-1">Filtros AR:</span>
           {[
-            { id: 'none', label: '✨ Normal' },
-            { id: 'sunglasses', label: '🕶️ Gafas' },
-            { id: 'crown', label: '👑 Corona' },
-            { id: 'hat', label: '🎩 Sombrero' },
+            { id: 'none', label: 'Normal', icon: <Sparkles className="w-3.5 h-3.5" /> },
+            { id: 'sunglasses', label: 'Gafas', icon: <Glasses className="w-3.5 h-3.5" /> },
+            { id: 'crown', label: 'Corona', icon: <Crown className="w-3.5 h-3.5" /> },
+            { id: 'hat', label: 'Fiesta', icon: <PartyPopper className="w-3.5 h-3.5" /> },
           ].map((f) => (
             <button
               key={f.id}
               onClick={() => setVideoFilter(f.id as any)}
-              className={`px-3 py-1 rounded-full text-xs font-bold transition-all cursor-pointer ${
+              className={`px-3 py-1 rounded-full text-xs font-bold flex items-center gap-1 transition-all cursor-pointer ${
                 videoFilter === f.id
                   ? 'bg-blue-600 text-white shadow'
                   : 'bg-white/5 text-[#8d90a0] hover:text-white'
               }`}
             >
-              {f.label}
+              {f.icon}
+              <span>{f.label}</span>
             </button>
           ))}
         </div>
       )}
 
       {/* Quick Emoji Reactions Bar */}
-      <div className="flex items-center gap-2 bg-[#1c2028]/80 px-4 py-2 rounded-full border border-white/10 backdrop-blur-md mb-3 z-20 shadow-lg">
-        <span className="text-[11px] font-bold text-[#8d90a0] mr-1">Reaccionar:</span>
-        {[
-          { emoji: '❤️', label: 'Corazón' },
-          { emoji: '🔥', label: 'Fuego' },
-          { emoji: '🎉', label: 'Fiesta' },
-          { emoji: '👍', label: 'Bien' },
-          { emoji: '😂', label: 'Risa' },
-        ].map((item) => (
-          <button
-            key={item.emoji}
-            onClick={() => sendReaction(item.emoji)}
-            className="w-9 h-9 rounded-full bg-white/5 hover:bg-white/15 flex items-center justify-center text-lg transition-all hover:scale-125 active:scale-95 cursor-pointer shadow"
-            title={item.label}
-          >
-            {item.emoji}
-          </button>
-        ))}
-      </div>
+      {callStatus === 'connected' && (
+        <div className="flex items-center gap-2 bg-[#1c2028]/80 px-4 py-2 rounded-full border border-white/10 backdrop-blur-md mb-3 z-20 shadow-lg">
+          <span className="text-[11px] font-bold text-[#8d90a0] mr-1">Reaccionar:</span>
+          {[
+            { type: 'heart' as const, label: 'Corazón', icon: <ReactionHeartIcon className="w-5 h-5" /> },
+            { type: 'flame' as const, label: 'Fuego', icon: <ReactionFlameIcon className="w-5 h-5" /> },
+            { type: 'party' as const, label: 'Fiesta', icon: <ReactionPartyIcon className="w-5 h-5" /> },
+            { type: 'thumb' as const, label: 'Bien', icon: <ReactionThumbIcon className="w-5 h-5" /> },
+            { type: 'clap' as const, label: 'Aplausos', icon: <ReactionClapIcon className="w-5 h-5" /> },
+          ].map((item) => (
+            <button
+              key={item.type}
+              onClick={() => sendReaction(item.type)}
+              className="w-9 h-9 rounded-full bg-white/5 hover:bg-white/15 flex items-center justify-center transition-all hover:scale-125 active:scale-95 cursor-pointer shadow"
+              title={item.label}
+            >
+              {item.icon}
+            </button>
+          ))}
+        </div>
+      )}
 
       {/* Controls Bar */}
       <div className="flex items-center gap-4 bg-[#1c2028]/90 p-3 rounded-full border border-white/10 backdrop-blur-xl mb-6 shadow-2xl z-20">
@@ -275,7 +446,7 @@ export const CallModal: React.FC<CallModalProps> = ({
         )}
 
         <button
-          onClick={onClose}
+          onClick={handleHangUp}
           className="w-14 h-14 rounded-full bg-red-600 text-white flex items-center justify-center hover:bg-red-700 active:scale-95 transition-all shadow-lg shadow-red-600/40 cursor-pointer"
           title="Colgar"
         >

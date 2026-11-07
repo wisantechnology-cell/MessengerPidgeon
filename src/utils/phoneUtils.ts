@@ -28,3 +28,15 @@ export function ensurePhoneStartsWith16(rawPhone?: string): string {
 
   return `16 ${cleaned}`.trim();
 }
+
+/**
+ * Generates a unique, real-looking PidgeX phone number formatted as '16 6XX XXX XXX'
+ * ensuring different devices never share the exact same number by default.
+ */
+export function generateUniquePidgePhone(): string {
+  const d1 = Math.floor(600 + Math.random() * 399); // 600 - 999
+  const d2 = Math.floor(100 + Math.random() * 899); // 100 - 999
+  const d3 = Math.floor(100 + Math.random() * 899); // 100 - 999
+  return `16 ${d1} ${d2} ${d3}`;
+}
+

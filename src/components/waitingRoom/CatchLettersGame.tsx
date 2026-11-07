@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { Play, RotateCcw, Trophy, ArrowLeft, Volume2, VolumeX, Heart } from 'lucide-react';
+import { Play, RotateCcw, Trophy, ArrowLeft, Volume2, VolumeX, Heart, Mail, Zap } from 'lucide-react';
 import { playSound } from '../../utils/gameAudio';
 
 interface CatchLettersGameProps {
@@ -367,8 +367,9 @@ export const CatchLettersGame: React.FC<CatchLettersGameProps> = ({ onBack }) =>
         {/* Live Score Overlay */}
         {gameState === 'playing' && (
           <div className="absolute top-4 left-4 pointer-events-none">
-            <div className="px-3.5 py-1 rounded-xl bg-black/40 backdrop-blur-md border border-white/10 text-white font-extrabold text-xl shadow-lg">
-              ✉️ {score}
+            <div className="px-3.5 py-1 rounded-xl bg-black/40 backdrop-blur-md border border-white/10 text-white font-extrabold text-xl shadow-lg flex items-center gap-1.5">
+              <Mail className="w-5 h-5 text-amber-300" />
+              <span>{score}</span>
             </div>
           </div>
         )}
@@ -377,7 +378,7 @@ export const CatchLettersGame: React.FC<CatchLettersGameProps> = ({ onBack }) =>
         {gameState === 'idle' && (
           <div className="absolute inset-0 bg-black/60 backdrop-blur-sm flex flex-col items-center justify-center p-6 text-center">
             <div className="w-16 h-16 rounded-full bg-gradient-to-tr from-amber-400 to-amber-200 flex items-center justify-center shadow-xl shadow-amber-500/30 mb-3 animate-pulse">
-              <span className="text-3xl">📬</span>
+              <Mail className="w-8 h-8 text-amber-900" />
             </div>
             <h3 className="text-xl font-black text-white mb-1">Caza-Cartas</h3>
             <p className="text-xs text-[#94a3b8] mb-5 max-w-[240px]">
@@ -396,7 +397,7 @@ export const CatchLettersGame: React.FC<CatchLettersGameProps> = ({ onBack }) =>
         {/* Game Over Overlay */}
         {gameState === 'gameover' && (
           <div className="absolute inset-0 bg-black/75 backdrop-blur-md flex flex-col items-center justify-center p-6 text-center animate-in fade-in zoom-in-95 duration-200">
-            <span className="text-4xl mb-2">⚡</span>
+            <Zap className="w-10 h-10 text-amber-400 mb-2" />
             <h3 className="text-xl font-black text-white mb-1">¡Juego Terminado!</h3>
             <div className="flex items-center gap-4 my-4 bg-[#141822]/80 px-6 py-3 rounded-2xl border border-white/10">
               <div className="flex flex-col items-center">

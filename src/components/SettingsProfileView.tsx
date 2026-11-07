@@ -17,6 +17,8 @@ import {
   QrCode,
   Sparkles,
   Compass,
+  Smartphone,
+  Tablet,
 } from 'lucide-react';
 import { UserProfile, Wallpaper } from '../types';
 import { ensurePhoneStartsWith16 } from '../utils/phoneUtils';
@@ -43,6 +45,7 @@ interface SettingsProfileViewProps {
   onToggleClassicMode?: () => void;
   onOpenTutorial?: () => void;
   onOpenTour?: () => void;
+  onOpenInstallModal?: () => void;
 }
 
 export const SettingsProfileView: React.FC<SettingsProfileViewProps> = ({
@@ -63,6 +66,7 @@ export const SettingsProfileView: React.FC<SettingsProfileViewProps> = ({
   onToggleClassicMode,
   onOpenTutorial,
   onOpenTour,
+  onOpenInstallModal,
 }) => {
   const [activeTab, setActiveTab] = useState<'profile' | 'account'>('profile');
   const [name, setName] = useState<string>(user.name || 'USUARIO NUEVO');
@@ -383,6 +387,19 @@ export const SettingsProfileView: React.FC<SettingsProfileViewProps> = ({
                 <span>Iniciar Guía Interactiva con Flechitas</span>
               </button>
             </div>
+
+            {/* Instalar PidgeX en Celular y Tablet */}
+            {onOpenInstallModal && (
+              <div className="mt-2 mb-2">
+                <button
+                  onClick={onOpenInstallModal}
+                  className="w-full py-3.5 rounded-2xl bg-gradient-to-r from-sky-500 to-blue-600 hover:from-sky-600 hover:to-blue-700 text-white font-bold text-xs flex items-center justify-center gap-2 shadow-xl transition-all cursor-pointer"
+                >
+                  <Smartphone className="w-4 h-4" />
+                  <span>Instalar PidgeX en Celular y Tablet 📱</span>
+                </button>
+              </div>
+            )}
 
             {/* Danger Zone: Delete Account */}
             <section className="rounded-3xl bg-red-950/20 border border-red-500/30 p-5 shadow-xl flex items-center justify-between">

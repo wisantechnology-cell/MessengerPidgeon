@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { Play, Pause } from 'lucide-react';
+import { SquirrelVoiceIcon, RobotVoiceIcon, DeepVoiceIcon } from './CustomVectorIcons';
 
 interface VoicePlayerProps {
   durationText?: string;
@@ -208,11 +209,13 @@ export const VoicePlayer: React.FC<VoicePlayerProps> = ({
             {displayTime}
           </span>
           {voiceFilter && voiceFilter !== 'normal' && (
-            <span className={`text-[9px] font-bold px-1.5 py-0.5 rounded-full ${
+            <span className={`text-[9px] font-bold px-1.5 py-0.5 rounded-full flex items-center gap-1 ${
               voiceFilter === 'chipmunk' ? 'bg-pink-500/30 text-pink-200' :
               voiceFilter === 'robot' ? 'bg-cyan-500/30 text-cyan-200' : 'bg-purple-500/30 text-purple-200'
             }`}>
-              {voiceFilter === 'chipmunk' ? '🐿️ Ardilla' : voiceFilter === 'robot' ? '🤖 Robot' : '🦁 Grave'}
+              {voiceFilter === 'chipmunk' && <><SquirrelVoiceIcon className="w-3 h-3" /> Ardilla</>}
+              {voiceFilter === 'robot' && <><RobotVoiceIcon className="w-3 h-3" /> Robot</>}
+              {voiceFilter === 'deep' && <><DeepVoiceIcon className="w-3 h-3" /> Grave</>}
             </span>
           )}
           <button

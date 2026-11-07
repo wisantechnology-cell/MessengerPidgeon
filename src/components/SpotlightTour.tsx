@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Sparkles, ArrowRight, ArrowLeft, X, HelpCircle, Compass, MousePointer } from 'lucide-react';
+import { Sparkles, ArrowRight, ArrowLeft, X, HelpCircle, Compass, MousePointer, Lightbulb } from 'lucide-react';
 
 interface SpotlightTourProps {
   isOpen: boolean;
@@ -23,35 +23,35 @@ const TOUR_STEPS: TourStep[] = [
     description: 'Aquí aparecen todas tus conversaciones activas con amigos y grupos. Toca cualquier chat para abrirlo y enviar mensajes.',
     targetTab: 'chats',
     position: 'top',
-    tip: '💡 Usa el botón superior para crear un nuevo chat o grupo.',
+    tip: 'Usa el botón superior para crear un nuevo chat o grupo.',
   },
   {
     title: 'BirdMarketplace',
     description: 'Explora nuestra tienda comunitaria integrada para intercambiar artículos, coleccionables y productos.',
     targetTab: 'marketplace',
     position: 'bottom',
-    tip: '🛍️ ¡Publica tus propios artículos o explora ofertas!',
+    tip: '¡Publica tus propios artículos o explora ofertas en la tienda!',
   },
   {
     title: 'Sala de Espera (Mini Juegos)',
     description: 'Diviértete con amigos en partidas multijugador en tiempo real como Trivia Grupal, Dibuja y Adivina o Stop.',
     targetTab: 'games',
     position: 'bottom',
-    tip: '🎮 Entra a cualquier sala para competir y ganar puntos.',
+    tip: 'Entra a cualquier sala para competir y ganar puntos con amigos.',
   },
   {
     title: 'NP Noticias PidgeX',
     description: 'Mantente informado con el feed de noticias mundiales de última hora y comparte artículos directamente a tus chats.',
     targetTab: 'news',
     position: 'bottom',
-    tip: '📰 Comparte noticias con un solo toque con tus contactos.',
+    tip: 'Comparte noticias con un solo toque con tus contactos.',
   },
   {
     title: 'Ajustes y Modo Clásico',
     description: 'Personaliza tu perfil, cambia tu foto, ajusta notificaciones y activa el "Modo Clásico" si prefieres la interfaz original.',
     targetTab: 'settings',
     position: 'bottom',
-    tip: '⚙️ Aquí puedes alternar entre PidgeX Pro y Modo Clásico.',
+    tip: 'Aquí puedes alternar entre PidgeX Pro y Modo Clásico.',
   },
 ];
 
@@ -128,8 +128,9 @@ export const SpotlightTour: React.FC<SpotlightTourProps> = ({
             <p className="text-xs leading-relaxed text-gray-300">{step.description}</p>
           </div>
 
-          <div className="p-2.5 rounded-xl bg-white/5 border border-white/10 text-[11px] text-emerald-300 font-medium">
-            {step.tip}
+          <div className="p-2.5 rounded-xl bg-white/5 border border-white/10 text-[11px] text-emerald-300 font-medium flex items-center gap-2">
+            <Lightbulb className="w-3.5 h-3.5 text-amber-400 shrink-0" />
+            <span>{step.tip}</span>
           </div>
 
           <div className="flex items-center justify-between pt-2">

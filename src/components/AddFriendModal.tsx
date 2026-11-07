@@ -15,6 +15,7 @@ import { ChatCategory } from '../types';
 import { ensurePhoneStartsWith16 } from '../utils/phoneUtils';
 import { createSvgAvatar } from '../utils/avatarUtils';
 import { findUserByPhone } from '../utils/phoneValidation';
+import { CountryFlagBadge } from './CountryFlagBadge';
 
 export interface AddFriendData {
   name: string;
@@ -33,14 +34,14 @@ interface AddFriendModalProps {
 }
 
 const COUNTRY_CODES = [
-  { code: '16', country: 'PidgeX Directo (16)', flag: '🕊️' },
-  { code: '16 34', country: 'Región España (16 34)', flag: '🇪🇸' },
-  { code: '16 52', country: 'Región México (16 52)', flag: '🇲🇽' },
-  { code: '16 1', country: 'Región EE.UU. / CA (16 1)', flag: '🇺🇸' },
-  { code: '16 54', country: 'Región Argentina (16 54)', flag: '🇦🇷' },
-  { code: '16 57', country: 'Región Colombia (16 57)', flag: '🇨🇴' },
-  { code: '16 56', country: 'Región Chile (16 56)', flag: '🇨🇱' },
-  { code: '16 51', country: 'Región Perú (16 51)', flag: '🇵🇪' },
+  { code: '16', country: 'PidgeX Directo (16)' },
+  { code: '16 34', country: 'Región España (16 34)' },
+  { code: '16 52', country: 'Región México (16 52)' },
+  { code: '16 1', country: 'Región EE.UU. / CA (16 1)' },
+  { code: '16 54', country: 'Región Argentina (16 54)' },
+  { code: '16 57', country: 'Región Colombia (16 57)' },
+  { code: '16 56', country: 'Región Chile (16 56)' },
+  { code: '16 51', country: 'Región Perú (16 51)' },
 ];
 
 export const AddFriendModal: React.FC<AddFriendModalProps> = ({
@@ -52,7 +53,7 @@ export const AddFriendModal: React.FC<AddFriendModalProps> = ({
   const [countryCode, setCountryCode] = useState<string>('16');
   const [phoneNumber, setPhoneNumber] = useState<string>('');
   const [initialMessage, setInitialMessage] = useState<string>(
-    '¡Hola! Te agregué a mis amigos en PidgeX 🕊️'
+    '¡Hola! Te agregué a mis amigos en PidgeX.'
   );
   const [category, setCategory] = useState<ChatCategory>('friends');
   const [successFriendName, setSuccessFriendName] = useState<string | null>(null);
@@ -84,7 +85,7 @@ export const AddFriendModal: React.FC<AddFriendModalProps> = ({
 
     if (!foundUser) {
       setErrorMessage(
-        `❌ El número de teléfono "${finalPhone}" NO está registrado por ningún otro usuario en PidgeX. No se ha agregado a nadie ni se ha creado ningún chat.`
+        `El número de teléfono "${finalPhone}" no está registrado por ningún otro usuario en PidgeX. No se ha agregado a nadie ni se ha creado ningún chat.`
       );
       return;
     }
@@ -170,18 +171,21 @@ export const AddFriendModal: React.FC<AddFriendModalProps> = ({
                 <Phone className="w-4 h-4 text-[#7bd0ff]" />
                 <span>Número de Teléfono de otra persona:</span>
               </label>
-              <div className="flex gap-2">
-                <select
-                  value={countryCode}
-                  onChange={(e) => setCountryCode(e.target.value)}
-                  className="bg-[#0f131c] text-xs text-[#dfe2ee] px-2.5 py-2.5 rounded-xl border border-white/10 focus:outline-none focus:border-[#2563eb] cursor-pointer"
-                >
-                  {COUNTRY_CODES.map((c) => (
-                    <option key={c.code} value={c.code} className="bg-[#181d28] text-white">
-                      {c.flag} {c.code}
-                    </option>
-                  ))}
-                </select>
+              <div className="flex gap-2 items-center">
+                <div className="flex items-center gap-1.5 bg-[#0f131c] px-2.5 py-2 rounded-xl border border-white/10">
+                  <CountryFlagBadge countryCode={countryCode} />
+                  <select
+                    value={countryCode}
+                    onChange={(e) => setCountryCode(e.target.value)}
+                    className="bg-transparent text-xs text-[#dfe2ee] focus:outline-none cursor-pointer"
+                  >
+                    {COUNTRY_CODES.map((c) => (
+                      <option key={c.code} value={c.code} className="bg-[#181d28] text-white">
+                        {c.code} ({c.country.replace(/\(.*\)/, '').trim()})
+                      </option>
+                    ))}
+                  </select>
+                </div>
                 <input
                   type="tel"
                   required

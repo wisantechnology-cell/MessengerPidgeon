@@ -1,5 +1,5 @@
 import React from 'react';
-import { MessageSquare, Palette, Settings, Gamepad2, ShoppingBag, Newspaper, Camera } from 'lucide-react';
+import { MessageSquare, Palette, Settings, Gamepad2, ShoppingBag, Newspaper, Camera, Sparkles } from 'lucide-react';
 import { getActiveMonthlyTheme } from '../utils/monthlyThemes';
 
 export type NavTab = 'chats' | 'marketplace' | 'games' | 'news' | 'settings';
@@ -27,13 +27,11 @@ export const BottomNav: React.FC<BottomNavProps> = ({
         ? 'bg-[#0f131c]/90 border-white/5 shadow-[0_-4px_24px_rgba(0,0,0,0.3)]'
         : 'bg-white/90 border-sky-200/80 shadow-[0_-4px_20px_rgba(2,132,199,0.08)]'
     }`}>
-      {/* Tiny floating monthly theme decorations bar */}
-      <div className="absolute -top-3 left-1/2 -translate-x-1/2 flex items-center gap-2 px-3 py-0.5 rounded-full bg-black/40 dark:bg-white/10 backdrop-blur-md border border-white/20 text-[10px] text-white shadow-md pointer-events-none z-50">
-        <span>{activeTheme.icon}</span>
-        <span className="tracking-wide font-bold">{activeTheme.name}:</span>
-        <span className="animate-bounce">{activeTheme.decorations[0]}</span>
-        <span className="animate-pulse">{activeTheme.decorations[1]}</span>
-        <span className="animate-bounce" style={{ animationDelay: '150ms' }}>{activeTheme.decorations[2]}</span>
+      {/* Clean monthly theme indicator pill */}
+      <div className="absolute -top-3 left-1/2 -translate-x-1/2 flex items-center gap-1.5 px-3 py-0.5 rounded-full bg-[#121622]/90 backdrop-blur-md border border-white/15 text-[10px] text-sky-200 shadow-md pointer-events-none z-50">
+        <Sparkles className="w-3 h-3 text-amber-400 shrink-0" />
+        <span className="tracking-wide font-bold text-white">{activeTheme.name}</span>
+        <span className="text-[9px] text-[#8d90a0] truncate max-w-[140px]">• {activeTheme.festivityName}</span>
       </div>
 
       <div className="h-16 max-w-[640px] mx-auto px-2 sm:px-4 flex items-center justify-around">

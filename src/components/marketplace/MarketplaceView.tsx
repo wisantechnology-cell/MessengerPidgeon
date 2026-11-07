@@ -18,6 +18,14 @@ import {
   Camera,
   X,
   Moon,
+  Laptop,
+  Gamepad2,
+  Shirt,
+  Armchair,
+  Bike,
+  Car,
+  UtensilsCrossed,
+  BookOpen,
 } from 'lucide-react';
 import {
   MarketplaceCategory,
@@ -28,7 +36,7 @@ import {
 import { INITIAL_MARKETPLACE_PRODUCTS } from '../../data/marketplaceData';
 import { PublishProductModal } from './PublishProductModal';
 import { ProductDetailModal } from './ProductDetailModal';
-import { db, doc, deleteDoc, setDoc } from '../../firebase';
+import { db, doc, deleteDoc, setDoc, collection, onSnapshot } from '../../firebase';
 
 const STORAGE_KEY = 'birdmessage_marketplace_products_v3';
 
@@ -40,16 +48,16 @@ interface MarketplaceViewProps {
   onStartChatWithSeller: (product: MarketplaceProduct, initialMessage: string) => void;
 }
 
-const CATEGORIES: { id: MarketplaceCategory; label: string; icon: string }[] = [
-  { id: 'all', label: 'Todos', icon: '✨' },
-  { id: 'tech', label: 'Tecnología', icon: '💻' },
-  { id: 'gaming', label: 'Videojuegos', icon: '🎮' },
-  { id: 'fashion', label: 'Moda', icon: '👕' },
-  { id: 'home', label: 'Hogar', icon: '🛋️' },
-  { id: 'sports', label: 'Deportes', icon: '🚲' },
-  { id: 'vehicles', label: 'Vehículos', icon: '🚗' },
-  { id: 'food', label: 'Comida', icon: '🍔' },
-  { id: 'books', label: 'Libros', icon: '📚' },
+const CATEGORIES: { id: MarketplaceCategory; label: string; icon: React.ReactNode }[] = [
+  { id: 'all', label: 'Todos', icon: <Sparkles className="w-3.5 h-3.5" /> },
+  { id: 'tech', label: 'Tecnología', icon: <Laptop className="w-3.5 h-3.5" /> },
+  { id: 'gaming', label: 'Videojuegos', icon: <Gamepad2 className="w-3.5 h-3.5" /> },
+  { id: 'fashion', label: 'Moda', icon: <Shirt className="w-3.5 h-3.5" /> },
+  { id: 'home', label: 'Hogar', icon: <Armchair className="w-3.5 h-3.5" /> },
+  { id: 'sports', label: 'Deportes', icon: <Bike className="w-3.5 h-3.5" /> },
+  { id: 'vehicles', label: 'Vehículos', icon: <Car className="w-3.5 h-3.5" /> },
+  { id: 'food', label: 'Comida', icon: <UtensilsCrossed className="w-3.5 h-3.5" /> },
+  { id: 'books', label: 'Libros', icon: <BookOpen className="w-3.5 h-3.5" /> },
 ];
 
 export const MarketplaceView: React.FC<MarketplaceViewProps> = ({
@@ -101,46 +109,122 @@ export const MarketplaceView: React.FC<MarketplaceViewProps> = ({
     );
   };
 
-  // Save to localStorage
+  // Real-time synchronization with Firestore across all user accounts and devices
+  useEffect(() => {
+    if (!db) return;
+
+    const productsCol = collection(db, 'marketplaceProducts');
+
+    const unsubscribe = onSnapshot(
+      productsCol,
+      (snapshot) => {
+        if (!snapshot.empty) {
+          const cloudProducts: MarketplaceProduct[] = snapshot.docs.map((d) => {
+            const data = d.data() as any;
+            return {
+              id: d.id,
+              title: data.title || '',
+              price: Number(data.price) || 0,
+              currency: data.currency || '$',
+              description: data.description || '',
+              category: data.category || 'tech',
+              condition: data.condition || 'good',
+              imageUrl: data.imageUrl || '',
+              location: data.location || '',
+              sellerId: data.sellerId || '',
+              sellerName: data.sellerName || 'Vendedor PidgeX',
+              sellerAvatarUrl: data.sellerAvatarUrl || '',
+              sellerUsername: data.sellerUsername || '',
+              sellerPhone: data.sellerPhone || '',
+              createdAt: data.createdAt || 'Reciente',
+              isAvailable: data.isAvailable !== false,
+              createdAtMs: data.createdAtMs || 0,
+            } as MarketplaceProduct;
+          });
+
+          // Sort by creation time (most recent first)
+          cloudProducts.sort((a: any, b: any) => {
+            const timeA = a.createdAtMs || (a.id.startsWith('prod_') ? parseInt(a.id.split('_')[1], 10) : 0) || 0;
+            const timeB = b.createdAtMs || (b.id.startsWith('prod_') ? parseInt(b.id.split('_')[1], 10) : 0) || 0;
+            return timeB - timeA;
+          });
+
+          setProducts(cloudProducts);
+          try {
+            localStorage.setItem(STORAGE_KEY, JSON.stringify(cloudProducts));
+          } catch (e) {
+            // Ignore quota errors
+          }
+        } else {
+          // If Firestore is empty, check if we have local products from a previous offline publish and upload them
+          const stored = localStorage.getItem(STORAGE_KEY);
+          if (stored) {
+            try {
+              const parsed = JSON.parse(stored);
+              if (Array.isArray(parsed) && parsed.length > 0) {
+                setProducts(parsed);
+                parsed.forEach(async (prod: MarketplaceProduct) => {
+                  try {
+                    await setDoc(doc(db, 'marketplaceProducts', prod.id), {
+                      ...prod,
+                      createdAtMs: Date.now(),
+                    });
+                  } catch (err) {
+                    console.warn('Syncing local product to cloud error:', err);
+                  }
+                });
+              }
+            } catch (err) {
+              console.error(err);
+            }
+          }
+        }
+      },
+      (error) => {
+        console.warn('Firestore marketplace listener error:', error);
+      }
+    );
+
+    return () => unsubscribe();
+  }, []);
+
+  // Save to localStorage as secondary cache
   useEffect(() => {
     try {
       localStorage.setItem(STORAGE_KEY, JSON.stringify(products));
     } catch (e) {
-      console.error(e);
+      // Ignore
     }
   }, [products]);
 
   const handlePublishProduct = async (newProductData: Omit<MarketplaceProduct, 'id' | 'createdAt'>) => {
-    const newProduct: MarketplaceProduct = {
+    const timestampMs = Date.now();
+    const newProduct: MarketplaceProduct & { createdAtMs: number } = {
       ...newProductData,
-      id: `prod_${Date.now()}`,
+      id: `prod_${timestampMs}_${Math.random().toString(36).substring(2, 7)}`,
       createdAt: 'Hace un momento',
+      createdAtMs: timestampMs,
     };
-    setProducts((prev) => [newProduct, ...prev]);
+
+    // Optimistic UI update
+    setProducts((prev) => [newProduct, ...prev.filter((p) => p.id !== newProduct.id)]);
     setToastMessage('¡Artículo publicado en PidgeX Market!');
     setTimeout(() => {
       setToastMessage(null);
     }, 2800);
 
+    // Save to Firestore so every user, account and device receives it in real time
     try {
       if (db) {
         await setDoc(doc(db, 'marketplaceProducts', newProduct.id), newProduct);
       }
     } catch (err) {
-      console.warn('Could not sync to firestore:', err);
+      console.error('Error saving product to Firestore:', err);
     }
   };
 
   const handleDeleteProduct = async (productId: string) => {
-    setProducts((prev) => {
-      const updated = prev.filter((p) => p.id !== productId);
-      try {
-        localStorage.setItem(STORAGE_KEY, JSON.stringify(updated));
-      } catch (e) {
-        console.error(e);
-      }
-      return updated;
-    });
+    setProducts((prev) => prev.filter((p) => p.id !== productId));
 
     if (selectedProduct?.id === productId) {
       setSelectedProduct(null);

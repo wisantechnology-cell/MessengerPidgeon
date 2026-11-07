@@ -1,28 +1,47 @@
 import React, { useState, useEffect } from 'react';
-import { RotateCcw, Trophy, Timer, ArrowLeft, Volume2, VolumeX, Sparkles } from 'lucide-react';
+import {
+  RotateCcw,
+  Trophy,
+  Timer,
+  ArrowLeft,
+  Volume2,
+  VolumeX,
+  Sparkles,
+  Mail,
+  Heart,
+  Zap,
+  Star,
+  Bell,
+  Headphones,
+  Camera,
+} from 'lucide-react';
 import { playSound } from '../../utils/gameAudio';
+import { PikitoMascot } from '../PikitoMascot';
+import { TrophyVectorIcon } from '../CustomVectorIcons';
 
 interface MemoryGameProps {
   onBack: () => void;
 }
 
+type CardType = 'pikito' | 'mail' | 'heart' | 'zap' | 'star' | 'bell' | 'headphones' | 'camera';
+
 interface CardItem {
   id: number;
-  emoji: string;
+  cardType: CardType;
   name: string;
   isFlipped: boolean;
   isMatched: boolean;
 }
 
-const ICONS = [
-  { emoji: '🕊️', name: 'Pájaro Azul' },
-  { emoji: '✉️', name: 'Sobre Carta' },
-  { emoji: '💙', name: 'Corazón' },
-  { emoji: '🚀', name: 'Cohete' },
-  { emoji: '⭐', name: 'Estrella' },
-  { emoji: '🔔', name: 'Campana' },
-  { emoji: '🎧', name: 'Audio' },
-  { emoji: '📸', name: 'Cámara' },
+const ICONS: { cardType: CardType; name: string }[] = [
+  { cardType: 'pikito', name: 'Pikito Mensajero' },
+  { cardType: 'mail', name: 'Sobre Carta' },
+  { cardType: 'heart', name: 'Corazón' },
+  { cardType: 'zap', name: 'Rayo Veloz' },
+  { cardType: 'star', name: 'Estrella' },
+  { cardType: 'bell', name: 'Campana' },
+  { cardType: 'headphones', name: 'Audio' },
+  { cardType: 'camera', name: 'Cámara' },
 ];
 
 export const MemoryGame: React.FC<MemoryGameProps> = ({ onBack }) => {
@@ -41,8 +60,8 @@ export const MemoryGame: React.FC<MemoryGameProps> = ({ onBack }) => {
     let id = 0;
     // 8 pairs = 16 cards (4x4)
     ICONS.forEach((item) => {
-      deck.push({ id: id++, emoji: item.emoji, name: item.name, isFlipped: false, isMatched: false });
-      deck.push({ id: id++, emoji: item.emoji, name: item.name, isFlipped: false, isMatched: false });
+      deck.push({ id: id++, cardType: item.cardType, name: item.name, isFlipped: false, isMatched: false });
+      deck.push({ id: id++, cardType: item.cardType, name: item.name, isFlipped: false, isMatched: false });
     });
 
     // Shuffle
@@ -91,7 +110,7 @@ export const MemoryGame: React.FC<MemoryGameProps> = ({ onBack }) => {
       setMoves((m) => m + 1);
       const [firstIdx, secondIdx] = newFlipped;
 
-      if (cards[firstIdx].emoji === cards[secondIdx].emoji) {
+      if (cards[firstIdx].cardType === cards[secondIdx].cardType) {
         // Match found!
         setTimeout(() => {
           const matchedCards = [...newCards];
@@ -208,9 +227,16 @@ export const MemoryGame: React.FC<MemoryGameProps> = ({ onBack }) => {
                 }`}
               >
                 {isShown ? (
-                  <span className="text-2xl sm:text-3xl animate-in zoom-in-75 duration-150">
-                    {card.emoji}
-                  </span>
+                  <div className="animate-in zoom-in-75 duration-150 flex items-center justify-center p-1">
+                    {card.cardType === 'pikito' && <PikitoMascot size="sm" mood="happy" />}
+                    {card.cardType === 'mail' && <Mail className="w-7 h-7 text-sky-400" />}
+                    {card.cardType === 'heart' && <Heart className="w-7 h-7 text-rose-500 fill-rose-500" />}
+                    {card.cardType === 'zap' && <Zap className="w-7 h-7 text-amber-400 fill-amber-400" />}
+                    {card.cardType === 'star' && <Star className="w-7 h-7 text-amber-400 fill-amber-400" />}
+                    {card.cardType === 'bell' && <Bell className="w-7 h-7 text-indigo-400 fill-indigo-400" />}
+                    {card.cardType === 'headphones' && <Headphones className="w-7 h-7 text-emerald-400" />}
+                    {card.cardType === 'camera' && <Camera className="w-7 h-7 text-purple-400" />}
+                  </div>
                 ) : (
                   <div className="w-6 h-6 rounded-full bg-[#0084ff]/20 border border-[#0084ff]/40 flex items-center justify-center text-[#7bd0ff] text-[11px] font-bold">
                     ?
@@ -224,7 +250,7 @@ export const MemoryGame: React.FC<MemoryGameProps> = ({ onBack }) => {
         {/* Win Modal Overlay */}
         {isWon && (
           <div className="absolute inset-0 bg-black/80 backdrop-blur-md rounded-3xl flex flex-col items-center justify-center p-6 text-center animate-in fade-in zoom-in-95 duration-200">
-            <span className="text-4xl mb-2 animate-bounce">🎉</span>
+            <TrophyVectorIcon className="w-12 h-12 mb-2 animate-bounce" />
             <h3 className="text-xl font-black text-white mb-1">¡Memoria Prodigiosa!</h3>
             <p className="text-xs text-[#a6aab8] mb-4">
               Completaste todas las parejas en <strong className="text-white">{formatTime(seconds)}</strong> y{' '}

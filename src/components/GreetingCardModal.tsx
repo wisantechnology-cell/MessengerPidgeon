@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { X, Sparkles, Send, Gift, Heart, Star, PartyPopper } from 'lucide-react';
+import { X, Sparkles, Send, Gift, Heart, Star, PartyPopper, Trophy } from 'lucide-react';
 import { UserProfile } from '../types';
 
 interface GreetingCardModalProps {
@@ -10,11 +10,19 @@ interface GreetingCardModalProps {
   onSendCard: (cardTitle: string, cardMessage: string, theme: string) => void;
 }
 
-const GREETING_THEMES = [
-  { id: 'birthday', title: '¡Feliz Cumpleaños! 🎂', icon: '🎂', gradient: 'from-pink-600 to-purple-600', bg: 'bg-pink-950/40 border-pink-500/30' },
-  { id: 'congrats', title: '¡Muchas Felicidades! 🏆', icon: '🏆', gradient: 'from-amber-500 to-orange-600', bg: 'bg-amber-950/40 border-amber-500/30' },
-  { id: 'friendship', title: '¡Gracias por tu Amistad! ❤️', icon: '❤️', gradient: 'from-red-600 to-rose-600', bg: 'bg-red-950/40 border-red-500/30' },
-  { id: 'success', title: '¡Lo Lograste! 🌟', icon: '🌟', gradient: 'from-emerald-500 to-teal-600', bg: 'bg-emerald-950/40 border-emerald-500/30' },
+interface GreetingThemeItem {
+  id: string;
+  title: string;
+  iconType: 'birthday' | 'congrats' | 'friendship' | 'success';
+  gradient: string;
+  bg: string;
+}
+
+const GREETING_THEMES: GreetingThemeItem[] = [
+  { id: 'birthday', title: '¡Feliz Cumpleaños!', iconType: 'birthday', gradient: 'from-pink-600 to-purple-600', bg: 'bg-pink-950/40 border-pink-500/30' },
+  { id: 'congrats', title: '¡Muchas Felicidades!', iconType: 'congrats', gradient: 'from-amber-500 to-orange-600', bg: 'bg-amber-950/40 border-amber-500/30' },
+  { id: 'friendship', title: '¡Gracias por tu Amistad!', iconType: 'friendship', gradient: 'from-red-600 to-rose-600', bg: 'bg-red-950/40 border-red-500/30' },
+  { id: 'success', title: '¡Lo Lograste!', iconType: 'success', gradient: 'from-emerald-500 to-teal-600', bg: 'bg-emerald-950/40 border-emerald-500/30' },
 ];
 
 export const GreetingCardModal: React.FC<GreetingCardModalProps> = ({
@@ -28,6 +36,22 @@ export const GreetingCardModal: React.FC<GreetingCardModalProps> = ({
 
   const [selectedTheme, setSelectedTheme] = useState(GREETING_THEMES[0]);
   const [customMessage, setCustomMessage] = useState('¡Te deseo un día increíble lleno de éxitos, alegría y grandes momentos en PidgeX!');
+
+  const renderIcon = (type: string, isBig = false) => {
+    const sizeCls = isBig ? 'w-12 h-12 text-white drop-shadow-md animate-bounce' : 'w-4 h-4 shrink-0';
+    switch (type) {
+      case 'birthday':
+        return <PartyPopper className={sizeCls} />;
+      case 'congrats':
+        return <Trophy className={sizeCls} />;
+      case 'friendship':
+        return <Heart className={`${sizeCls} fill-white`} />;
+      case 'success':
+        return <Star className={`${sizeCls} fill-white`} />;
+      default:
+        return <Gift className={sizeCls} />;
+    }
+  };
 
   const handleSend = () => {
     onSendCard(selectedTheme.title, customMessage, selectedTheme.id);
@@ -54,7 +78,7 @@ export const GreetingCardModal: React.FC<GreetingCardModalProps> = ({
         {/* Card Preview */}
         <div className={`relative w-full rounded-2xl p-5 border shadow-xl bg-gradient-to-br ${selectedTheme.gradient} text-white flex flex-col items-center text-center gap-3 overflow-hidden`}>
           <div className="absolute top-0 right-0 -mt-6 -mr-6 w-32 h-32 bg-white/10 rounded-full blur-xl pointer-events-none" />
-          <span className="text-4xl animate-bounce">{selectedTheme.icon}</span>
+          {renderIcon(selectedTheme.iconType, true)}
           <h4 className="text-xl font-black tracking-tight">{selectedTheme.title}</h4>
           <p className="text-xs text-white/90 leading-relaxed italic max-w-xs">
             "{customMessage}"
@@ -74,7 +98,7 @@ export const GreetingCardModal: React.FC<GreetingCardModalProps> = ({
                   selectedTheme.id === th.id ? 'border-pink-500 bg-pink-500/20 text-white' : 'border-white/10 bg-black/20 text-[#8d90a0]'
                 }`}
               >
-                <span className="text-lg">{th.icon}</span>
+                {renderIcon(th.iconType, false)}
                 <span className="truncate">{th.title}</span>
               </button>
             ))}
