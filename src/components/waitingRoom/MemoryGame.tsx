@@ -34,7 +34,7 @@ interface CardItem {
 }
 
 const ICONS: { cardType: CardType; name: string }[] = [
-  { cardType: 'pikito', name: 'Pikito Mensajero' },
+  { cardType: 'pikito', name: 'Eugenio Mensajero' },
   { cardType: 'mail', name: 'Sobre Carta' },
   { cardType: 'heart', name: 'Corazón' },
   { cardType: 'zap', name: 'Rayo Veloz' },

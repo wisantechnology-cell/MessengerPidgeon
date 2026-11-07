@@ -77,7 +77,7 @@ export const VirtualPetWidget: React.FC<VirtualPetWidgetProps> = ({ user, isNigh
             <PikitoMascot size="sm" mood="talking" className="shrink-0 -mt-1" />
             <div className="flex flex-col gap-1 min-w-0">
               <div className="flex items-center justify-between">
-                <span className="text-[11px] font-black tracking-wide text-sky-400">Pikito</span>
+                <span className="text-[11px] font-black tracking-wide text-sky-400">Eugenio</span>
                 <span className="text-[9px] text-[#8d90a0]">Mensajero fiel</span>
               </div>
               <p className={`text-[10px] leading-relaxed transition-opacity duration-300 ${isAnimating ? 'opacity-0' : 'opacity-100'}`}>
@@ -106,10 +106,10 @@ export const VirtualPetWidget: React.FC<VirtualPetWidgetProps> = ({ user, isNigh
       <button
         onClick={() => setIsExpanded(!isExpanded)}
         className="flex items-center gap-2 px-3 py-1.5 rounded-full bg-[#181c24]/90 hover:bg-[#202530] text-white border border-sky-500/40 shadow-lg backdrop-blur-md transition-all hover:scale-105 active:scale-95 cursor-pointer text-xs font-bold"
-        title="Ver a Pikito"
+        title="Ver a Eugenio"
       >
         <PikitoMascot size="xs" mood="happy" className="shrink-0" />
-        <span className="text-[11px] text-sky-300">Pikito</span>
+        <span className="text-[11px] text-sky-300">Eugenio</span>
         {isExpanded ? <ChevronDown className="w-3 h-3 text-[#8d90a0]" /> : <ChevronUp className="w-3 h-3 text-[#8d90a0]" />}
       </button>
     </div>

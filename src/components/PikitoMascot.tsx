@@ -38,9 +38,9 @@ export const PikitoMascot: React.FC<PikitoMascotProps> = ({
       className={`relative inline-flex items-center justify-center select-none ${sizeMap[size]} ${
         isAnimated ? 'transition-transform duration-300 hover:scale-110 active:scale-95' : ''
       } ${className}`}
-      title="Pikito, tu mensajero fiel"
+      title="Eugenio, tu mensajero fiel"
       role="img"
-      aria-label="Mascota Pikito de PidgeX"
+      aria-label="Mascota Eugenio de PidgeX"
     >
       <svg
         viewBox="0 0 100 100"

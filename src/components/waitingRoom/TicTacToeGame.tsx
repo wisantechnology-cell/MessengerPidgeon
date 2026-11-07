@@ -210,7 +210,7 @@ export const TicTacToeGame: React.FC<TicTacToeGameProps> = ({ onBack }) => {
         >
           <span className="text-[10px] font-bold text-[#7bd0ff] uppercase flex items-center gap-1.5">
             <PikitoMascot size="xs" mood="happy" />
-            <span>Pikito (Tú)</span>
+            <span>Eugenio (Tú)</span>
           </span>
           <span className="text-xl font-black text-white">{scores.x}</span>
         </div>
@@ -280,7 +280,7 @@ export const TicTacToeGame: React.FC<TicTacToeGameProps> = ({ onBack }) => {
             ) : winner === 'X' ? (
               <>
                 <TrophyVectorIcon className="w-12 h-12 mb-2 animate-bounce" />
-                <h3 className="text-xl font-black text-[#7bd0ff] mb-1">¡Ganó Pikito!</h3>
+                <h3 className="text-xl font-black text-[#7bd0ff] mb-1">¡Ganó Eugenio!</h3>
                 <p className="text-xs text-[#8d90a0] mb-4">¡Excelente estrategia y reflejos!</p>
               </>
             ) : (

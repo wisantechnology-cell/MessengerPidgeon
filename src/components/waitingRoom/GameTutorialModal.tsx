@@ -130,7 +130,7 @@ export const GAME_TUTORIALS: Record<string, GameTutorialInfo> = {
     subtitle: 'Estrategia 1 vs 1 o Contra la IA',
     icon: <Grid className="w-8 h-8 text-white" />,
     gradient: 'from-purple-500 to-indigo-600',
-    objective: 'Consigue colocar tres de tus fichas (Pikito o Carta) en una línea horizontal, vertical o diagonal antes que tu rival.',
+    objective: 'Consigue colocar tres de tus fichas (Eugenio o Carta) en una línea horizontal, vertical o diagonal antes que tu rival.',
     steps: [
       'Elige jugar contra la Inteligencia Artificial de PidgeX o contra un amigo en el mismo dispositivo.',
       'Los jugadores se turnan para colocar una ficha en cualquier casilla vacía de 3x3.',

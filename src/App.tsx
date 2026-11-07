@@ -63,6 +63,7 @@ import { TimeCapsuleModal } from './components/TimeCapsuleModal';
 import { ensurePhoneStartsWith16, generateUniquePidgePhone } from './utils/phoneUtils';
 import { createSvgAvatar } from './utils/avatarUtils';
 import { InstallPwaModal } from './components/InstallPwaModal';
+import { FlyingBirdLoader } from './components/FlyingBirdLoader';
 
 export const getCleanPhone = (phone?: string): string => (phone || '').replace(/\D/g, '');
 
@@ -375,6 +376,14 @@ export default function App() {
   const [isTutorialOpen, setIsTutorialOpen] = useState<boolean>(!localStorage.getItem('pidge_tutorial_seen'));
   const [isTourOpen, setIsTourOpen] = useState<boolean>(!localStorage.getItem('pidge_spotlight_seen'));
   const [isInstallModalOpen, setIsInstallModalOpen] = useState<boolean>(false);
+  const [isAppLoading, setIsAppLoading] = useState<boolean>(true);
+
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      setIsAppLoading(false);
+    }, 1000);
+    return () => clearTimeout(timer);
+  }, []);
 
   const [firebaseUser, setFirebaseUser] = useState<any>(null);
   const [isCloudSynced, setIsCloudSynced] = useState<boolean>(false);
@@ -2115,6 +2124,13 @@ export default function App() {
         <InstallPwaModal
           isOpen={isInstallModalOpen}
           onClose={() => setIsInstallModalOpen(false)}
+          isNightMode={isNightMode}
+        />
+
+        {/* Flying Bird Loader */}
+        <FlyingBirdLoader
+          isLoading={isAppLoading}
+          message="Eugenio volando con tus mensajes..."
           isNightMode={isNightMode}
         />
       </div>

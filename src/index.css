@@ -27,3 +27,35 @@
   font-variation-settings: 'FILL' 1, 'wght' 400, 'GRAD' 0, 'opsz' 24;
 }
 
+@keyframes flyAcross {
+  0% { transform: translateX(-120px) translateY(0px) rotate(-10deg); opacity: 0; }
+  20% { opacity: 0.8; }
+  80% { opacity: 0.8; }
+  100% { transform: translateX(calc(100vw + 150px)) translateY(-40px) rotate(10deg); opacity: 0; }
+}
+
+@keyframes flyAcrossReverse {
+  0% { transform: translateX(calc(100vw + 120px)) translateY(0px) rotate(10deg); opacity: 0; }
+  20% { opacity: 0.6; }
+  80% { opacity: 0.6; }
+  100% { transform: translateX(-150px) translateY(-30px) rotate(-10deg); opacity: 0; }
+}
+
+.animate-fly-across {
+  animation: flyAcross 6s linear infinite;
+}
+
+.animate-fly-across-reverse {
+  animation: flyAcrossReverse 8s linear infinite;
+}
+
+@keyframes bounceSubtle {
+  0%, 100% { transform: translateY(0); }
+  50% { transform: translateY(-8px); }
+}
+
+.animate-bounce-subtle {
+  animation: bounceSubtle 2.5s ease-in-out infinite;
+}
+
+
