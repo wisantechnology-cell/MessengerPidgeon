@@ -131,11 +131,21 @@ export const WallpaperView: React.FC<WallpaperViewProps> = ({
           </div>
 
           <div
-            className="w-full h-64 rounded-3xl bg-cover bg-center p-4 flex flex-col justify-between border border-white/15 shadow-2xl relative overflow-hidden transition-all duration-300"
-            style={{
-              backgroundImage: `url('${activeBackgroundUrl}')`,
-            }}
+            className="w-full h-64 rounded-3xl p-4 flex flex-col justify-between border border-white/15 shadow-2xl relative overflow-hidden transition-all duration-300"
           >
+            {activeBackgroundUrl && (
+              <img
+                src={activeBackgroundUrl}
+                alt="Vista previa fondo"
+                className="absolute inset-0 w-full h-full object-cover pointer-events-none z-0 transition-all duration-500"
+                style={{
+                  filter: user?.nightMode
+                    ? 'invert(0.88) hue-rotate(180deg) brightness(0.65) contrast(1.1)'
+                    : 'none',
+                }}
+              />
+            )}
+            <div className="relative z-10 flex flex-col justify-between h-full">
             {/* Top preview simulated bar */}
             <div className="flex items-center justify-between bg-black/50 backdrop-blur-md px-3.5 py-2 rounded-2xl border border-white/10 shadow-sm">
               <div className="flex items-center gap-2">
@@ -180,6 +190,7 @@ export const WallpaperView: React.FC<WallpaperViewProps> = ({
               </button>
             </div>
           </div>
+        </div>
         </section>
 
         {/* Preset Wallpapers Grid */}

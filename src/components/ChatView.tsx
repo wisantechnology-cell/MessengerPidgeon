@@ -872,12 +872,20 @@ export const ChatView: React.FC<ChatViewProps> = ({
       </header>
 
       {/* 3. Conversation Thread with Wallpaper Background */}
-      <main
-        className="flex-1 w-full px-4 pt-3 pb-36 flex flex-col gap-3 bg-cover bg-center overflow-y-auto transition-all duration-300"
-        style={{
-          backgroundImage: `url('${wallpaperBackgroundUrl}')`,
-        }}
-      >
+      <main className="relative flex-1 w-full px-4 pt-3 pb-36 flex flex-col gap-3 overflow-y-auto transition-all duration-300">
+        {wallpaperBackgroundUrl && (
+          <img
+            src={wallpaperBackgroundUrl}
+            alt="Fondo de chat"
+            className="absolute inset-0 w-full h-full object-cover pointer-events-none z-0 transition-all duration-500"
+            style={{
+              filter: isNightMode
+                ? 'invert(0.88) hue-rotate(180deg) brightness(0.65) contrast(1.1)'
+                : 'none',
+            }}
+          />
+        )}
+        <div className="relative z-10 flex flex-col gap-3 w-full">
         {/* Blocked banner in conversation thread */}
         {chat.isBlocked && (
           <div className="self-center w-full max-w-md my-1 p-3.5 rounded-2xl bg-red-950/80 border border-red-500/30 text-center flex flex-col items-center gap-2 shadow-lg backdrop-blur-md animate-in fade-in duration-200">
@@ -1369,6 +1377,7 @@ export const ChatView: React.FC<ChatViewProps> = ({
         )}
 
         <div ref={messagesEndRef} />
+        </div>
       </main>
 
       {/* 6. Attach Sheet Modal */}

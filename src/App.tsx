@@ -501,8 +501,10 @@ export default function App() {
 
           const isForMe =
             (recPhone && myPhoneClean && recPhone === myPhoneClean) ||
-            (recId && (recId === user.id || chats.some((c) => c.id === data.chatId))) ||
-            (recName && myName && (recName === myName || recName.includes(myName) || myName.includes(recName)));
+            (recId && (recId === user.id || chats.some((c) => c.id === data.chatId || c.id === recId))) ||
+            (recName && myName && (recName === myName || recName.includes(myName) || myName.includes(recName))) ||
+            (data.chatId && chats.some((c) => c.id === data.chatId)) ||
+            (data.status === 'ringing' && !recPhone);
 
           // Only detect active ringing calls created in the last 90 seconds
           if (isForMe && data.status === 'ringing' && now - (data.createdAt || 0) < 90000) {
@@ -693,6 +695,17 @@ export default function App() {
   const handleStartCall = async (chat: Chat, isVideo: boolean) => {
     const callerPhoneClean = getCleanPhone(user.phone);
     const receiverPhoneClean = getCleanPhone(chat.phone);
+    const tempCallId = `call_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`;
+
+    // Immediately open call modal synchronously for caller so call starts instantly with 0 lag
+    setIsCallMinimized(false);
+    setActiveCallSession({
+      callId: tempCallId,
+      chat,
+      isVideo,
+      isCaller: true,
+      initialCallStatus: 'calling',
+    });
 
     try {
       const callDocRef = await addDoc(collection(db, 'calls'), {
@@ -712,24 +725,10 @@ export default function App() {
         createdAt: Date.now(),
       });
 
-      setIsCallMinimized(false);
-      setActiveCallSession({
-        callId: callDocRef.id,
-        chat,
-        isVideo,
-        isCaller: true,
-        initialCallStatus: 'calling',
-      });
+      // Update call session with actual Firestore doc ID
+      setActiveCallSession((prev) => (prev ? { ...prev, callId: callDocRef.id } : null));
     } catch (e) {
-      console.error('Error starting call:', e);
-      setIsCallMinimized(false);
-      setActiveCallSession({
-        callId: `local_${Date.now()}`,
-        chat,
-        isVideo,
-        isCaller: true,
-        initialCallStatus: 'calling',
-      });
+      console.warn('Error syncing call to Firestore:', e);
     }
   };
 
@@ -1754,6 +1753,11 @@ export default function App() {
             src={wallpaperBackgroundUrl}
             alt="Fondo de pantalla"
             className="w-full h-full object-cover transition-all duration-700 ease-out scale-105"
+            style={{
+              filter: isNightMode
+                ? 'invert(0.88) hue-rotate(180deg) brightness(0.65) contrast(1.1)'
+                : 'none',
+            }}
           />
         )}
       </div>
