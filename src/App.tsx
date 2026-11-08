@@ -64,6 +64,8 @@ import { ensurePhoneStartsWith16, generateUniquePidgePhone } from './utils/phone
 import { createSvgAvatar } from './utils/avatarUtils';
 import { InstallPwaModal } from './components/InstallPwaModal';
 import { FlyingBirdLoader } from './components/FlyingBirdLoader';
+import { BirdNotificationToast, BirdNotification } from './components/BirdNotificationToast';
+import { sendNativeSystemNotification, requestNotificationPermission } from './utils/nativeNotifications';
 
 export const getCleanPhone = (phone?: string): string => (phone || '').replace(/\D/g, '');
 
@@ -198,6 +200,8 @@ const getFilterStyle = (mode?: string) => {
 };
 
 export default function App() {
+  const tabSessionIdRef = useRef<string>(`tab_${Math.random().toString(36).substring(2, 9)}_${Date.now()}`);
+
   // Load User Profile from localStorage or fallback
   const [user, setUser] = useState<UserProfile>(() => {
     try {
@@ -382,6 +386,20 @@ export default function App() {
     const timer = setTimeout(() => {
       setIsAppLoading(false);
     }, 1000);
+
+    if (typeof window !== 'undefined' && 'serviceWorker' in navigator) {
+      navigator.serviceWorker
+        .register('/sw.js')
+        .then((reg) => {
+          console.info('PidgeX ServiceWorker registered:', reg);
+        })
+        .catch((err) => {
+          console.warn('PidgeX ServiceWorker error:', err);
+        });
+    }
+
+    requestNotificationPermission();
+
     return () => clearTimeout(timer);
   }, []);
 
@@ -394,7 +412,9 @@ export default function App() {
     isCaller: boolean;
     initialCallStatus: 'calling' | 'connected';
   } | null>(null);
+  const [isCallMinimized, setIsCallMinimized] = useState<boolean>(false);
   const [incomingCallData, setIncomingCallData] = useState<IncomingCallData | null>(null);
+  const [inAppNotification, setInAppNotification] = useState<BirdNotification | null>(null);
 
   useEffect(() => {
     try {
@@ -456,9 +476,8 @@ export default function App() {
 
   // Real-time Incoming Calls Listener
   useEffect(() => {
-    if (!user || !user.phone) return;
+    if (!user) return;
     const myPhoneClean = getCleanPhone(user.phone);
-    if (!myPhoneClean) return;
 
     const callsCol = collection(db, 'calls');
     const unsubscribe = onSnapshot(
@@ -470,13 +489,20 @@ export default function App() {
         snapshot.docs.forEach((d) => {
           const data = d.data();
           if (!data) return;
-          if (data.callerId === user.id || (data.callerPhone && getCleanPhone(data.callerPhone) === myPhoneClean)) {
-            return;
-          }
+
+          // Ignore calls originated strictly by this exact tab session
+          const isSelf = data.callerTabSessionId === tabSessionIdRef.current;
+          if (isSelf) return;
+
           const recPhone = getCleanPhone(data.receiverPhone);
+          const recId = data.receiverId;
+          const recName = (data.receiverName || '').trim().toLowerCase();
+          const myName = (user.name || '').trim().toLowerCase();
+
           const isForMe =
-            (recPhone && recPhone === myPhoneClean) ||
-            (data.receiverId && data.receiverId === user.id);
+            (recPhone && myPhoneClean && recPhone === myPhoneClean) ||
+            (recId && (recId === user.id || chats.some((c) => c.id === data.chatId))) ||
+            (recName && myName && (recName === myName || recName.includes(myName) || myName.includes(recName)));
 
           // Only detect active ringing calls created in the last 90 seconds
           if (isForMe && data.status === 'ringing' && now - (data.createdAt || 0) < 90000) {
@@ -493,6 +519,15 @@ export default function App() {
           }
         });
 
+        if (foundCall && (!incomingCallData || incomingCallData.id !== foundCall.id)) {
+          sendNativeSystemNotification(
+            `📞 Llamada de ${foundCall.callerName}`,
+            foundCall.isVideo ? 'Videollamada en vivo PidgeX' : 'Llamada de voz PidgeX',
+            foundCall.callerAvatar,
+            foundCall.chatId
+          );
+        }
+
         setIncomingCallData(foundCall);
       },
       (err) => {
@@ -501,7 +536,7 @@ export default function App() {
     );
 
     return () => unsubscribe();
-  }, [user.phone, user.id]);
+  }, [user, user.phone, user.id, chats, incomingCallData]);
 
   // Real-time Chat Discovery (e.g. when brother adds user or initiates contact)
   useEffect(() => {
@@ -665,6 +700,8 @@ export default function App() {
         callerName: user.name,
         callerAvatar: user.avatarUrl,
         callerPhone: callerPhoneClean,
+        callerTabSessionId: tabSessionIdRef.current,
+        receiverId: chat.id || '',
         receiverPhone: receiverPhoneClean,
         receiverName: chat.name,
         receiverAvatar: chat.avatarUrl,
@@ -675,6 +712,7 @@ export default function App() {
         createdAt: Date.now(),
       });
 
+      setIsCallMinimized(false);
       setActiveCallSession({
         callId: callDocRef.id,
         chat,
@@ -684,6 +722,7 @@ export default function App() {
       });
     } catch (e) {
       console.error('Error starting call:', e);
+      setIsCallMinimized(false);
       setActiveCallSession({
         callId: `local_${Date.now()}`,
         chat,
@@ -734,6 +773,7 @@ export default function App() {
     setIncomingCallData(null);
 
     // Open call modal directly connected for receiver
+    setIsCallMinimized(false);
     setActiveCallSession({
       callId: call.id,
       chat: matchingChat,
@@ -874,7 +914,7 @@ export default function App() {
     }
   }, [chats]);
 
-  // Play authentic bird song sound when receiving a new message
+  // Play authentic bird chirp sound & show toast notification when receiving a new message
   const prevMessageCountsRef = useRef<Record<string, number>>({});
   useEffect(() => {
     chats.forEach((c) => {
@@ -882,7 +922,17 @@ export default function App() {
       if (c.messages.length > prevCount) {
         const latestMsg = c.messages[c.messages.length - 1];
         if (latestMsg && latestMsg.senderId !== 'me') {
-          playBirdSongSound();
+          const notifText = latestMsg.text || (latestMsg.type === 'voice' ? '🎵 Mensaje de voz' : latestMsg.type === 'image' ? '📷 Foto adjunta' : 'Nuevo mensaje');
+          
+          sendNativeSystemNotification(c.name, notifText, c.avatarUrl, c.id);
+
+          setInAppNotification({
+            id: `msg_notif_${Date.now()}`,
+            title: c.name,
+            body: notifText,
+            avatarUrl: c.avatarUrl,
+            chatId: c.id,
+          });
         }
       }
       prevMessageCountsRef.current[c.id] = c.messages.length;
@@ -2095,6 +2145,9 @@ export default function App() {
         {activeCallSession && (
           <CallModal
             isOpen={Boolean(activeCallSession)}
+            isMinimized={isCallMinimized}
+            onMinimize={() => setIsCallMinimized(true)}
+            onRestore={() => setIsCallMinimized(false)}
             onClose={() => {
               if (activeCallSession.callId) {
                 try {
@@ -2104,6 +2157,7 @@ export default function App() {
                   console.warn('Error ending call doc:', e);
                 }
               }
+              setIsCallMinimized(false);
               setActiveCallSession(null);
             }}
             contactName={activeCallSession.chat.name}
@@ -2136,6 +2190,17 @@ export default function App() {
         <FlyingBirdLoader
           isLoading={isAppLoading}
           message="Eugenio volando con tus mensajes..."
+          isNightMode={isNightMode}
+        />
+
+        {/* In-App Bird Notification Toast */}
+        <BirdNotificationToast
+          notification={inAppNotification}
+          onClose={() => setInAppNotification(null)}
+          onSelectChat={(chatId) => {
+            setActiveChatId(chatId);
+            setActiveTab('chats');
+          }}
           isNightMode={isNightMode}
         />
       </div>

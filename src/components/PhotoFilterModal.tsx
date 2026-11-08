@@ -3,11 +3,8 @@ import {
   X,
   Send,
   Upload,
-  Image as ImageIcon,
   Camera,
   RefreshCw,
-  Trash2,
-  Check,
 } from 'lucide-react';
 
 interface PhotoFilterModalProps {
@@ -22,34 +19,14 @@ interface PhotoFilterModalProps {
   contactName?: string;
 }
 
-// Sample gallery illustrations/abstract imagery (no human portrait photos)
-const SAMPLE_PHOTOS = [
-  {
-    url: 'https://images.unsplash.com/photo-1506744038136-46273834b3fb?auto=format&fit=crop&w=800&q=80',
-    name: 'Atardecer_Montaña.jpg',
-  },
-  {
-    url: 'https://images.unsplash.com/photo-1518709268805-4e9042af9f23?auto=format&fit=crop&w=800&q=80',
-    name: 'Bosque_Niebla.jpg',
-  },
-  {
-    url: 'https://images.unsplash.com/photo-1534447677768-be436bb09401?auto=format&fit=crop&w=800&q=80',
-    name: 'Galaxia_Cosmica.jpg',
-  },
-  {
-    url: 'https://images.unsplash.com/photo-1519681393784-d120267933ba?auto=format&fit=crop&w=800&q=80',
-    name: 'Cielo_Estrellado.jpg',
-  },
-];
-
 export const PhotoFilterModal: React.FC<PhotoFilterModalProps> = ({
   isOpen,
   onClose,
   onSendPhoto,
   contactName = 'Contacto',
 }) => {
-  const [selectedPhoto, setSelectedPhoto] = useState<string>(SAMPLE_PHOTOS[0].url);
-  const [photoName, setPhotoName] = useState<string>(SAMPLE_PHOTOS[0].name);
+  const [selectedPhoto, setSelectedPhoto] = useState<string>('');
+  const [photoName, setPhotoName] = useState<string>('');
   const [caption, setCaption] = useState<string>('');
   const [isCameraActive, setIsCameraActive] = useState<boolean>(false);
   const [cameraFacing, setCameraFacing] = useState<'user' | 'environment'>('user');
@@ -90,7 +67,7 @@ export const PhotoFilterModal: React.FC<PhotoFilterModalProps> = ({
     } catch (err) {
       console.warn('Camera access error:', err);
       setIsCameraActive(false);
-      alert('No se pudo acceder a la cámara. Verifica los permisos de tu navegador o sube una foto de tu galería.');
+      alert('No se pudo acceder a la cámara. Selecciona una foto de la galería de tu dispositivo.');
     }
   };
 
@@ -109,7 +86,6 @@ export const PhotoFilterModal: React.FC<PhotoFilterModalProps> = ({
       canvas.height = video.videoHeight || 480;
       const ctx = canvas.getContext('2d');
       if (ctx) {
-        // If front camera, flip horizontally
         if (cameraFacing === 'user') {
           ctx.translate(canvas.width, 0);
           ctx.scale(-1, 1);
@@ -117,7 +93,7 @@ export const PhotoFilterModal: React.FC<PhotoFilterModalProps> = ({
         ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
         const dataUrl = canvas.toDataURL('image/jpeg', 0.92);
         setSelectedPhoto(dataUrl);
-        setPhotoName(`Camara_${Date.now()}.jpg`);
+        setPhotoName(`Foto_${Date.now()}.jpg`);
         stopCamera();
       }
     }
@@ -147,20 +123,21 @@ export const PhotoFilterModal: React.FC<PhotoFilterModalProps> = ({
 
   const handleSend = () => {
     if (!selectedPhoto) return;
-    onSendPhoto(selectedPhoto, caption.trim(), '', photoName);
+    onSendPhoto(selectedPhoto, caption.trim(), '', photoName || 'Foto.jpg');
     stopCamera();
+    setSelectedPhoto('');
     setCaption('');
     onClose();
   };
 
-  // Clean up stream on unmount or close
+  // Reset state on open/close
   useEffect(() => {
     if (!isOpen) {
       stopCamera();
+      setSelectedPhoto('');
+      setPhotoName('');
+      setCaption('');
     }
-    return () => {
-      stopCamera();
-    };
   }, [isOpen]);
 
   if (!isOpen) return null;
@@ -201,7 +178,7 @@ export const PhotoFilterModal: React.FC<PhotoFilterModalProps> = ({
         {/* Content Body */}
         <div className="flex-1 overflow-y-auto p-4 flex flex-col gap-4">
           {/* Main Visual Preview / Live Camera */}
-          <div className="relative w-full aspect-square sm:aspect-[4/3] rounded-2xl overflow-hidden bg-black flex items-center justify-center border border-white/10 shadow-inner">
+          <div className="relative w-full aspect-square sm:aspect-[4/3] rounded-2xl overflow-hidden bg-[#0c0f17] flex items-center justify-center border border-white/10 shadow-inner">
             {isCameraActive ? (
               <div className="relative w-full h-full">
                 <video
@@ -218,7 +195,7 @@ export const PhotoFilterModal: React.FC<PhotoFilterModalProps> = ({
                   <button
                     onClick={handleToggleFacing}
                     title="Girar cámara"
-                    className="w-11 h-11 rounded-full bg-black/60 text-white border border-white/20 flex items-center justify-center hover:bg-black/80 transition-all active:scale-95"
+                    className="w-11 h-11 rounded-full bg-black/60 text-white border border-white/20 flex items-center justify-center hover:bg-black/80 transition-all active:scale-95 cursor-pointer"
                   >
                     <RefreshCw className="w-5 h-5" />
                   </button>
@@ -234,19 +211,32 @@ export const PhotoFilterModal: React.FC<PhotoFilterModalProps> = ({
                   <button
                     onClick={stopCamera}
                     title="Cancelar cámara"
-                    className="w-11 h-11 rounded-full bg-black/60 text-white border border-white/20 flex items-center justify-center hover:bg-black/80 transition-all active:scale-95"
+                    className="w-11 h-11 rounded-full bg-black/60 text-white border border-white/20 flex items-center justify-center hover:bg-black/80 transition-all active:scale-95 cursor-pointer"
                   >
                     <X className="w-5 h-5" />
                   </button>
                 </div>
               </div>
-            ) : (
+            ) : selectedPhoto ? (
               <div className="relative w-full h-full flex items-center justify-center">
                 <img
                   src={selectedPhoto}
-                  alt={photoName}
+                  alt={photoName || 'Foto seleccionada'}
                   className="w-full h-full object-contain"
                 />
+              </div>
+            ) : (
+              /* Blank state when no photo is selected yet */
+              <div className="flex flex-col items-center justify-center p-6 text-center gap-3">
+                <div className="w-16 h-16 rounded-full bg-blue-500/10 border border-blue-500/20 flex items-center justify-center text-[#38bdf8]">
+                  <Upload className="w-8 h-8" />
+                </div>
+                <div>
+                  <h3 className="text-sm font-bold text-white">Ninguna foto seleccionada</h3>
+                  <p className="text-xs text-[#8d90a0] mt-1 max-w-xs">
+                    Toma una foto con tu cámara o sube un archivo directamente desde tu dispositivo.
+                  </p>
+                </div>
               </div>
             )}
             <canvas ref={canvasRef} className="hidden" />
@@ -262,19 +252,19 @@ export const PhotoFilterModal: React.FC<PhotoFilterModalProps> = ({
                   startCamera('user');
                 }
               }}
-              className={`flex items-center justify-center gap-2 py-2.5 px-3 rounded-xl border text-xs font-bold transition-all cursor-pointer ${
+              className={`flex items-center justify-center gap-2 py-3 px-3 rounded-xl border text-xs font-bold transition-all cursor-pointer ${
                 isCameraActive
                   ? 'bg-[#2563eb] text-white border-blue-400 shadow-md'
                   : 'bg-[#212634] text-[#dfe2ee] border-white/10 hover:bg-[#2a3042]'
               }`}
             >
               <Camera className="w-4 h-4 text-[#38bdf8]" />
-              <span>{isCameraActive ? 'Cámara Activa' : 'Abrir Cámara'}</span>
+              <span>{isCameraActive ? 'Cámara Activa' : 'Tomar con Cámara'}</span>
             </button>
 
             <button
               onClick={() => fileInputRef.current?.click()}
-              className="flex items-center justify-center gap-2 py-2.5 px-3 rounded-xl bg-[#212634] hover:bg-[#2a3042] border border-white/10 text-[#dfe2ee] text-xs font-bold transition-all cursor-pointer active:scale-98"
+              className="flex items-center justify-center gap-2 py-3 px-3 rounded-xl bg-[#212634] hover:bg-[#2a3042] border border-white/10 text-[#dfe2ee] text-xs font-bold transition-all cursor-pointer active:scale-98"
             >
               <Upload className="w-4 h-4 text-[#7bd0ff]" />
               <span>Subir de Galería</span>
@@ -286,39 +276,6 @@ export const PhotoFilterModal: React.FC<PhotoFilterModalProps> = ({
               onChange={handleFileUpload}
               className="hidden"
             />
-          </div>
-
-          {/* Presets Gallery quick picker */}
-          <div className="flex flex-col gap-1.5">
-            <span className="text-xs font-bold text-[#8d90a0]">Fotos de muestra:</span>
-            <div className="grid grid-cols-4 gap-2">
-              {SAMPLE_PHOTOS.map((photo, i) => (
-                <button
-                  key={i}
-                  onClick={() => {
-                    stopCamera();
-                    setSelectedPhoto(photo.url);
-                    setPhotoName(photo.name);
-                  }}
-                  className={`relative aspect-square rounded-xl overflow-hidden border-2 transition-all cursor-pointer ${
-                    selectedPhoto === photo.url && !isCameraActive
-                      ? 'border-[#38bdf8] scale-105 shadow-md ring-2 ring-[#38bdf8]/40'
-                      : 'border-white/5 opacity-70 hover:opacity-100'
-                  }`}
-                >
-                  <img
-                    src={photo.url}
-                    alt={photo.name}
-                    className="w-full h-full object-cover"
-                  />
-                  {selectedPhoto === photo.url && !isCameraActive && (
-                    <div className="absolute inset-0 bg-[#38bdf8]/20 flex items-center justify-center">
-                      <Check className="w-4 h-4 text-white stroke-[3]" />
-                    </div>
-                  )}
-                </button>
-              ))}
-            </div>
           </div>
 
           {/* Caption Input */}
@@ -350,8 +307,8 @@ export const PhotoFilterModal: React.FC<PhotoFilterModalProps> = ({
 
           <button
             onClick={handleSend}
-            disabled={isCameraActive}
-            className="flex-1 py-2.5 px-4 rounded-xl bg-gradient-to-r from-[#2563eb] to-[#00a6e0] hover:from-[#1d4ed8] hover:to-[#0284c7] text-white text-xs font-bold shadow-lg shadow-blue-900/30 flex items-center justify-center gap-2 active:scale-98 transition-all disabled:opacity-50 disabled:pointer-events-none cursor-pointer"
+            disabled={!selectedPhoto || isCameraActive}
+            className="flex-1 py-2.5 px-4 rounded-xl bg-gradient-to-r from-[#2563eb] to-[#00a6e0] hover:from-[#1d4ed8] hover:to-[#0284c7] text-white text-xs font-bold shadow-lg shadow-blue-900/30 flex items-center justify-center gap-2 active:scale-98 transition-all disabled:opacity-40 disabled:pointer-events-none cursor-pointer"
           >
             <Send className="w-4 h-4" />
             <span>Enviar Foto</span>
