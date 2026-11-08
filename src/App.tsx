@@ -201,6 +201,7 @@ const getFilterStyle = (mode?: string) => {
 
 export default function App() {
   const tabSessionIdRef = useRef<string>(`tab_${Math.random().toString(36).substring(2, 9)}_${Date.now()}`);
+  const appLoadedTimeRef = useRef<number>(Date.now());
 
   // Load User Profile from localStorage or fallback
   const [user, setUser] = useState<UserProfile>(() => {
@@ -478,6 +479,8 @@ export default function App() {
   useEffect(() => {
     if (!user) return;
     const myPhoneClean = getCleanPhone(user.phone);
+    const myUserId = user.id || 'me';
+    const myNameClean = (user.name || '').trim().toLowerCase();
 
     const callsCol = collection(db, 'calls');
     const unsubscribe = onSnapshot(
@@ -490,24 +493,27 @@ export default function App() {
           const data = d.data();
           if (!data) return;
 
-          // Ignore calls originated strictly by this exact tab session
-          const isSelf = data.callerTabSessionId === tabSessionIdRef.current;
-          if (isSelf) return;
+          // 1. Completely ignore calls created at or before this app session loaded
+          const callTime = data.createdAt || 0;
+          if (callTime <= appLoadedTimeRef.current) return;
 
+          // 2. Ignore calls originated by this exact tab or by this user account
+          const isCallerTab = data.callerTabSessionId === tabSessionIdRef.current;
+          const isCallerUser = (data.callerId && data.callerId === myUserId) || (data.callerPhone && myPhoneClean && data.callerPhone === myPhoneClean);
+          if (isCallerTab || isCallerUser) return;
+
+          // 3. Strict target receiver matching
           const recPhone = getCleanPhone(data.receiverPhone);
           const recId = data.receiverId;
           const recName = (data.receiverName || '').trim().toLowerCase();
-          const myName = (user.name || '').trim().toLowerCase();
 
-          const isForMe =
-            (recPhone && myPhoneClean && recPhone === myPhoneClean) ||
-            (recId && (recId === user.id || chats.some((c) => c.id === data.chatId || c.id === recId))) ||
-            (recName && myName && (recName === myName || recName.includes(myName) || myName.includes(recName))) ||
-            (data.chatId && chats.some((c) => c.id === data.chatId)) ||
-            (data.status === 'ringing' && !recPhone);
+          const isTargetedToMe =
+            (recPhone && myPhoneClean && recPhone.length >= 6 && recPhone === myPhoneClean) ||
+            (recId && recId === myUserId) ||
+            (recName && myNameClean && myNameClean !== 'usuario nuevo' && (recName === myNameClean || recName.includes(myNameClean) || myNameClean.includes(recName)));
 
-          // Only detect active ringing calls created in the last 90 seconds
-          if (isForMe && data.status === 'ringing' && now - (data.createdAt || 0) < 90000) {
+          // 4. Only detect active ringing calls created live in the last 40 seconds
+          if (isTargetedToMe && data.status === 'ringing' && now - callTime < 40000) {
             foundCall = {
               id: d.id,
               callerId: data.callerId || 'unknown',
@@ -538,7 +544,7 @@ export default function App() {
     );
 
     return () => unsubscribe();
-  }, [user, user.phone, user.id, chats, incomingCallData]);
+  }, [user, user.phone, user.id, user.name, incomingCallData]);
 
   // Real-time Chat Discovery (e.g. when brother adds user or initiates contact)
   useEffect(() => {
@@ -695,12 +701,15 @@ export default function App() {
   const handleStartCall = async (chat: Chat, isVideo: boolean) => {
     const callerPhoneClean = getCleanPhone(user.phone);
     const receiverPhoneClean = getCleanPhone(chat.phone);
-    const tempCallId = `call_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`;
 
-    // Immediately open call modal synchronously for caller so call starts instantly with 0 lag
+    // Synchronously generate a real Firestore document reference with auto ID
+    const callDocRef = doc(collection(db, 'calls'));
+    const realCallId = callDocRef.id;
+
+    // Immediately open call modal synchronously for caller with the real call ID
     setIsCallMinimized(false);
     setActiveCallSession({
-      callId: tempCallId,
+      callId: realCallId,
       chat,
       isVideo,
       isCaller: true,
@@ -708,7 +717,7 @@ export default function App() {
     });
 
     try {
-      const callDocRef = await addDoc(collection(db, 'calls'), {
+      await setDoc(callDocRef, {
         callerId: user.id || 'me',
         callerName: user.name,
         callerAvatar: user.avatarUrl,
@@ -724,11 +733,8 @@ export default function App() {
         status: 'ringing', // STRICTLY ringing - caller timer will NOT start until receiver answers!
         createdAt: Date.now(),
       });
-
-      // Update call session with actual Firestore doc ID
-      setActiveCallSession((prev) => (prev ? { ...prev, callId: callDocRef.id } : null));
     } catch (e) {
-      console.warn('Error syncing call to Firestore:', e);
+      console.warn('Error syncing call doc to Firestore:', e);
     }
   };
 
@@ -1108,8 +1114,8 @@ export default function App() {
     });
   };
 
-  // Delete a specific message in a chat
-  const handleDeleteMessage = (chatId: string, messageId: string) => {
+  // Delete a specific message in a chat permanently (React state + Firestore)
+  const handleDeleteMessage = async (chatId: string, messageId: string) => {
     setChats((prev) =>
       prev.map((c) => {
         if (c.id === chatId) {
@@ -1132,10 +1138,17 @@ export default function App() {
         return c;
       })
     );
+
+    try {
+      const msgDocRef = doc(db, 'chats', chatId, 'messages', messageId);
+      await deleteDoc(msgDocRef);
+    } catch (e) {
+      console.warn('Error deleting message doc from Firestore:', e);
+    }
   };
 
-  // Clear all messages in a chat
-  const handleClearChatMessages = (chatId: string) => {
+  // Clear all messages in a chat permanently (React state + Firestore subcollection)
+  const handleClearChatMessages = async (chatId: string) => {
     setChats((prev) =>
       prev.map((c) => {
         if (c.id === chatId) {
@@ -1148,6 +1161,48 @@ export default function App() {
         return c;
       })
     );
+
+    try {
+      const msgsColRef = collection(db, 'chats', chatId, 'messages');
+      const msgsSnap = await getDocs(msgsColRef);
+      for (const msgDoc of msgsSnap.docs) {
+        try {
+          await deleteDoc(msgDoc.ref);
+        } catch {}
+      }
+
+      const chatDocRef = doc(db, 'chats', chatId);
+      await setDoc(chatDocRef, {
+        lastMessageText: 'Conversación vaciada',
+        lastMessageTime: '',
+        updatedAt: Date.now(),
+      }, { merge: true });
+    } catch (e) {
+      console.warn('Error clearing chat messages from Firestore:', e);
+    }
+  };
+
+  // Delete entire conversation permanently (React state + Firestore doc & messages subcollection)
+  const handleDeleteChat = async (chatId: string) => {
+    setChats((prev) => prev.filter((c) => c.id !== chatId));
+    if (activeChatId === chatId) {
+      setActiveChatId(null);
+    }
+
+    try {
+      const msgsColRef = collection(db, 'chats', chatId, 'messages');
+      const msgsSnap = await getDocs(msgsColRef);
+      for (const msgDoc of msgsSnap.docs) {
+        try {
+          await deleteDoc(msgDoc.ref);
+        } catch {}
+      }
+
+      const chatDocRef = doc(db, 'chats', chatId);
+      await deleteDoc(chatDocRef);
+    } catch (e) {
+      console.warn('Error deleting chat doc from Firestore:', e);
+    }
   };
 
   // Add reaction to message
@@ -1802,6 +1857,7 @@ export default function App() {
               }}
               onDeleteMessage={handleDeleteMessage}
               onClearChatMessages={handleClearChatMessages}
+              onDeleteChat={handleDeleteChat}
               onAddContactAsFriend={handleAddContactAsFriend}
               onOpenAddFriend={() => setIsAddFriendModalOpen(true)}
               onUpdateGroupMembers={handleUpdateGroupMembers}
@@ -1881,6 +1937,7 @@ export default function App() {
                   onOpenNewGroup={() => setIsNewGroupModalOpen(true)}
                   onAddFriend={handleAddFriend}
                   onUnblockContact={handleUnblockContact}
+                  onDeleteChat={handleDeleteChat}
                   onAddStatus={handleAddStatus}
                   onDeleteStatus={handleDeleteStatus}
                   onReplyToStatus={handleReplyToStatus}

@@ -322,14 +322,19 @@ export const CallModal: React.FC<CallModalProps> = ({
 
   // Real-time Firestore sync with calls/{callId}
   useEffect(() => {
-    if (!isOpen || !callId) return;
+    if (!isOpen || !callId || callId.startsWith('local_')) return;
+
+    let hasEverExisted = false;
 
     const callDocRef = doc(db, 'calls', callId);
     const unsubscribe = onSnapshot(callDocRef, (snap) => {
       if (!snap.exists()) {
-        onClose();
+        if (hasEverExisted) {
+          onClose();
+        }
         return;
       }
+      hasEverExisted = true;
       const data = snap.data();
       if (!data) return;
 

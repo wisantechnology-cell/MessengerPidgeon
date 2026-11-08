@@ -120,6 +120,7 @@ interface ChatViewProps {
   onOpenAddFriend?: () => void;
   onDeleteMessage?: (chatId: string, messageId: string) => void;
   onClearChatMessages?: (chatId: string) => void;
+  onDeleteChat?: (chatId: string) => void;
   onUpdateGroupMembers?: (chatId: string, updatedMembers: GroupMember[]) => void;
   onLeaveGroup?: (chatId: string) => void;
   onStartGroupGame?: (gameId: 'triviagrupal' | 'dibujayadivina' | 'stopgrupal') => void;
@@ -213,6 +214,7 @@ export const ChatView: React.FC<ChatViewProps> = ({
   onOpenAddFriend,
   onDeleteMessage,
   onClearChatMessages,
+  onDeleteChat,
   onUpdateGroupMembers,
   onLeaveGroup,
   onStartGroupGame,
@@ -1914,16 +1916,10 @@ export const ChatView: React.FC<ChatViewProps> = ({
             </div>
 
             <p className="text-xs text-[#8d90a0] leading-relaxed">
-              ¿Estás seguro de que deseas borrar todos los mensajes del chat con <strong className="text-white">{chat.name}</strong>? Esta acción no se puede deshacer.
+              Elige si deseas vaciar los mensajes o eliminar esta conversación por completo de forma permanente.
             </p>
 
-            <div className="flex items-center justify-end gap-2 pt-2">
-              <button
-                onClick={() => setShowClearChatModal(false)}
-                className="px-4 py-2 rounded-xl text-xs font-semibold text-[#8d90a0] hover:text-white hover:bg-white/5 transition-colors cursor-pointer"
-              >
-                Cancelar
-              </button>
+            <div className="flex flex-col gap-2 pt-2">
               <button
                 onClick={() => {
                   setShowClearChatModal(false);
@@ -1931,10 +1927,30 @@ export const ChatView: React.FC<ChatViewProps> = ({
                     onClearChatMessages(chat.id);
                   }
                 }}
-                className="px-4 py-2 rounded-xl text-xs font-bold bg-red-600 hover:bg-red-700 text-white shadow-lg shadow-red-900/30 flex items-center gap-1.5 transition-all cursor-pointer active:scale-95"
+                className="w-full py-2.5 rounded-xl text-xs font-bold bg-amber-600 hover:bg-amber-700 text-white shadow flex items-center justify-center gap-1.5 transition-all cursor-pointer active:scale-95"
               >
                 <Trash2 className="w-3.5 h-3.5" />
-                <span>Vaciar Conversación</span>
+                <span>Vaciar Mensajes (Conservar contacto)</span>
+              </button>
+
+              {onDeleteChat && (
+                <button
+                  onClick={() => {
+                    setShowClearChatModal(false);
+                    onDeleteChat(chat.id);
+                  }}
+                  className="w-full py-2.5 rounded-xl text-xs font-bold bg-red-600 hover:bg-red-700 text-white shadow-lg shadow-red-900/30 flex items-center justify-center gap-1.5 transition-all cursor-pointer active:scale-95"
+                >
+                  <Ban className="w-3.5 h-3.5" />
+                  <span>Eliminar Conversación Permanentemente</span>
+                </button>
+              )}
+
+              <button
+                onClick={() => setShowClearChatModal(false)}
+                className="w-full py-2 rounded-xl text-xs font-semibold text-[#8d90a0] hover:text-white hover:bg-white/5 transition-colors cursor-pointer mt-1"
+              >
+                Cancelar
               </button>
             </div>
           </div>

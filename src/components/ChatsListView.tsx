@@ -30,6 +30,7 @@ import {
   Mic,
   Flame,
   WifiOff,
+  Trash2,
 } from 'lucide-react';
 import { Chat, ChatCategory, UserProfile, Wallpaper } from '../types';
 import { StatusItem } from '../types/status';
@@ -56,6 +57,7 @@ interface ChatsListViewProps {
   onOpenVoiceMessageModal?: () => void;
   onAddFriend?: (data: AddFriendData) => void;
   onUnblockContact?: (chatId: string) => void;
+  onDeleteChat?: (chatId: string) => void;
   onOpenNewGroup?: () => void;
   onAddStatus: (mediaUrl: string, caption?: string) => void;
   onDeleteStatus: (statusId: string) => void;
@@ -87,6 +89,7 @@ export const ChatsListView: React.FC<ChatsListViewProps> = ({
   onOpenVoiceMessageModal,
   onAddFriend,
   onUnblockContact,
+  onDeleteChat,
   onOpenNewGroup,
   onAddStatus,
   onDeleteStatus,
@@ -480,6 +483,23 @@ export const ChatsListView: React.FC<ChatsListViewProps> = ({
                         {c.unreadCount}
                       </span>
                     </div>
+                  )}
+
+                  {/* Delete Conversation Button */}
+                  {onDeleteChat && (
+                    <button
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        if (window.confirm(`¿Eliminar permanentemente la conversación con ${c.name}?`)) {
+                          onDeleteChat(c.id);
+                        }
+                      }}
+                      title="Eliminar conversación permanentemente"
+                      aria-label="Eliminar conversación"
+                      className="p-2 rounded-xl text-slate-400 hover:text-red-400 hover:bg-red-500/15 transition-colors shrink-0 cursor-pointer ml-1"
+                    >
+                      <Trash2 className="w-4 h-4" />
+                    </button>
                   )}
                 </article>
               );
