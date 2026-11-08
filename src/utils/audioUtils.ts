@@ -2,7 +2,32 @@
  * Audio recording & synthesized audio utilities for voice messages
  */
 
-// Generate a simple pleasant voice-note WAV audio blob as fallback if mic is unavailable
+export function blobToDataUrl(blob: Blob): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onloadend = () => {
+      if (typeof reader.result === 'string') {
+        resolve(reader.result);
+      } else {
+        reject(new Error('No se pudo convertir el audio a Data URL'));
+      }
+    };
+    reader.onerror = () => reject(reader.error);
+    reader.readAsDataURL(blob);
+  });
+}
+
+function bufferToBase64(buffer: ArrayBuffer): string {
+  let binary = '';
+  const bytes = new Uint8Array(buffer);
+  const len = bytes.byteLength;
+  for (let i = 0; i < len; i++) {
+    binary += String.fromCharCode(bytes[i]);
+  }
+  return window.btoa(binary);
+}
+
+// Generate a self-contained voice-note WAV audio Data URL (universal playback across devices)
 export function createFallbackVoiceAudio(durationSeconds: number = 3): string {
   try {
     const sampleRate = 22050;
@@ -50,8 +75,7 @@ export function createFallbackVoiceAudio(durationSeconds: number = 3): string {
       offset += 2;
     }
 
-    const blob = new Blob([buffer], { type: 'audio/wav' });
-    return URL.createObjectURL(blob);
+    return 'data:audio/wav;base64,' + bufferToBase64(buffer);
   } catch (e) {
     console.warn('Fallback audio generation failed', e);
     return '';
@@ -63,3 +87,4 @@ function writeString(view: DataView, offset: number, string: string) {
     view.setUint8(offset + i, string.charCodeAt(i));
   }
 }
+

@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { Mic, Trash2, Send, Pause, Play, RotateCcw, Volume2, Sparkles } from 'lucide-react';
-import { createFallbackVoiceAudio } from '../utils/audioUtils';
+import { createFallbackVoiceAudio, blobToDataUrl } from '../utils/audioUtils';
 import { SquirrelVoiceIcon, RobotVoiceIcon, DeepVoiceIcon } from './CustomVectorIcons';
 
 interface VoiceRecorderProps {
@@ -96,13 +96,18 @@ export const VoiceRecorder: React.FC<VoiceRecorderProps> = ({
               }
             };
 
-            recorder.onstop = () => {
+            recorder.onstop = async () => {
               if (audioChunksRef.current.length > 0) {
-                const audioBlob = new Blob(audioChunksRef.current, {
-                  type: mimeType || 'audio/webm',
-                });
-                const url = URL.createObjectURL(audioBlob);
-                setAudioUrl(url);
+                try {
+                  const audioBlob = new Blob(audioChunksRef.current, {
+                    type: mimeType || 'audio/webm',
+                  });
+                  const dataUrl = await blobToDataUrl(audioBlob);
+                  setAudioUrl(dataUrl);
+                } catch {
+                  const fallback = createFallbackVoiceAudio(Math.max(2, seconds));
+                  setAudioUrl(fallback);
+                }
               }
             };
 
@@ -167,7 +172,7 @@ export const VoiceRecorder: React.FC<VoiceRecorderProps> = ({
     }
   };
 
-  const handleSend = () => {
+  const handleSend = async () => {
     if (previewAudioRef.current) {
       previewAudioRef.current.pause();
     }
@@ -182,8 +187,12 @@ export const VoiceRecorder: React.FC<VoiceRecorderProps> = ({
     let finalAudioUrl = audioUrl;
 
     if (!finalAudioUrl && audioChunksRef.current.length > 0) {
-      const audioBlob = new Blob(audioChunksRef.current, { type: 'audio/webm' });
-      finalAudioUrl = URL.createObjectURL(audioBlob);
+      try {
+        const audioBlob = new Blob(audioChunksRef.current, { type: 'audio/webm' });
+        finalAudioUrl = await blobToDataUrl(audioBlob);
+      } catch (err) {
+        console.warn('Could not convert blob to data url:', err);
+      }
     }
 
     if (!finalAudioUrl) {

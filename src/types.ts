@@ -31,6 +31,7 @@ export interface UserProfile {
   virtualPetEnabled?: boolean;
   language?: 'es' | 'en' | 'pt' | 'fr';
   weatherEffect?: 'none' | 'rain' | 'snow' | 'stars';
+  deviceMode?: 'auto' | 'mobile' | 'desktop' | 'tablet'; // Dispositivo: celular (móvil sin desorden), computadora, tablet, o automático
   vibrateOnCall?: boolean;
   vibrateOnMessage?: boolean;
   wakeScreenOnCall?: boolean;

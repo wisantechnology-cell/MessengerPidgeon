@@ -12,7 +12,7 @@ import {
   Search,
 } from 'lucide-react';
 import { Chat, UserProfile } from '../types';
-import { createFallbackVoiceAudio } from '../utils/audioUtils';
+import { createFallbackVoiceAudio, blobToDataUrl } from '../utils/audioUtils';
 
 interface SendVoiceMessageModalProps {
   isOpen: boolean;
@@ -154,13 +154,18 @@ export const SendVoiceMessageModal: React.FC<SendVoiceMessageModalProps> = ({
             }
           };
 
-          recorder.onstop = () => {
+          recorder.onstop = async () => {
             if (audioChunksRef.current.length > 0) {
-              const audioBlob = new Blob(audioChunksRef.current, {
-                type: mimeType || 'audio/webm',
-              });
-              const url = URL.createObjectURL(audioBlob);
-              setAudioUrl(url);
+              try {
+                const audioBlob = new Blob(audioChunksRef.current, {
+                  type: mimeType || 'audio/webm',
+                });
+                const dataUrl = await blobToDataUrl(audioBlob);
+                setAudioUrl(dataUrl);
+              } catch {
+                const fallback = createFallbackVoiceAudio(Math.max(2, seconds));
+                setAudioUrl(fallback);
+              }
             }
           };
 
@@ -178,7 +183,7 @@ export const SendVoiceMessageModal: React.FC<SendVoiceMessageModalProps> = ({
     }, 1000);
   };
 
-  const stopRecording = () => {
+  const stopRecording = async () => {
     if (timerRef.current) clearInterval(timerRef.current);
     if (animFrameRef.current) cancelAnimationFrame(animFrameRef.current);
     if (mediaRecorderRef.current && mediaRecorderRef.current.state !== 'inactive') {
@@ -192,9 +197,14 @@ export const SendVoiceMessageModal: React.FC<SendVoiceMessageModalProps> = ({
     setIsPaused(false);
 
     if (!audioUrl && audioChunksRef.current.length > 0) {
-      const audioBlob = new Blob(audioChunksRef.current, { type: 'audio/webm' });
-      const url = URL.createObjectURL(audioBlob);
-      setAudioUrl(url);
+      try {
+        const audioBlob = new Blob(audioChunksRef.current, { type: 'audio/webm' });
+        const dataUrl = await blobToDataUrl(audioBlob);
+        setAudioUrl(dataUrl);
+      } catch {
+        const fallbackUrl = createFallbackVoiceAudio(Math.max(2, seconds));
+        setAudioUrl(fallbackUrl);
+      }
     } else if (!audioUrl) {
       const fallbackUrl = createFallbackVoiceAudio(Math.max(2, seconds));
       setAudioUrl(fallbackUrl);
@@ -203,11 +213,6 @@ export const SendVoiceMessageModal: React.FC<SendVoiceMessageModalProps> = ({
 
   const togglePreviewPlay = () => {
     let finalUrl = audioUrl;
-    if (!finalUrl && audioChunksRef.current.length > 0) {
-      const audioBlob = new Blob(audioChunksRef.current, { type: 'audio/webm' });
-      finalUrl = URL.createObjectURL(audioBlob);
-      setAudioUrl(finalUrl);
-    }
     if (!finalUrl) {
       finalUrl = createFallbackVoiceAudio(Math.max(2, seconds));
       setAudioUrl(finalUrl);
@@ -238,11 +243,11 @@ export const SendVoiceMessageModal: React.FC<SendVoiceMessageModalProps> = ({
     }
   };
 
-  const handleSend = () => {
+  const handleSend = async () => {
     if (!selectedChatId) return;
 
     if (isRecording) {
-      stopRecording();
+      await stopRecording();
     }
 
     if (previewAudioRef.current) {
@@ -252,8 +257,12 @@ export const SendVoiceMessageModal: React.FC<SendVoiceMessageModalProps> = ({
     const durationText = formatTime(Math.max(1, seconds));
     let finalUrl = audioUrl;
     if (!finalUrl && audioChunksRef.current.length > 0) {
-      const audioBlob = new Blob(audioChunksRef.current, { type: 'audio/webm' });
-      finalUrl = URL.createObjectURL(audioBlob);
+      try {
+        const audioBlob = new Blob(audioChunksRef.current, { type: 'audio/webm' });
+        finalUrl = await blobToDataUrl(audioBlob);
+      } catch (e) {
+        console.warn('Error converting to dataUrl in SendVoiceMessageModal:', e);
+      }
     }
     if (!finalUrl) {
       finalUrl = createFallbackVoiceAudio(Math.max(2, seconds));

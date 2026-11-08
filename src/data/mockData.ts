@@ -21,7 +21,7 @@ export const INITIAL_USER: UserProfile = {
   autoCorrectEnabled: true,
   parentalControlEnabled: false,
   parentName: 'Mamá / Papá (Control Parental)',
-  parentPhone: '16 600 112 233',
+  deviceMode: 'auto',
   vibrateOnCall: true,
   vibrateOnMessage: true,
   wakeScreenOnCall: true,

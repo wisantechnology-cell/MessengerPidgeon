@@ -38,6 +38,7 @@ import {
   Pencil,
   BarChart2,
   Share2,
+  MoreVertical,
 } from 'lucide-react';
 import { Chat, Message, Wallpaper, StickerItem, UserProfile, GroupMember, PollData } from '../types';
 import { PollModal } from './PollModal';
@@ -131,6 +132,7 @@ interface ChatViewProps {
   onForwardMessage?: (targetChatId: string, message: Message) => void;
   onExportChat?: (chat: Chat) => void;
   onStartCall?: (chat: Chat, isVideo: boolean) => void;
+  deviceMode?: 'mobile' | 'desktop' | 'tablet';
 }
 
 interface VideoPreview {
@@ -225,8 +227,10 @@ export const ChatView: React.FC<ChatViewProps> = ({
   onForwardMessage,
   onExportChat,
   onStartCall,
+  deviceMode = 'desktop',
 }) => {
   const [inputText, setInputText] = useState<string>('');
+  const [showMobileMoreMenu, setShowMobileMoreMenu] = useState<boolean>(false);
   const [showChatThemeModal, setShowChatThemeModal] = useState<boolean>(false);
   const [showWhiteboardModal, setShowWhiteboardModal] = useState<boolean>(false);
   const [showPollModal, setShowPollModal] = useState<boolean>(false);
@@ -400,15 +404,269 @@ export const ChatView: React.FC<ChatViewProps> = ({
     });
   };
 
+  const handleVoiceCall = () => {
+    if (chat.type === 'group') {
+      onSendMessage(chat.id, {
+        senderId: 'me',
+        senderName: user.name,
+        senderAvatar: user.avatarUrl,
+        type: 'text',
+        text: `¡${user.name} ha iniciado una llamada de voz grupal!`,
+        timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+        isRead: true,
+      });
+    } else {
+      onSendMessage(chat.id, {
+        senderId: 'me',
+        senderName: user.name,
+        senderAvatar: user.avatarUrl,
+        type: 'text',
+        text: `¡${user.name} ha iniciado una llamada de voz!`,
+        timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+        isRead: true,
+      });
+    }
+    if (onStartCall) {
+      onStartCall(chat, false);
+    } else {
+      setCallConfig({ isOpen: true, isVideo: false });
+    }
+  };
+
+  const handleVideoCall = () => {
+    if (chat.type === 'group') {
+      onSendMessage(chat.id, {
+        senderId: 'me',
+        senderName: user.name,
+        senderAvatar: user.avatarUrl,
+        type: 'text',
+        text: `¡${user.name} ha iniciado una videollamada grupal!`,
+        timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+        isRead: true,
+      });
+    } else {
+      onSendMessage(chat.id, {
+        senderId: 'me',
+        senderName: user.name,
+        senderAvatar: user.avatarUrl,
+        type: 'text',
+        text: `¡${user.name} ha iniciado una videollamada!`,
+        timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+        isRead: true,
+      });
+    }
+    if (onStartCall) {
+      onStartCall(chat, true);
+    } else {
+      setCallConfig({ isOpen: true, isVideo: true });
+    }
+  };
+
   return (
     <div className={`relative flex flex-col w-full h-full min-h-screen transition-colors duration-300 ${
       isNightMode ? 'bg-[#0f131c] text-[#dfe2ee]' : 'bg-[#e0f2fe] text-[#0c2340]'
     }`}>
-      {/* 1. App Navigation Header */}
-      <header className={`sticky top-0 w-full z-40 backdrop-blur-xl border-b transition-colors duration-300 ${
-        chat.headerGradient ? `bg-gradient-to-r ${chat.headerGradient} text-white border-white/10` : isNightMode ? 'bg-[#0f131c]/90 border-white/5' : 'bg-white/90 border-sky-200/80'
-      }`}>
-        <div className="h-16 px-4 flex items-center justify-between">
+      {/* 1. App Navigation Header: Uncluttered Mobile vs Full Desktop */}
+      {deviceMode === 'mobile' ? (
+        <header className={`sticky top-0 w-full z-40 backdrop-blur-xl border-b transition-colors duration-200 ${
+          chat.headerGradient ? `bg-gradient-to-r ${chat.headerGradient} text-white border-white/10` : isNightMode ? 'bg-[#0f131c]/95 border-white/10' : 'bg-white/95 border-sky-200/90 shadow-sm'
+        }`}>
+          <div className="h-14 px-3 flex items-center justify-between gap-2">
+            {/* Back + Contact Info */}
+            <div className="flex items-center gap-2.5 min-w-0 flex-1">
+              <button
+                type="button"
+                onClick={onBack}
+                aria-label="Volver"
+                className={`w-9 h-9 rounded-full flex items-center justify-center transition-colors shrink-0 active:scale-95 cursor-pointer ${
+                  isNightMode ? 'text-white hover:bg-white/10' : 'text-sky-950 hover:bg-sky-100'
+                }`}
+              >
+                <ArrowLeft className="w-5 h-5" />
+              </button>
+
+              <div className="relative shrink-0">
+                <img
+                  src={chat.avatarUrl}
+                  alt={chat.name}
+                  className="w-9 h-9 rounded-full object-cover ring-1 ring-sky-400/40"
+                />
+                <span className="absolute bottom-0 right-0 w-2.5 h-2.5 bg-emerald-500 rounded-full ring-2 ring-white dark:ring-[#0f131c]" />
+              </div>
+
+              <div className="flex flex-col min-w-0">
+                <div className="flex items-center gap-1">
+                  <span className={`font-bold text-sm truncate leading-tight ${isNightMode ? 'text-white' : 'text-sky-950'}`}>
+                    {chat.name}
+                  </span>
+                  {chat.isVerified && <Check className="w-3.5 h-3.5 text-sky-400 stroke-[3] shrink-0" />}
+                </div>
+                <span className={`text-[11px] truncate leading-none ${isNightMode ? 'text-emerald-400' : 'text-emerald-600 font-semibold'}`}>
+                  {chat.phone || 'En línea'}
+                </span>
+              </div>
+            </div>
+
+            {/* Mobile Actions: Voice Call, Video Call, and 3-dots Menu */}
+            <div className="flex items-center gap-1 shrink-0">
+              <button
+                type="button"
+                onClick={handleVoiceCall}
+                className={`w-8 h-8 rounded-full flex items-center justify-center transition-colors active:scale-95 cursor-pointer ${
+                  isNightMode ? 'text-[#dfe2ee] hover:bg-white/10' : 'text-sky-800 hover:bg-sky-100'
+                }`}
+                title="Llamada de voz"
+              >
+                <Phone className="w-4 h-4" />
+              </button>
+
+              <button
+                type="button"
+                onClick={handleVideoCall}
+                className={`w-8 h-8 rounded-full flex items-center justify-center transition-colors active:scale-95 cursor-pointer ${
+                  isNightMode ? 'text-[#dfe2ee] hover:bg-white/10' : 'text-sky-800 hover:bg-sky-100'
+                }`}
+                title="Videollamada"
+              >
+                <VideoIcon className="w-4 h-4" />
+              </button>
+
+              <div className="relative">
+                <button
+                  type="button"
+                  onClick={() => setShowMobileMoreMenu(!showMobileMoreMenu)}
+                  className={`w-8 h-8 rounded-full flex items-center justify-center transition-colors active:scale-95 cursor-pointer ${
+                    isNightMode ? 'text-[#dfe2ee] hover:bg-white/10' : 'text-sky-800 hover:bg-sky-100'
+                  }`}
+                  title="Más opciones"
+                >
+                  <MoreVertical className="w-4 h-4" />
+                </button>
+
+                {showMobileMoreMenu && (
+                  <div
+                    className="fixed inset-0 z-50 bg-black/40 backdrop-blur-xs"
+                    onClick={() => setShowMobileMoreMenu(false)}
+                  >
+                    <div
+                      className="absolute right-3 top-14 w-60 p-2 rounded-2xl bg-[#1c2028] border border-white/10 shadow-2xl z-50 flex flex-col gap-1 animate-in fade-in zoom-in-95 duration-150"
+                      onClick={(e) => e.stopPropagation()}
+                    >
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setShowWallpaperDrawer(true);
+                          setShowMobileMoreMenu(false);
+                        }}
+                        className="w-full px-3 py-2 rounded-xl text-xs font-semibold text-gray-200 hover:text-white hover:bg-white/10 flex items-center gap-2.5 text-left cursor-pointer"
+                      >
+                        <WallpaperIcon className="w-4 h-4 text-cyan-400" />
+                        <span>Fondo de pantalla</span>
+                      </button>
+
+                      {onToggleNightMode && (
+                        <button
+                          type="button"
+                          onClick={() => {
+                            onToggleNightMode();
+                            setShowMobileMoreMenu(false);
+                          }}
+                          className="w-full px-3 py-2 rounded-xl text-xs font-semibold text-gray-200 hover:text-white hover:bg-white/10 flex items-center gap-2.5 text-left cursor-pointer"
+                        >
+                          <Moon className="w-4 h-4 text-amber-400" />
+                          <span>Modo {isNightMode ? 'Claro' : 'Nocturno'}</span>
+                        </button>
+                      )}
+
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setShowWhiteboardModal(true);
+                          setShowMobileMoreMenu(false);
+                        }}
+                        className="w-full px-3 py-2 rounded-xl text-xs font-semibold text-gray-200 hover:text-white hover:bg-white/10 flex items-center gap-2.5 text-left cursor-pointer"
+                      >
+                        <Pencil className="w-4 h-4 text-purple-400" />
+                        <span>Pizarra Colaborativa</span>
+                      </button>
+
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setShowPollModal(true);
+                          setShowMobileMoreMenu(false);
+                        }}
+                        className="w-full px-3 py-2 rounded-xl text-xs font-semibold text-gray-200 hover:text-white hover:bg-white/10 flex items-center gap-2.5 text-left cursor-pointer"
+                      >
+                        <BarChart2 className="w-4 h-4 text-emerald-400" />
+                        <span>Crear Encuesta</span>
+                      </button>
+
+                      <button
+                        type="button"
+                        onClick={() => {
+                          onExportChat?.(chat);
+                          setShowMobileMoreMenu(false);
+                        }}
+                        className="w-full px-3 py-2 rounded-xl text-xs font-semibold text-gray-200 hover:text-white hover:bg-white/10 flex items-center gap-2.5 text-left cursor-pointer"
+                      >
+                        <Download className="w-4 h-4 text-sky-400" />
+                        <span>Exportar Chat (TXT)</span>
+                      </button>
+
+                      {onOpenWaitingRoom && (
+                        <button
+                          type="button"
+                          onClick={() => {
+                            onOpenWaitingRoom();
+                            setShowMobileMoreMenu(false);
+                          }}
+                          className="w-full px-3 py-2 rounded-xl text-xs font-semibold text-emerald-400 hover:bg-emerald-500/15 flex items-center gap-2.5 text-left cursor-pointer"
+                        >
+                          <Gamepad2 className="w-4 h-4" />
+                          <span>Sala De Espera (Juegos)</span>
+                        </button>
+                      )}
+
+                      <div className="my-1 border-t border-white/10" />
+
+                      {onClearChatMessages && (
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setShowClearChatModal(true);
+                            setShowMobileMoreMenu(false);
+                          }}
+                          className="w-full px-3 py-2 rounded-xl text-xs font-semibold text-red-400 hover:text-red-300 hover:bg-red-500/10 flex items-center gap-2.5 text-left cursor-pointer"
+                        >
+                          <Trash2 className="w-4 h-4" />
+                          <span>Vaciar conversación</span>
+                        </button>
+                      )}
+
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setShowBlockModal(true);
+                          setShowMobileMoreMenu(false);
+                        }}
+                        className="w-full px-3 py-2 rounded-xl text-xs font-semibold text-red-400 hover:text-red-300 hover:bg-red-500/10 flex items-center gap-2.5 text-left cursor-pointer"
+                      >
+                        <Ban className="w-4 h-4" />
+                        <span>Bloquear contacto</span>
+                      </button>
+                    </div>
+                  </div>
+                )}
+              </div>
+            </div>
+          </div>
+        </header>
+      ) : (
+        <header className={`sticky top-0 w-full z-40 backdrop-blur-xl border-b transition-colors duration-300 ${
+          chat.headerGradient ? `bg-gradient-to-r ${chat.headerGradient} text-white border-white/10` : isNightMode ? 'bg-[#0f131c]/90 border-white/5' : 'bg-white/90 border-sky-200/80'
+        }`}>
+          <div className="h-16 px-4 flex items-center justify-between">
           <div className="flex items-center gap-2">
             <button
               onClick={onBack}
@@ -626,34 +884,7 @@ export const ChatView: React.FC<ChatViewProps> = ({
               <Download className="w-4 h-4" />
             </button>
             <button
-              onClick={() => {
-                if (chat.type === 'group') {
-                  onSendMessage(chat.id, {
-                    senderId: 'me',
-                    senderName: user.name,
-                    senderAvatar: user.avatarUrl,
-                    type: 'text',
-                    text: `¡${user.name} ha iniciado una llamada de voz grupal!`,
-                    timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
-                    isRead: true,
-                  });
-                } else {
-                  onSendMessage(chat.id, {
-                    senderId: 'me',
-                    senderName: user.name,
-                    senderAvatar: user.avatarUrl,
-                    type: 'text',
-                    text: `¡${user.name} ha iniciado una llamada de voz!`,
-                    timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
-                    isRead: true,
-                  });
-                }
-                if (onStartCall) {
-                  onStartCall(chat, false);
-                } else {
-                  setCallConfig({ isOpen: true, isVideo: false });
-                }
-              }}
+              onClick={handleVoiceCall}
               aria-label="Llamada de voz"
               className={`w-9 h-9 rounded-full flex items-center justify-center transition-colors shadow-sm cursor-pointer ${
                 isNightMode ? 'bg-[#262a33] text-[#dfe2ee] hover:bg-[#353942]' : 'bg-white text-sky-800 border border-sky-200 hover:bg-sky-100'
@@ -662,34 +893,7 @@ export const ChatView: React.FC<ChatViewProps> = ({
               <Phone className="w-4 h-4" />
             </button>
             <button
-              onClick={() => {
-                if (chat.type === 'group') {
-                  onSendMessage(chat.id, {
-                    senderId: 'me',
-                    senderName: user.name,
-                    senderAvatar: user.avatarUrl,
-                    type: 'text',
-                    text: `¡${user.name} ha iniciado una videollamada grupal!`,
-                    timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
-                    isRead: true,
-                  });
-                } else {
-                  onSendMessage(chat.id, {
-                    senderId: 'me',
-                    senderName: user.name,
-                    senderAvatar: user.avatarUrl,
-                    type: 'text',
-                    text: `¡${user.name} ha iniciado una videollamada!`,
-                    timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
-                    isRead: true,
-                  });
-                }
-                if (onStartCall) {
-                  onStartCall(chat, true);
-                } else {
-                  setCallConfig({ isOpen: true, isVideo: true });
-                }
-              }}
+              onClick={handleVideoCall}
               aria-label="Videollamada"
               className={`w-9 h-9 rounded-full flex items-center justify-center transition-colors shadow-sm cursor-pointer ${
                 isNightMode ? 'bg-[#262a33] text-[#dfe2ee] hover:bg-[#353942]' : 'bg-white text-sky-800 border border-sky-200 hover:bg-sky-100'
@@ -872,6 +1076,7 @@ export const ChatView: React.FC<ChatViewProps> = ({
           </div>
         </div>
       </header>
+      )}
 
       {/* 3. Conversation Thread with Wallpaper Background */}
       <main className="relative flex-1 w-full px-4 pt-3 pb-36 flex flex-col gap-3 overflow-y-auto transition-all duration-300">

@@ -13,6 +13,10 @@ import {
   Sparkles,
   Compass,
   Smartphone,
+  Laptop,
+  Tablet,
+  Monitor,
+  RefreshCw,
   Wallpaper as WallpaperIcon,
   Upload,
   Volume2,
@@ -78,7 +82,7 @@ export const SettingsProfileView: React.FC<SettingsProfileViewProps> = ({
   onOpenInstallModal,
   onSelectWallpaper,
 }) => {
-  const [activeTab, setActiveTab] = useState<'profile' | 'sounds' | 'account'>('profile');
+  const [activeTab, setActiveTab] = useState<'profile' | 'device' | 'sounds' | 'account'>('profile');
   const [name, setName] = useState<string>(user.name || 'USUARIO NUEVO');
   const [bio, setBio] = useState<string>(user.bio || 'Soy nuevo en PidgeX');
   const [username, setUsername] = useState<string>(user.username || '@usuarionuevo');
@@ -272,15 +276,15 @@ export const SettingsProfileView: React.FC<SettingsProfileViewProps> = ({
           </div>
         </div>
 
-        {/* 3 Tab Switcher */}
-        <div className="flex items-center gap-1 bg-black/20 dark:bg-white/5 p-1 rounded-xl border border-white/10">
+        {/* 4 Tab Switcher */}
+        <div className="flex items-center gap-1 bg-black/20 dark:bg-white/5 p-1 rounded-xl border border-white/10 overflow-x-auto no-scrollbar">
           <button
             onClick={() => {
               ringtoneManager.stopPreview();
               setPlayingPreviewId(null);
               setActiveTab('profile');
             }}
-            className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer ${
+            className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer whitespace-nowrap ${
               activeTab === 'profile'
                 ? 'bg-gradient-to-r from-blue-600 to-cyan-500 text-white shadow-md'
                 : 'text-[#8d90a0] hover:text-white'
@@ -290,9 +294,24 @@ export const SettingsProfileView: React.FC<SettingsProfileViewProps> = ({
           </button>
           <button
             onClick={() => {
+              ringtoneManager.stopPreview();
+              setPlayingPreviewId(null);
+              setActiveTab('device');
+            }}
+            className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer flex items-center gap-1.5 whitespace-nowrap ${
+              activeTab === 'device'
+                ? 'bg-gradient-to-r from-blue-600 to-cyan-500 text-white shadow-md'
+                : 'text-[#8d90a0] hover:text-white'
+            }`}
+          >
+            <Smartphone className="w-3.5 h-3.5 text-cyan-300" />
+            <span>Dispositivo</span>
+          </button>
+          <button
+            onClick={() => {
               setActiveTab('sounds');
             }}
-            className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer flex items-center gap-1.5 ${
+            className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer flex items-center gap-1.5 whitespace-nowrap ${
               activeTab === 'sounds'
                 ? 'bg-gradient-to-r from-blue-600 to-cyan-500 text-white shadow-md'
                 : 'text-[#8d90a0] hover:text-white'
@@ -307,7 +326,7 @@ export const SettingsProfileView: React.FC<SettingsProfileViewProps> = ({
               setPlayingPreviewId(null);
               setActiveTab('account');
             }}
-            className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer ${
+            className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer whitespace-nowrap ${
               activeTab === 'account'
                 ? 'bg-gradient-to-r from-blue-600 to-cyan-500 text-white shadow-md'
                 : 'text-[#8d90a0] hover:text-white'
@@ -510,7 +529,125 @@ export const SettingsProfileView: React.FC<SettingsProfileViewProps> = ({
           </div>
         )}
 
-        {/* TAB 2: TONOS, VIBRACIÓN Y PANTALLA */}
+        {/* TAB 2: DISPOSITIVO & PANTALLA */}
+        {activeTab === 'device' && (
+          <div className="flex flex-col gap-6 animate-in fade-in duration-200">
+            <section className="rounded-3xl bg-[#181c24] border border-white/10 p-6 shadow-2xl flex flex-col gap-4 text-white">
+              <div className="flex items-center gap-3 pb-3 border-b border-white/10">
+                <div className="w-10 h-10 rounded-2xl bg-gradient-to-tr from-cyan-600 to-blue-500 flex items-center justify-center text-white shadow-lg">
+                  <Smartphone className="w-5 h-5" />
+                </div>
+                <div>
+                  <h3 className="font-bold text-base">¿Qué dispositivo estás usando?</h3>
+                  <p className="text-xs text-[#8d90a0]">
+                    Elige tu versión preferida. La versión para celular reduce el desorden visual y optimiza stickers para pantalla táctil.
+                  </p>
+                </div>
+              </div>
+
+              {/* Device Mode Selector Cards */}
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3.5 pt-1">
+                {[
+                  {
+                    id: 'mobile',
+                    title: 'Celular / Móvil',
+                    tag: 'Menos desorden visual',
+                    icon: <Smartphone className="w-6 h-6 text-cyan-400" />,
+                    desc: 'Versión ultra limpia para celulares: cabecera despejada, menú de 3 puntos, panel táctil de stickers en hoja deslizable y botones adaptados a una sola mano.',
+                  },
+                  {
+                    id: 'desktop',
+                    title: 'Computadora / Laptop',
+                    tag: 'Modo Completo',
+                    icon: <Laptop className="w-6 h-6 text-blue-400" />,
+                    desc: 'Diseño para pantallas grandes con teclado y ratón, barra lateral amplia y acceso directo a todas las herramientas sin menús anidados.',
+                  },
+                  {
+                    id: 'tablet',
+                    title: 'Tablet / iPad',
+                    tag: 'Modo Híbrido',
+                    icon: <Tablet className="w-6 h-6 text-purple-400" />,
+                    desc: 'Diseño balanceado para tablets en horizontal o vertical, con cómodas áreas de toque táctil y excelente legibilidad.',
+                  },
+                  {
+                    id: 'auto',
+                    title: 'Automático',
+                    tag: 'Recomendado',
+                    icon: <RefreshCw className="w-6 h-6 text-emerald-400" />,
+                    desc: 'PidgeX detecta automáticamente el ancho de tu pantalla y ajusta la versión ideal en tiempo real sin que tengas que cambiar nada.',
+                  },
+                ].map((item) => {
+                  const currentMode = user.deviceMode || 'auto';
+                  const isSelected = currentMode === item.id;
+                  return (
+                    <button
+                      key={item.id}
+                      type="button"
+                      onClick={() => {
+                        onUpdateUser({ deviceMode: item.id as any });
+                        setSavedFeedback(true);
+                        setTimeout(() => setSavedFeedback(false), 2000);
+                      }}
+                      className={`relative flex flex-col p-4 rounded-2xl border text-left transition-all cursor-pointer ${
+                        isSelected
+                          ? 'bg-gradient-to-br from-blue-900/40 via-cyan-900/20 to-[#181c24] border-cyan-400/80 shadow-lg shadow-cyan-500/10 ring-2 ring-cyan-500/40'
+                          : 'bg-[#12161f] border-white/5 hover:border-white/20 hover:bg-[#1a1f2b]'
+                      }`}
+                    >
+                      <div className="flex items-center justify-between w-full mb-2">
+                        <div className="w-10 h-10 rounded-xl bg-white/5 flex items-center justify-center">
+                          {item.icon}
+                        </div>
+                        <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${
+                          isSelected
+                            ? 'bg-cyan-500 text-black font-extrabold'
+                            : 'bg-white/10 text-gray-400'
+                        }`}>
+                          {item.tag}
+                        </span>
+                      </div>
+
+                      <h4 className="font-bold text-sm text-white flex items-center gap-2">
+                        <span>{item.title}</span>
+                        {isSelected && <Check className="w-4 h-4 text-cyan-400" />}
+                      </h4>
+                      <p className="text-xs text-[#8d90a0] mt-1 leading-relaxed">
+                        {item.desc}
+                      </p>
+                    </button>
+                  );
+                })}
+              </div>
+
+              {/* Status info box */}
+              <div className="mt-2 p-3.5 rounded-2xl bg-cyan-950/30 border border-cyan-500/20 flex items-center justify-between">
+                <div className="flex items-center gap-2.5">
+                  <div className="w-2.5 h-2.5 rounded-full bg-cyan-400 animate-pulse" />
+                  <span className="text-xs text-cyan-200">
+                    Modo configurado:{' '}
+                    <strong className="text-white capitalize">
+                      {user.deviceMode === 'mobile'
+                        ? 'Celular (Menos desorden visual)'
+                        : user.deviceMode === 'desktop'
+                        ? 'Computadora / Laptop'
+                        : user.deviceMode === 'tablet'
+                        ? 'Tablet'
+                        : 'Automático (Detección por pantalla)'}
+                    </strong>
+                  </span>
+                </div>
+                {savedFeedback && (
+                  <span className="text-xs font-bold text-emerald-400 animate-in fade-in duration-150 flex items-center gap-1">
+                    <Check className="w-3.5 h-3.5" />
+                    ¡Guardado!
+                  </span>
+                )}
+              </div>
+            </section>
+          </div>
+        )}
+
+        {/* TAB 3: TONOS, VIBRACIÓN Y PANTALLA */}
         {activeTab === 'sounds' && (
           <div className="flex flex-col gap-6 animate-in fade-in duration-200">
             {/* Hidden audio file inputs */}
