@@ -1177,7 +1177,7 @@ export const ChatView: React.FC<ChatViewProps> = ({
 
               {msg.type === 'sticker' && (() => {
                 const foundSticker = STICKERS.find((s) => s.id === msg.stickerId);
-                const stickerUrl = msg.stickerUrl || foundSticker?.imageUrl || '/assets/stickers/sticker_01_no_me_hables.svg';
+                const stickerUrl = msg.stickerUrl || foundSticker?.imageUrl || '/assets/aistudio/sticker_1_e00d29e3.png';
                 const stickerTitle = msg.stickerTitle || foundSticker?.title || 'Sticker';
                 return (
                   <div className={`flex flex-col ${isMe ? 'items-end' : 'items-start'} gap-1`}>

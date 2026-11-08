@@ -706,7 +706,6 @@ export const NewsView: React.FC<NewsViewProps> = ({ isNightMode = false, chats =
                     onClick={() => {
                       if (onShareToChat) {
                         onShareToChat(chat.id, sharingArticle.title, sharingArticle.url);
-                        alert(`¡Noticia enviada a ${chat.name} con éxito!`);
                         setSharingArticle(null);
                       }
                     }}

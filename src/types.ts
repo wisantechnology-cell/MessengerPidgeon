@@ -31,6 +31,16 @@ export interface UserProfile {
   virtualPetEnabled?: boolean;
   language?: 'es' | 'en' | 'pt' | 'fr';
   weatherEffect?: 'none' | 'rain' | 'snow' | 'stars';
+  vibrateOnCall?: boolean;
+  vibrateOnMessage?: boolean;
+  wakeScreenOnCall?: boolean;
+  wakeScreenOnMessage?: boolean;
+  callRingtoneId?: string; // 'pidgex_melody' | 'tropical_bird' | 'digital_phone' | 'retro_synth' | 'marimba_pop' | 'custom'
+  customCallRingtoneUrl?: string;
+  customCallRingtoneName?: string;
+  messageToneId?: string; // 'pidgex_chirp' | 'soft_chime' | 'bubble_pop' | 'digital_pulse' | 'happy_whistle' | 'custom'
+  customMessageToneUrl?: string;
+  customMessageToneName?: string;
   pendingFriendRequests?: {
     id: string;
     name: string;
@@ -69,6 +79,7 @@ export interface Message {
   stickerSubtitle?: string;
   stickerUrl?: string;
   timestamp: string;
+  timestampMs?: number;
   isRead: boolean;
   reactions?: Record<string, number>;
   disappearing?: boolean;

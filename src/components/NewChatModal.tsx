@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { X, UserPlus, Phone, MessageSquare, AlertCircle, Loader2 } from 'lucide-react';
+import { X, UserPlus, Phone, MessageSquare, Loader2, User } from 'lucide-react';
 import { ensurePhoneStartsWith16 } from '../utils/phoneUtils';
 import { createSvgAvatar } from '../utils/avatarUtils';
 import { findUserByPhone } from '../utils/phoneValidation';
@@ -35,6 +35,7 @@ export const NewChatModal: React.FC<NewChatModalProps> = ({
 }) => {
   const [countryCode, setCountryCode] = useState<string>('16');
   const [phone, setPhone] = useState<string>('');
+  const [customName, setCustomName] = useState<string>('');
   const [initialMessage, setInitialMessage] = useState<string>('¡Hola! Me alegro de contactar contigo en PidgeX 🕊️');
   const [isSearching, setIsSearching] = useState<boolean>(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
@@ -57,21 +58,26 @@ export const NewChatModal: React.FC<NewChatModalProps> = ({
     const finalPhone = ensurePhoneStartsWith16(rawPhone);
 
     setIsSearching(true);
-    const foundUser = await findUserByPhone(finalPhone, currentUserId);
+    let foundUser = null;
+    try {
+      foundUser = await findUserByPhone(finalPhone, currentUserId);
+    } catch (err) {
+      console.warn('Error checking registered phone, creating direct contact:', err);
+    }
     setIsSearching(false);
 
-    if (!foundUser) {
-      setErrorMessage(
-        `❌ El número "${finalPhone}" NO está registrado por ningún usuario real en PidgeX. No se ha creado ningún chat.`
-      );
-      return;
-    }
+    const contactName =
+      (customName.trim()) ||
+      (foundUser && foundUser.name) ||
+      `Contacto (${finalPhone})`;
 
-    const contactName = foundUser.name || `Usuario (${finalPhone})`;
-    const avatar = foundUser.avatarUrl || createSvgAvatar(contactName, '#0284c7');
+    const avatar =
+      (foundUser && foundUser.avatarUrl) ||
+      createSvgAvatar(contactName, '#0284c7');
 
     onCreateChat(contactName, avatar, initialMessage.trim() || undefined, finalPhone);
     setPhone('');
+    setCustomName('');
     setErrorMessage(null);
     onClose();
   };
@@ -82,7 +88,7 @@ export const NewChatModal: React.FC<NewChatModalProps> = ({
         <div className="flex items-center justify-between border-b border-white/10 pb-2">
           <div className="flex items-center gap-2">
             <UserPlus className="w-4 h-4 text-[#7bd0ff]" />
-            <span className="font-bold text-sm text-[#dfe2ee]">Nueva Conversación (Usuario Real)</span>
+            <span className="font-bold text-sm text-[#dfe2ee]">Nueva Conversación en Vivo</span>
           </div>
           <button
             onClick={onClose}
@@ -93,14 +99,8 @@ export const NewChatModal: React.FC<NewChatModalProps> = ({
         </div>
 
         {errorMessage && (
-          <div className="p-3 rounded-xl bg-red-950/90 border border-red-500/60 text-red-200 text-xs font-bold flex items-start gap-2 shadow-lg">
-            <AlertCircle className="w-4 h-4 text-red-400 shrink-0 mt-0.5" />
-            <div className="flex flex-col gap-0.5">
-              <span>{errorMessage}</span>
-              <span className="text-[10px] font-normal text-red-300">
-                PidgeX solo permite chatear con números que ya pertenecen a un usuario real registrado.
-              </span>
-            </div>
+          <div className="p-3 rounded-xl bg-red-950/90 border border-red-500/60 text-red-200 text-xs font-bold shadow-lg">
+            {errorMessage}
           </div>
         )}
 
@@ -108,7 +108,7 @@ export const NewChatModal: React.FC<NewChatModalProps> = ({
           <div className="flex flex-col gap-1.5">
             <label className="text-xs text-[#8d90a0] font-semibold flex items-center gap-1.5">
               <Phone className="w-3.5 h-3.5 text-[#7bd0ff]" />
-              <span>Número de Teléfono del Contacto Real</span>
+              <span>Número de Teléfono PidgeX</span>
             </label>
             <div className="flex gap-2">
               <select
@@ -135,6 +135,20 @@ export const NewChatModal: React.FC<NewChatModalProps> = ({
 
           <div className="flex flex-col gap-1">
             <label className="text-xs text-[#8d90a0] font-semibold flex items-center gap-1.5">
+              <User className="w-3.5 h-3.5 text-[#7bd0ff]" />
+              <span>Nombre o Apodo del Contacto (opcional)</span>
+            </label>
+            <input
+              type="text"
+              placeholder="Ej: Mi Hermano, Mamá, Alex..."
+              value={customName}
+              onChange={(e) => setCustomName(e.target.value)}
+              className="bg-[#181c24] text-sm text-[#dfe2ee] placeholder:text-[#8d90a0] px-3 py-2 rounded-xl border border-white/10 focus:outline-none focus:border-[#2563eb]"
+            />
+          </div>
+
+          <div className="flex flex-col gap-1">
+            <label className="text-xs text-[#8d90a0] font-semibold flex items-center gap-1.5">
               <MessageSquare className="w-3.5 h-3.5 text-[#7bd0ff]" />
               <span>Primer mensaje (opcional)</span>
             </label>
@@ -154,12 +168,12 @@ export const NewChatModal: React.FC<NewChatModalProps> = ({
             {isSearching ? (
               <>
                 <Loader2 className="w-4 h-4 animate-spin text-white" />
-                <span>Verificando número real...</span>
+                <span>Verificando conexión...</span>
               </>
             ) : (
               <>
                 <UserPlus className="w-4 h-4" />
-                <span>Iniciar Chat con Usuario Real</span>
+                <span>Iniciar Chat Inmediato</span>
               </>
             )}
           </button>

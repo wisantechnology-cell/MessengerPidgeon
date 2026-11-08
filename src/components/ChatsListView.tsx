@@ -490,9 +490,7 @@ export const ChatsListView: React.FC<ChatsListViewProps> = ({
                     <button
                       onClick={(e) => {
                         e.stopPropagation();
-                        if (window.confirm(`¿Eliminar permanentemente la conversación con ${c.name}?`)) {
-                          onDeleteChat(c.id);
-                        }
+                        onDeleteChat(c.id);
                       }}
                       title="Eliminar conversación permanentemente"
                       aria-label="Eliminar conversación"

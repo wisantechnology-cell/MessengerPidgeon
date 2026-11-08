@@ -79,20 +79,17 @@ export const AddFriendModal: React.FC<AddFriendModalProps> = ({
     const finalPhone = ensurePhoneStartsWith16(rawPhone);
 
     setIsSearching(true);
-    // ONLY allow adding if someone else in Firestore already has this phone number registered
-    const foundUser = await findUserByPhone(finalPhone, currentUserId);
+    let foundUser = null;
+    try {
+      foundUser = await findUserByPhone(finalPhone, currentUserId);
+    } catch (err) {
+      console.warn('Error checking friend by phone:', err);
+    }
     setIsSearching(false);
 
-    if (!foundUser) {
-      setErrorMessage(
-        `El número de teléfono "${finalPhone}" no está registrado por ningún otro usuario en PidgeX. No se ha agregado a nadie ni se ha creado ningún chat.`
-      );
-      return;
-    }
-
-    const friendName = foundUser.name || `Usuario (${finalPhone})`;
-    const friendAvatar = foundUser.avatarUrl || createSvgAvatar(friendName, '#2563eb');
-    const friendUsername = foundUser.username || undefined;
+    const friendName = (foundUser && foundUser.name) || `Contacto (${finalPhone})`;
+    const friendAvatar = (foundUser && foundUser.avatarUrl) || createSvgAvatar(friendName, '#2563eb');
+    const friendUsername = (foundUser && foundUser.username) || undefined;
 
     const friendData: AddFriendData = {
       name: friendName,
@@ -111,7 +108,7 @@ export const AddFriendModal: React.FC<AddFriendModalProps> = ({
       setPhoneNumber('');
       setErrorMessage(null);
       onClose();
-    }, 1200);
+    }, 1000);
   };
 
   return (

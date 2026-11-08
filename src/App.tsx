@@ -40,6 +40,8 @@ import { IncomingCallModal, IncomingCallData } from './components/IncomingCallMo
 import { CallModal } from './components/CallModal';
 import { soundEffects } from './utils/soundEffects';
 import { exportChatAsText } from './utils/exportChat';
+import { realtimeClient } from './services/realtimeClient';
+import { ringtoneManager } from './utils/ringtoneAudio';
 
 
 import { ChatView } from './components/ChatView';
@@ -220,13 +222,17 @@ export default function App() {
           const currentBio = isLegacyOrEmptyBio(parsed.bio) ? 'Soy nuevo en PidgeX' : parsed.bio.trim();
           const currentUsername = !parsed.username || parsed.username === '@anarodriguez' || parsed.username === '@carlosmendoza' || parsed.username === '@elenagomez' ? '@usuarionuevo' : parsed.username;
 
-          // Ensure unique phone number per device so users and family members don't share identical numbers
+          // Ensure unique phone number and unique user id per device so users don't share identity
           const hasCustomPhone = parsed.phone && parsed.phone !== '16 612 345 678' && parsed.phone.trim().length >= 8;
           const assignedPhone = hasCustomPhone ? ensurePhoneStartsWith16(parsed.phone) : generateUniquePidgePhone();
+          const savedUid = localStorage.getItem('birdmessage_client_uid') || `user_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`;
+          localStorage.setItem('birdmessage_client_uid', savedUid);
+          const assignedId = (parsed.id && parsed.id !== 'user_me') ? parsed.id : savedUid;
 
           return {
             ...INITIAL_USER,
             ...parsed,
+            id: assignedId,
             name: currentName,
             bio: currentBio,
             username: currentUsername,
@@ -262,12 +268,17 @@ export default function App() {
       localStorage.removeItem('gac3d');
       localStorage.removeItem('grand_adventure');
 
+      const deletedChatIds = new Set<string>(
+        JSON.parse(localStorage.getItem('birdmessage_deleted_chat_ids') || '[]')
+      );
+
       const saved = localStorage.getItem(CHATS_STORAGE_KEY);
       if (saved) {
         const parsed: Chat[] = JSON.parse(saved);
         if (Array.isArray(parsed)) {
           const cleaned = parsed
             .filter((c) => {
+              if (deletedChatIds.has(c.id)) return false;
               if (isLegacyChat(c) || c.isBlocked) return false;
               const nameLower = (c.name || '').toLowerCase();
               if (nameLower.includes('gac') || nameLower.includes('grand adventure') || nameLower.includes('gta')) return false;
@@ -276,10 +287,14 @@ export default function App() {
             .map((c) => ({
               ...c,
               phone: c.phone ? ensurePhoneStartsWith16(c.phone) : undefined,
+              messages: (c.messages || []).filter(
+                (m) => !(m.text && m.text.includes('¡Jajaja me encantó ese sticker!'))
+              ),
             }));
           if (cleaned.length > 0) return cleaned;
         }
       }
+      return INITIAL_CHATS.filter((c) => !deletedChatIds.has(c.id));
     } catch {
       // ignore
     }
@@ -560,7 +575,8 @@ export default function App() {
           const data = d.data();
           if (!data) return;
           const participantPhones: string[] = data.participantPhones || [];
-          if (participantPhones.includes(myPhoneClean)) {
+          const isParticipant = participantPhones.includes(myPhoneClean) || (Array.isArray(data.participants) && data.participants.includes(user.id));
+          if (isParticipant) {
             const otherPhoneClean = participantPhones.find((p) => p !== myPhoneClean) || '';
             const usersMap = data.usersMap || {};
             const otherUserInfo = usersMap[otherPhoneClean] || {};
@@ -573,12 +589,24 @@ export default function App() {
               const existing = prev.find((c) => c.id === d.id);
               if (existing) {
                 if (data.lastMessageText && data.lastMessageText !== existing.lastMessageText) {
+                  const isIncoming = Boolean(data.lastMessageSenderPhone && data.lastMessageSenderPhone !== myPhoneClean);
+                  if (isIncoming && activeChatId !== d.id) {
+                    ringtoneManager.playIncomingMessageAlert(user);
+                    soundEffects.playReceive();
+                    setInAppNotification({
+                      id: `notif_${Date.now()}`,
+                      title: friendName,
+                      body: data.lastMessageText,
+                    });
+                  }
                   return prev.map((c) =>
                     c.id === d.id
                       ? {
                           ...c,
                           lastMessageText: data.lastMessageText,
                           lastMessageTime: data.lastMessageTime || c.lastMessageTime,
+                          lastMessageRead: activeChatId === d.id,
+                          unreadCount: activeChatId === d.id ? 0 : (isIncoming ? (c.unreadCount || 0) + 1 : c.unreadCount),
                         }
                       : c
                   );
@@ -620,24 +648,19 @@ export default function App() {
   useEffect(() => {
     if (!activeChatId) return;
 
-    const msgsQuery = query(
-      collection(db, 'chats', activeChatId, 'messages'),
-      orderBy('timestampMs', 'asc')
-    );
-
+    const msgsCol = collection(db, 'chats', activeChatId, 'messages');
     const myPhoneClean = getCleanPhone(user.phone);
 
     const unsubscribe = onSnapshot(
-      msgsQuery,
+      msgsCol,
       (snapshot) => {
         if (snapshot.empty) return;
 
         const cloudMessages: Message[] = snapshot.docs.map((d) => {
           const data = d.data();
           const isMine =
-            (data.senderPhone && data.senderPhone === myPhoneClean) ||
-            (data.senderId && data.senderId === user.id) ||
-            data.senderId === 'me';
+            (Boolean(data.senderPhone && myPhoneClean) && data.senderPhone === myPhoneClean) ||
+            (Boolean(data.senderId && user.id) && data.senderId === user.id);
 
           return {
             id: data.id || d.id,
@@ -658,21 +681,31 @@ export default function App() {
             isRead: true,
             reactions: data.reactions || {},
           };
-        });
+        }).sort((a, b) => ((a as any).timestampMs || 0) - ((b as any).timestampMs || 0));
 
         setChats((prev) =>
           prev.map((c) => {
             if (c.id === activeChatId) {
-              const existingMap = new Map(c.messages.map((m) => [m.id, m]));
+              const currentList = Array.isArray(c.messages) ? c.messages : [];
+              const existingMap = new Map(currentList.map((m) => [m.id, m]));
               let hasNew = false;
+              let hasNewIncoming = false;
               cloudMessages.forEach((cm) => {
                 if (!existingMap.has(cm.id)) {
                   existingMap.set(cm.id, cm);
                   hasNew = true;
+                  if (cm.senderId !== 'me') {
+                    hasNewIncoming = true;
+                  }
                 }
               });
 
-              if (!hasNew && existingMap.size === c.messages.length) {
+              if (hasNewIncoming) {
+                ringtoneManager.playIncomingMessageAlert(user);
+                soundEffects.playReceive();
+              }
+
+              if (!hasNew && existingMap.size === currentList.length) {
                 return c;
               }
 
@@ -697,7 +730,66 @@ export default function App() {
     return () => unsubscribe();
   }, [activeChatId, user.phone, user.id, user.name, user.avatarUrl]);
 
-  // Handlers for Calls
+  // Real-time instant BroadcastChannel synchronization across tabs
+  useEffect(() => {
+    if (typeof window === 'undefined' || !('BroadcastChannel' in window)) return;
+    const bus = new BroadcastChannel('pidgex_channel_sync_bus');
+
+    bus.onmessage = (event) => {
+      const data = event.data;
+      if (!data || !data.type) return;
+
+      if (data.type === 'NEW_MESSAGE' && data.chatId && data.message) {
+        const incomingMsg: Message = data.message;
+        setChats((prev) =>
+          prev.map((c) => {
+            if (c.id === data.chatId) {
+              const currentList = Array.isArray(c.messages) ? c.messages : [];
+              if (currentList.some((m) => m.id === incomingMsg.id)) return c;
+              const updated = [...currentList, incomingMsg];
+              if (incomingMsg.senderId !== 'me') {
+                ringtoneManager.playIncomingMessageAlert(user);
+              }
+              return {
+                ...c,
+                messages: updated,
+                lastMessageText: incomingMsg.text || `[${incomingMsg.type}]`,
+                lastMessageTime: incomingMsg.timestamp,
+                lastMessageRead: incomingMsg.senderId === 'me',
+              };
+            }
+            return c;
+          })
+        );
+      } else if (data.type === 'NEW_CHAT' && data.chat) {
+        setChats((prev) => {
+          if (prev.some((c) => c.id === data.chat.id)) return prev;
+          return [data.chat, ...prev];
+        });
+      } else if (data.type === 'DELETE_CHAT' && data.chatId) {
+        setChats((prev) => prev.filter((c) => c.id !== data.chatId));
+        if (activeChatId === data.chatId) {
+          setActiveChatId(null);
+        }
+      } else if (data.type === 'DELETE_MESSAGE' && data.chatId && data.messageId) {
+        setChats((prev) =>
+          prev.map((c) => {
+            if (c.id === data.chatId) {
+              return {
+                ...c,
+                messages: (c.messages || []).filter((m) => m.id !== data.messageId),
+              };
+            }
+            return c;
+          })
+        );
+      }
+    };
+
+    return () => {
+      bus.close();
+    };
+  }, [activeChatId]);
   const handleStartCall = async (chat: Chat, isVideo: boolean) => {
     const callerPhoneClean = getCleanPhone(user.phone);
     const receiverPhoneClean = getCleanPhone(chat.phone);
@@ -930,6 +1022,7 @@ export default function App() {
           const notifText = latestMsg.text || (latestMsg.type === 'voice' ? '🎵 Mensaje de voz' : latestMsg.type === 'image' ? '📷 Foto adjunta' : 'Nuevo mensaje');
           
           sendNativeSystemNotification(c.name, notifText, c.avatarUrl, c.id);
+          ringtoneManager.playIncomingMessageAlert(user);
 
           setInAppNotification({
             id: `msg_notif_${Date.now()}`,
@@ -956,7 +1049,11 @@ export default function App() {
           const queue = JSON.parse(savedQueue);
           if (Array.isArray(queue) && queue.length > 0) {
             localStorage.removeItem('birdmessage_offline_queue');
-            alert(`¡Conexión en línea restaurada! Se han sincronizado automáticamente ${queue.length} mensajes guardados en modo offline.`);
+            setInAppNotification({
+              id: `offline_sync_${Date.now()}`,
+              title: 'Conexión Restaurada',
+              body: `Se sincronizaron automáticamente ${queue.length} mensajes guardados en modo offline.`,
+            });
           }
         }
       } catch (e) {
@@ -974,7 +1071,11 @@ export default function App() {
       const textLower = messageData.text.toLowerCase();
       const hasProfanity = BAD_WORDS.some((word) => textLower.includes(word));
       if (hasProfanity) {
-        alert(`[CONTROL PARENTAL ACTIVADO]: Se ha detectado una palabra no permitida en tu mensaje ("${messageData.text}"). Se ha enviado una alerta automática a ${user.parentName || 'tus padres'} (${user.parentPhone || '16 600 000 000'}).`);
+        setInAppNotification({
+          id: `parental_warn_${Date.now()}`,
+          title: 'Control Parental',
+          body: `Palabra no permitida detectada en el mensaje.`,
+        });
       }
     }
 
@@ -998,6 +1099,7 @@ export default function App() {
       timestamp:
         messageData.timestamp ||
         new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+      timestampMs: Date.now(),
       isRead: true,
       reactions: {},
     };
@@ -1022,7 +1124,8 @@ export default function App() {
     setChats((prevChats) =>
       prevChats.map((c) => {
         if (c.id === chatId) {
-          const updatedMessages = [...c.messages, newMessage];
+          const currentMsgs = Array.isArray(c.messages) ? c.messages : [];
+          const updatedMessages = [...currentMsgs, newMessage];
           let lastText = newMessage.text || '';
           if (newMessage.type === 'image') lastText = 'Foto adjunta';
           if (newMessage.type === 'voice') lastText = 'Mensaje de voz';
@@ -1041,6 +1144,24 @@ export default function App() {
         return c;
       })
     );
+
+    // Instant cross-tab broadcast
+    try {
+      if (typeof window !== 'undefined' && 'BroadcastChannel' in window) {
+        const bus = new BroadcastChannel('pidgex_channel_sync_bus');
+        bus.postMessage({
+          type: 'NEW_MESSAGE',
+          chatId,
+          message: newMessage,
+        });
+        bus.close();
+      }
+    } catch {}
+
+    // Send through WebSocket room if active
+    try {
+      realtimeClient.sendMessage(chatId, newMessage);
+    } catch {}
 
     // Sync to Firestore in real-time
     try {
@@ -1119,7 +1240,7 @@ export default function App() {
     setChats((prev) =>
       prev.map((c) => {
         if (c.id === chatId) {
-          const filteredMessages = c.messages.filter((m) => m.id !== messageId);
+          const filteredMessages = (c.messages || []).filter((m) => m.id !== messageId);
           const lastMsg = filteredMessages[filteredMessages.length - 1];
           let lastText = 'Conversación vacía';
           if (lastMsg) {
@@ -1138,6 +1259,14 @@ export default function App() {
         return c;
       })
     );
+
+    try {
+      if (typeof window !== 'undefined' && 'BroadcastChannel' in window) {
+        const bus = new BroadcastChannel('pidgex_channel_sync_bus');
+        bus.postMessage({ type: 'DELETE_MESSAGE', chatId, messageId });
+        bus.close();
+      }
+    } catch {}
 
     try {
       const msgDocRef = doc(db, 'chats', chatId, 'messages', messageId);
@@ -1190,6 +1319,24 @@ export default function App() {
     }
 
     try {
+      const deletedIds: string[] = JSON.parse(
+        localStorage.getItem('birdmessage_deleted_chat_ids') || '[]'
+      );
+      if (!deletedIds.includes(chatId)) {
+        deletedIds.push(chatId);
+        localStorage.setItem('birdmessage_deleted_chat_ids', JSON.stringify(deletedIds));
+      }
+    } catch {}
+
+    try {
+      if (typeof window !== 'undefined' && 'BroadcastChannel' in window) {
+        const bus = new BroadcastChannel('pidgex_channel_sync_bus');
+        bus.postMessage({ type: 'DELETE_CHAT', chatId });
+        bus.close();
+      }
+    } catch {}
+
+    try {
       const msgsColRef = collection(db, 'chats', chatId, 'messages');
       const msgsSnap = await getDocs(msgsColRef);
       for (const msgDoc of msgsSnap.docs) {
@@ -1212,7 +1359,7 @@ export default function App() {
         if (c.id === chatId) {
           return {
             ...c,
-            messages: c.messages.map((m) => {
+            messages: (c.messages || []).map((m) => {
               if (m.id === messageId) {
                 const current = m.reactions || {};
                 return {
@@ -1286,6 +1433,20 @@ export default function App() {
       : `chat_${Date.now()}`;
     const firstMsgTime = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
 
+    const initialMsgObj: Message | null = initialMessage
+      ? {
+          id: `msg_init_${Date.now()}`,
+          chatId: newChatId,
+          senderId: 'me',
+          senderName: user.name,
+          type: 'text',
+          text: initialMessage,
+          timestamp: firstMsgTime,
+          timestampMs: Date.now(),
+          isRead: true,
+        }
+      : null;
+
     const newChat: Chat = {
       id: newChatId,
       name: contactName,
@@ -1301,32 +1462,33 @@ export default function App() {
       lastMessageText: initialMessage || 'Conversación iniciada',
       lastMessageTime: firstMsgTime,
       lastMessageRead: true,
-      messages: initialMessage
-        ? [
-            {
-              id: `msg_init_${Date.now()}`,
-              chatId: newChatId,
-              senderId: 'me',
-              senderName: user.name,
-              type: 'text',
-              text: initialMessage,
-              timestamp: firstMsgTime,
-              isRead: true,
-            },
-          ]
-        : [],
+      messages: initialMsgObj ? [initialMsgObj] : [],
     };
 
     setChats((prev) => {
       const idx = prev.findIndex((c) => c.id === newChatId);
       if (idx >= 0) {
         const copy = [...prev];
-        copy[idx] = { ...copy[idx], ...newChat };
+        const existingMsgs = copy[idx].messages || [];
+        copy[idx] = {
+          ...copy[idx],
+          ...newChat,
+          messages: initialMsgObj ? [...existingMsgs, initialMsgObj] : existingMsgs,
+        };
         return copy;
       }
       return [newChat, ...prev];
     });
     setActiveChatId(newChatId);
+
+    // Broadcast new chat to other tabs
+    try {
+      if (typeof window !== 'undefined' && 'BroadcastChannel' in window) {
+        const bus = new BroadcastChannel('pidgex_channel_sync_bus');
+        bus.postMessage({ type: 'NEW_CHAT', chat: newChat });
+        bus.close();
+      }
+    } catch {}
 
     // Sync to Firestore
     try {
@@ -1357,6 +1519,23 @@ export default function App() {
         lastMessageTime: newChat.lastMessageTime,
         updatedAt: Date.now(),
       }, { merge: true }).catch((err) => console.warn('Error syncing chat doc:', err));
+
+      if (initialMsgObj) {
+        const msgDocRef = doc(db, 'chats', newChatId, 'messages', initialMsgObj.id);
+        setDoc(msgDocRef, {
+          id: initialMsgObj.id,
+          chatId: newChatId,
+          senderId: user.id || 'me',
+          senderPhone: userPhoneClean,
+          senderName: user.name,
+          senderAvatar: user.avatarUrl,
+          type: 'text',
+          text: initialMessage,
+          timestamp: firstMsgTime,
+          timestampMs: Date.now(),
+          isRead: false,
+        }).catch((err) => console.warn('Error saving initial message doc:', err));
+      }
     } catch (e) {
       console.warn('Firestore create chat sync error:', e);
     }
@@ -1470,7 +1649,11 @@ export default function App() {
         ...prev,
         pendingFriendRequests: [...(prev.pendingFriendRequests || []), newRequest],
       }));
-      alert(`[Control Parental Activado]: Para agregar a ${data.name}, ${user.parentName || 'tus padres'} deben aprobarlo primero. La solicitud se ha enviado al panel parental.`);
+      setInAppNotification({
+        id: `parental_req_${Date.now()}`,
+        title: 'Control Parental',
+        body: `Para agregar a ${data.name}, tus padres deben aprobarlo. Solicitud enviada.`,
+      });
       return;
     }
     handleAddFriendDirect(data);
@@ -1498,6 +1681,7 @@ export default function App() {
             type: 'text',
             text: data.initialMessage,
             timestamp: firstMsgTime,
+            timestampMs: Date.now(),
             isRead: true,
           },
         ]
@@ -1526,12 +1710,22 @@ export default function App() {
       const idx = prev.findIndex((c) => c.id === newChatId);
       if (idx >= 0) {
         const copy = [...prev];
-        copy[idx] = { ...copy[idx], ...newChat, messages: [...copy[idx].messages, ...initialMsgs] };
+        const existingMsgs = copy[idx].messages || [];
+        copy[idx] = { ...copy[idx], ...newChat, messages: [...existingMsgs, ...initialMsgs] };
         return copy;
       }
       return [newChat, ...prev];
     });
     setActiveChatId(newChatId);
+
+    // Broadcast new friend chat
+    try {
+      if (typeof window !== 'undefined' && 'BroadcastChannel' in window) {
+        const bus = new BroadcastChannel('pidgex_channel_sync_bus');
+        bus.postMessage({ type: 'NEW_CHAT', chat: newChat });
+        bus.close();
+      }
+    } catch {}
 
     // Sync to Firestore with participantPhones and usersMap so brother can discover it
     try {
@@ -2235,6 +2429,7 @@ export default function App() {
         {/* Real-time Incoming Call Modal */}
         <IncomingCallModal
           call={incomingCallData}
+          user={user}
           onAccept={handleAcceptIncomingCall}
           onDecline={handleDeclineIncomingCall}
           isNightMode={isNightMode}

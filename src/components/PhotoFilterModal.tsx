@@ -65,9 +65,8 @@ export const PhotoFilterModal: React.FC<PhotoFilterModalProps> = ({
         videoRef.current.play().catch(() => {});
       }
     } catch (err) {
-      console.warn('Camera access error:', err);
+      console.warn('Camera access error or denied:', err);
       setIsCameraActive(false);
-      alert('No se pudo acceder a la cámara. Selecciona una foto de la galería de tu dispositivo.');
     }
   };
 
