@@ -13,7 +13,7 @@ import {
   Volume2,
 } from 'lucide-react';
 import { GroupMember } from '../types';
-import { db, doc, onSnapshot, updateDoc, addDoc, collection } from '../firebase';
+import { db, doc, onSnapshot, updateDoc, addDoc, collection, setDoc } from '../firebase';
 import { realtimeClient } from '../services/realtimeClient';
 
 interface CallModalProps {
@@ -53,6 +53,7 @@ export const CallModal: React.FC<CallModalProps> = ({
   const [isVideoOff, setIsVideoOff] = useState<boolean>(!isVideo);
   const [declineReason, setDeclineReason] = useState<string | null>(null);
   const [remoteVideoFrame, setRemoteVideoFrame] = useState<string | null>(null);
+  const [hasWebRtcVideo, setHasWebRtcVideo] = useState<boolean>(false);
   const [audioNeedsUnlock, setAudioNeedsUnlock] = useState<boolean>(false);
 
   // References
@@ -66,17 +67,17 @@ export const CallModal: React.FC<CallModalProps> = ({
   const mediaStreamRef = useRef<MediaStream | null>(null);
   const hiddenCanvasRef = useRef<HTMLCanvasElement | null>(null);
 
-  // Audio relay references for guaranteed live sound
+  // Direct Audio Contexts for Hardware Sound Output
   const txAudioCtxRef = useRef<AudioContext | null>(null);
   const txProcessorRef = useRef<ScriptProcessorNode | null>(null);
   const rxAudioCtxRef = useRef<AudioContext | null>(null);
+  const webrtcAudioCtxRef = useRef<AudioContext | null>(null);
   const nextPlayTimeRef = useRef<number>(0);
   const isMutedRef = useRef<boolean>(false);
   const candidateQueueRef = useRef<RTCIceCandidateInit[]>([]);
   const isRemoteDescriptionSetRef = useRef<boolean>(false);
 
   const myRole = isCaller ? 'caller' : 'receiver';
-  const remoteRole = isCaller ? 'receiver' : 'caller';
 
   // Keep isMutedRef in sync
   useEffect(() => {
@@ -107,6 +108,9 @@ export const CallModal: React.FC<CallModalProps> = ({
     if (txAudioCtxRef.current && txAudioCtxRef.current.state === 'suspended') {
       txAudioCtxRef.current.resume().catch(() => {});
     }
+    if (webrtcAudioCtxRef.current && webrtcAudioCtxRef.current.state === 'suspended') {
+      webrtcAudioCtxRef.current.resume().catch(() => {});
+    }
     if (remoteAudioRef.current) {
       remoteAudioRef.current.muted = false;
       remoteAudioRef.current.volume = 1.0;
@@ -133,10 +137,10 @@ export const CallModal: React.FC<CallModalProps> = ({
   // 2. Play receiving audio chunks seamlessly through Rx AudioContext
   const handleIncomingAudioChunk = useCallback((audioB64: string) => {
     try {
-      if (!rxAudioCtxRef.current) {
+      if (!rxAudioCtxRef.current || rxAudioCtxRef.current.state === 'closed') {
         const AudioCtx = window.AudioContext || (window as any).webkitAudioContext;
         if (AudioCtx) {
-          rxAudioCtxRef.current = new AudioCtx({ sampleRate: 16000 });
+          rxAudioCtxRef.current = new AudioCtx();
         }
       }
 
@@ -161,7 +165,7 @@ export const CallModal: React.FC<CallModalProps> = ({
         float32[i] = pcm16[i] / 32768.0;
       }
 
-      const audioBuffer = rxCtx.createBuffer(1, float32.length, 16000);
+      const audioBuffer = rxCtx.createBuffer(1, float32.length, 12000);
       audioBuffer.getChannelData(0).set(float32);
 
       const bufferSource = rxCtx.createBufferSource();
@@ -169,12 +173,12 @@ export const CallModal: React.FC<CallModalProps> = ({
       bufferSource.connect(rxCtx.destination);
 
       const now = rxCtx.currentTime;
-      if (nextPlayTimeRef.current < now || nextPlayTimeRef.current > now + 0.35) {
-        nextPlayTimeRef.current = now + 0.04; // 40ms jitter buffer
+      if (nextPlayTimeRef.current < now || nextPlayTimeRef.current > now + 0.3) {
+        nextPlayTimeRef.current = now + 0.03; // 30ms jitter buffer
       }
       bufferSource.start(nextPlayTimeRef.current);
       nextPlayTimeRef.current += audioBuffer.duration;
-    } catch (e) {
+    } catch {
       // ignore corrupted chunk
     }
   }, []);
@@ -194,7 +198,6 @@ export const CallModal: React.FC<CallModalProps> = ({
             if (!isRemoteDescriptionSetRef.current) {
               await pc.setRemoteDescription(new RTCSessionDescription(signal.desc));
               isRemoteDescriptionSetRef.current = true;
-              // Drain queued candidates
               while (candidateQueueRef.current.length > 0) {
                 const c = candidateQueueRef.current.shift();
                 if (c) await pc.addIceCandidate(new RTCIceCandidate(c)).catch(() => {});
@@ -223,18 +226,18 @@ export const CallModal: React.FC<CallModalProps> = ({
           console.warn('WS call signal handle error:', e);
         }
       },
-      onCallFrame: (incomingCallId, frame, role) => {
-        if (incomingCallId === callId && role === remoteRole) {
+      onCallFrame: (incomingCallId, frame) => {
+        if (incomingCallId === callId) {
           setRemoteVideoFrame(frame);
         }
       },
-      onCallAudio: (incomingCallId, audioB64, role) => {
-        if (incomingCallId === callId && role === remoteRole) {
+      onCallAudio: (incomingCallId, audioB64) => {
+        if (incomingCallId === callId) {
           handleIncomingAudioChunk(audioB64);
         }
       },
     });
-  }, [isOpen, callId, isCaller, remoteRole, handleIncomingAudioChunk]);
+  }, [isOpen, callId, isCaller, handleIncomingAudioChunk]);
 
   // 4. Request user media (Microphone + Camera) immediately upon opening
   useEffect(() => {
@@ -248,7 +251,7 @@ export const CallModal: React.FC<CallModalProps> = ({
         if (isVideo) {
           try {
             stream = await navigator.mediaDevices.getUserMedia({
-              video: { facingMode: 'user', width: { ideal: 640 }, height: { ideal: 480 } },
+              video: { facingMode: 'user', width: { ideal: 640 }, height: { ideal: 480 }, frameRate: { ideal: 30 } },
               audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true },
             });
             setIsVideoOff(false);
@@ -323,27 +326,37 @@ export const CallModal: React.FC<CallModalProps> = ({
 
       const AudioCtx = window.AudioContext || (window as any).webkitAudioContext;
       if (AudioCtx) {
-        localCtx = new AudioCtx({ sampleRate: 16000 });
+        localCtx = new AudioCtx();
         txAudioCtxRef.current = localCtx;
 
         micSource = localCtx.createMediaStreamSource(stream);
         processor = localCtx.createScriptProcessor(2048, 1, 1);
         txProcessorRef.current = processor;
 
+        const inputRate = localCtx.sampleRate || 44100;
+        const targetRate = 12000;
+        const ratio = inputRate / targetRate;
+
         processor.onaudioprocess = (e) => {
           if (isMutedRef.current) return;
           const input = e.inputBuffer.getChannelData(0);
-          const pcm16 = new Int16Array(input.length);
-          for (let i = 0; i < input.length; i++) {
-            const s = Math.max(-1, Math.min(1, input[i]));
+
+          // Fast downsample to 12kHz
+          const outLength = Math.floor(input.length / ratio);
+          const pcm16 = new Int16Array(outLength);
+
+          for (let i = 0; i < outLength; i++) {
+            const srcIdx = Math.floor(i * ratio);
+            const s = Math.max(-1, Math.min(1, input[srcIdx]));
             pcm16[i] = s < 0 ? s * 0x8000 : s * 0x7FFF;
           }
 
           const u8 = new Uint8Array(pcm16.buffer);
+          const chunkSize = 4096;
           let binary = '';
-          const len = u8.byteLength;
-          for (let i = 0; i < len; i++) {
-            binary += String.fromCharCode(u8[i]);
+          for (let i = 0; i < u8.byteLength; i += chunkSize) {
+            const chunk = u8.subarray(i, Math.min(i + chunkSize, u8.byteLength));
+            binary += String.fromCharCode.apply(null, chunk as any);
           }
           const b64 = btoa(binary);
           realtimeClient.sendCallAudio(callId, b64, myRole);
@@ -370,23 +383,26 @@ export const CallModal: React.FC<CallModalProps> = ({
     };
   }, [isOpen, callStatus, callId, myRole]);
 
-  // 6. Camera Frame Broadcaster via WebSocket (and Firestore fallback)
+  // 6. Camera Frame Broadcaster via WebSocket (smooth 16 FPS fallback)
   useEffect(() => {
     if (!isOpen || callStatus !== 'connected' || isVideoOff || !callId) return;
 
     const canvas = hiddenCanvasRef.current || document.createElement('canvas');
     hiddenCanvasRef.current = canvas;
-    canvas.width = 320;
-    canvas.height = 240;
+    canvas.width = 280;
+    canvas.height = 210;
     const ctx = canvas.getContext('2d');
 
+    let isBroadcasting = true;
+
     const captureAndSend = () => {
+      if (!isBroadcasting) return;
       const vidSource = hiddenLocalVideoRef.current || localVideoRef.current;
       if (vidSource && ctx) {
         try {
           if (vidSource.videoWidth > 0 || vidSource.readyState >= 2) {
-            ctx.drawImage(vidSource, 0, 0, 320, 240);
-            const frameDataUrl = canvas.toDataURL('image/jpeg', 0.4);
+            ctx.drawImage(vidSource, 0, 0, 280, 210);
+            const frameDataUrl = canvas.toDataURL('image/jpeg', 0.35);
             realtimeClient.sendCallFrame(callId, frameDataUrl, myRole);
           }
         } catch {
@@ -395,11 +411,31 @@ export const CallModal: React.FC<CallModalProps> = ({
       }
     };
 
-    const interval = setInterval(captureAndSend, 100);
-    return () => clearInterval(interval);
-  }, [isOpen, callStatus, isVideoOff, callId, myRole]);
+    const interval = setInterval(captureAndSend, 65);
 
-  // 7. WebRTC Peer Connection with Queued ICE Candidates & Dual Signaling
+    // Also send occasional frame to Firestore doc as fallback
+    const firestoreInterval = setInterval(() => {
+      if (!isBroadcasting || !callId || callId.startsWith('local_')) return;
+      const vidSource = hiddenLocalVideoRef.current || localVideoRef.current;
+      if (vidSource && ctx && (vidSource.videoWidth > 0 || vidSource.readyState >= 2)) {
+        try {
+          const frameDataUrl = canvas.toDataURL('image/jpeg', 0.25);
+          const update = isCaller
+            ? { callerVideoFrame: frameDataUrl, remoteVideoFrame: frameDataUrl }
+            : { receiverVideoFrame: frameDataUrl, remoteVideoFrame: frameDataUrl };
+          setDoc(doc(db, 'calls', callId), update, { merge: true }).catch(() => {});
+        } catch {}
+      }
+    }, 1500);
+
+    return () => {
+      isBroadcasting = false;
+      clearInterval(interval);
+      clearInterval(firestoreInterval);
+    };
+  }, [isOpen, callStatus, isVideoOff, callId, myRole, isCaller]);
+
+  // 7. WebRTC Peer Connection with Hardware Video/Audio Decoding & Dual Signaling
   useEffect(() => {
     if (!isOpen || callStatus !== 'connected' || !callId || callId.startsWith('local_')) return;
 
@@ -430,27 +466,51 @@ export const CallModal: React.FC<CallModalProps> = ({
           });
         }
 
-        // Incoming remote WebRTC media tracks
+        // Incoming remote WebRTC media tracks (Hardware smooth 30-60 FPS)
         pc.ontrack = (event) => {
           if (isCancelled) return;
           const incomingStream = (event.streams && event.streams[0])
             ? event.streams[0]
             : new MediaStream([event.track]);
 
-          if (remoteAudioRef.current) {
-            remoteAudioRef.current.srcObject = incomingStream;
-            remoteAudioRef.current.volume = 1.0;
-            remoteAudioRef.current.muted = false;
-            remoteAudioRef.current.play().catch(() => {
-              setAudioNeedsUnlock(true);
-            });
+          // Handle Video Track
+          if (event.track.kind === 'video' || incomingStream.getVideoTracks().length > 0) {
+            setHasWebRtcVideo(true);
+            if (remoteVideoRef.current) {
+              remoteVideoRef.current.srcObject = incomingStream;
+              remoteVideoRef.current.volume = 1.0;
+              remoteVideoRef.current.muted = false;
+              remoteVideoRef.current.play().catch(() => {});
+            }
           }
 
-          if (remoteVideoRef.current) {
-            remoteVideoRef.current.srcObject = incomingStream;
-            remoteVideoRef.current.volume = 1.0;
-            remoteVideoRef.current.muted = false;
-            remoteVideoRef.current.play().catch(() => {});
+          // Handle Audio Track
+          if (event.track.kind === 'audio' || incomingStream.getAudioTracks().length > 0) {
+            // 1. Element playback
+            if (remoteAudioRef.current) {
+              remoteAudioRef.current.srcObject = incomingStream;
+              remoteAudioRef.current.volume = 1.0;
+              remoteAudioRef.current.muted = false;
+              remoteAudioRef.current.play().catch(() => {
+                setAudioNeedsUnlock(true);
+              });
+            }
+
+            // 2. Hardware speaker pipe through Web Audio API for unblockable sound
+            try {
+              const AudioCtx = window.AudioContext || (window as any).webkitAudioContext;
+              if (AudioCtx) {
+                if (!webrtcAudioCtxRef.current || webrtcAudioCtxRef.current.state === 'closed') {
+                  webrtcAudioCtxRef.current = new AudioCtx();
+                }
+                const actx = webrtcAudioCtxRef.current;
+                if (actx.state === 'suspended') actx.resume().catch(() => {});
+                const src = actx.createMediaStreamSource(incomingStream);
+                src.connect(actx.destination);
+              }
+            } catch (err) {
+              console.warn('Audio pipe notice:', err);
+            }
           }
         };
 
@@ -462,7 +522,7 @@ export const CallModal: React.FC<CallModalProps> = ({
             const candidateJSON = event.candidate.toJSON();
             // 1. Send via WebSocket
             realtimeClient.sendCallSignal(callId, { type: 'candidate', candidate: candidateJSON });
-            // 2. Also send via Firestore collection
+            // 2. Also send via Firestore
             if (!callId.startsWith('local_')) {
               const subcol = isCaller ? 'callerCandidates' : 'receiverCandidates';
               addDoc(collection(db, 'calls', callId, subcol), candidateJSON).catch(() => {});
@@ -662,7 +722,9 @@ export const CallModal: React.FC<CallModalProps> = ({
         onClose();
       }
 
-      const mainRemoteFrame = isCaller ? data.receiverVideoFrame : data.callerVideoFrame;
+      const mainRemoteFrame = isCaller
+        ? (data.receiverVideoFrame || data.remoteVideoFrame)
+        : (data.callerVideoFrame || data.remoteVideoFrame);
       if (mainRemoteFrame) {
         setRemoteVideoFrame(mainRemoteFrame);
       }
@@ -703,7 +765,7 @@ export const CallModal: React.FC<CallModalProps> = ({
 
         if (!vidTrack) {
           const vStream = await navigator.mediaDevices.getUserMedia({
-            video: { facingMode: 'user', width: { ideal: 640 }, height: { ideal: 480 } },
+            video: { facingMode: 'user', width: { ideal: 640 }, height: { ideal: 480 }, frameRate: { ideal: 30 } },
           });
           const freshTrack = vStream.getVideoTracks()[0];
           if (freshTrack) {
@@ -762,7 +824,23 @@ export const CallModal: React.FC<CallModalProps> = ({
       pcRef.current.close();
       pcRef.current = null;
     }
-    // 5. Update Firestore
+    // 5. Clean up audio contexts and video states
+    if (rxAudioCtxRef.current && rxAudioCtxRef.current.state !== 'closed') {
+      rxAudioCtxRef.current.close().catch(() => {});
+      rxAudioCtxRef.current = null;
+    }
+    if (txAudioCtxRef.current && txAudioCtxRef.current.state !== 'closed') {
+      txAudioCtxRef.current.close().catch(() => {});
+      txAudioCtxRef.current = null;
+    }
+    if (webrtcAudioCtxRef.current && webrtcAudioCtxRef.current.state !== 'closed') {
+      webrtcAudioCtxRef.current.close().catch(() => {});
+      webrtcAudioCtxRef.current = null;
+    }
+    setHasWebRtcVideo(false);
+    setRemoteVideoFrame(null);
+
+    // 6. Update Firestore
     if (callId && !callId.startsWith('local_')) {
       updateDoc(doc(db, 'calls', callId), { status: 'ended', endedAt: Date.now() }).catch(() => {});
     }
@@ -786,9 +864,14 @@ export const CallModal: React.FC<CallModalProps> = ({
         onClick={unlockAudio}
         className="fixed top-3 left-1/2 -translate-x-1/2 z-50 bg-[#121620]/95 border border-emerald-500/50 rounded-full px-4 py-2 shadow-2xl backdrop-blur-xl flex items-center gap-3 animate-in slide-in-from-top-4"
       >
-        <audio ref={remoteAudioRef} autoPlay playsInline className="hidden" />
-        <video ref={hiddenLocalVideoRef} autoPlay playsInline muted className="hidden" />
-        <video ref={remoteVideoRef} autoPlay playsInline className="hidden" />
+        <audio
+          ref={remoteAudioRef}
+          autoPlay
+          playsInline
+          style={{ position: 'fixed', top: -9999, left: -9999, width: 1, height: 1, opacity: 0.01, pointerEvents: 'none' }}
+        />
+        <video ref={hiddenLocalVideoRef} autoPlay playsInline muted style={{ position: 'fixed', top: -9999, left: -9999, width: 1, height: 1, opacity: 0.01, pointerEvents: 'none' }} />
+        <video ref={remoteVideoRef} autoPlay playsInline style={{ position: 'fixed', top: -9999, left: -9999, width: 1, height: 1, opacity: 0.01, pointerEvents: 'none' }} />
 
         <div className="relative">
           <img src={contactAvatar} alt={contactName} className="w-8 h-8 rounded-full object-cover border border-emerald-400" />
@@ -843,18 +926,29 @@ export const CallModal: React.FC<CallModalProps> = ({
       onTouchStart={unlockAudio}
       className="fixed inset-0 z-50 bg-[#0a0e16]/95 backdrop-blur-2xl flex flex-col items-center justify-between p-3 sm:p-6 animate-in fade-in zoom-in-95 duration-200 overflow-y-auto min-h-screen"
     >
-      {/* Hidden audio & video elements for background decoding */}
-      <audio ref={remoteAudioRef} autoPlay playsInline className="hidden" />
-      <video ref={hiddenLocalVideoRef} autoPlay playsInline muted className="hidden" />
+      {/* Off-screen audio element with real non-zero dimensions to prevent browser power-saving audio cut */}
+      <audio
+        ref={remoteAudioRef}
+        autoPlay
+        playsInline
+        style={{ position: 'fixed', top: -9999, left: -9999, width: 1, height: 1, opacity: 0.01, pointerEvents: 'none' }}
+      />
+      <video
+        ref={hiddenLocalVideoRef}
+        autoPlay
+        playsInline
+        muted
+        style={{ position: 'fixed', top: -9999, left: -9999, width: 1, height: 1, opacity: 0.01, pointerEvents: 'none' }}
+      />
 
       {/* Audio Unlock Warning Banner if browser requires user gesture */}
       {audioNeedsUnlock && (
         <div
           onClick={unlockAudio}
-          className="w-full max-w-md mx-auto mb-2 py-2 px-4 rounded-full bg-emerald-500/90 text-white text-xs font-bold flex items-center justify-center gap-2 shadow-lg animate-bounce cursor-pointer z-30"
+          className="w-full max-w-md mx-auto mb-2 py-2 px-4 rounded-full bg-emerald-500/95 text-white text-xs font-bold flex items-center justify-center gap-2 shadow-lg animate-bounce cursor-pointer z-30 border border-white/30"
         >
           <Volume2 className="w-4 h-4 animate-pulse" />
-          <span>🔊 Toca la pantalla para activar el altavoz</span>
+          <span>🔊 Toca aquí para activar el altavoz de la llamada</span>
         </div>
       )}
 
@@ -900,7 +994,7 @@ export const CallModal: React.FC<CallModalProps> = ({
         </div>
       </div>
 
-      {/* Main Area: Remote Feed ("La de mi amigo") with TOP-RIGHT Local Camera PIP ("Mi cámara") */}
+      {/* Main Area: Remote Video ("La de mi amigo/mamá") with TOP-RIGHT Local Camera PIP ("Mi cámara") */}
       <div className="relative flex items-center justify-center my-auto w-full max-w-4xl px-2 sm:px-4 z-10 shrink-0 min-h-0">
         {isGroup ? (
           <div className="grid grid-cols-2 sm:grid-cols-3 gap-3 w-full py-4">
@@ -944,23 +1038,25 @@ export const CallModal: React.FC<CallModalProps> = ({
           </div>
         ) : isVideoCallActive ? (
           <div className="relative w-full max-w-3xl h-[340px] sm:h-[480px] rounded-3xl overflow-hidden border border-white/20 shadow-2xl bg-[#141822] flex items-center justify-center my-2">
-            {/* Main Remote Feed: WebRTC Video element */}
+            {/* Primary Remote Feed: WebRTC Video element (Hardware 30-60 FPS Fluid Video) */}
             <video
               ref={remoteVideoRef}
               autoPlay
               playsInline
-              className="w-full h-full object-cover absolute inset-0 z-0"
+              className={`w-full h-full object-cover absolute inset-0 transition-opacity duration-300 ${
+                hasWebRtcVideo ? 'opacity-100 z-10' : 'opacity-0 z-0'
+              }`}
             />
 
-            {/* Instant WebSocket Remote Video Frame Layer (Shows friend's camera smoothly) */}
-            {remoteVideoFrame ? (
+            {/* Instant WebSocket Remote Video Frame Layer (Shows friend/mother camera fluidly while WebRTC connects) */}
+            {!hasWebRtcVideo && remoteVideoFrame ? (
               <img
                 src={remoteVideoFrame}
                 alt={contactName}
                 className="w-full h-full object-cover absolute inset-0 z-10 pointer-events-none"
               />
-            ) : (
-              callStatus === 'connected' && (
+            ) : !hasWebRtcVideo ? (
+              callStatus === 'connected' ? (
                 <div className="absolute inset-0 z-0 flex flex-col items-center justify-center bg-gradient-to-br from-blue-950/60 to-purple-950/60 pointer-events-none">
                   <img
                     src={contactAvatar}
@@ -969,19 +1065,17 @@ export const CallModal: React.FC<CallModalProps> = ({
                   />
                   <span className="text-base sm:text-lg font-bold text-white tracking-wide">{contactName}</span>
                 </div>
+              ) : (
+                <div className="absolute inset-0 bg-gradient-to-br from-blue-900/40 via-purple-900/30 to-slate-900/80 flex flex-col items-center justify-center z-10">
+                  <img
+                    src={contactAvatar}
+                    alt={contactName}
+                    className="w-24 h-24 sm:w-32 sm:h-32 rounded-full object-cover border-4 border-blue-500/80 shadow-2xl mb-3 animate-pulse"
+                  />
+                  <span className="text-base sm:text-lg font-bold text-white tracking-wide">{contactName}</span>
+                </div>
               )
-            )}
-
-            {!remoteVideoFrame && callStatus === 'calling' && (
-              <div className="absolute inset-0 bg-gradient-to-br from-blue-900/40 via-purple-900/30 to-slate-900/80 flex flex-col items-center justify-center z-10">
-                <img
-                  src={contactAvatar}
-                  alt={contactName}
-                  className="w-24 h-24 sm:w-32 sm:h-32 rounded-full object-cover border-4 border-blue-500/80 shadow-2xl mb-3 animate-pulse"
-                />
-                <span className="text-base sm:text-lg font-bold text-white tracking-wide">{contactName}</span>
-              </div>
-            )}
+            ) : null}
 
             {/* TOP-RIGHT Local Camera Preview PIP ("Mi cámara") */}
             <div className="absolute top-4 right-4 w-32 sm:w-40 h-24 sm:h-32 rounded-2xl bg-[#1c2028] border-2 border-white/40 shadow-2xl overflow-hidden flex flex-col items-center justify-center z-30">

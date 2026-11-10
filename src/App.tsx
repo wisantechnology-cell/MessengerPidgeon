@@ -438,6 +438,13 @@ export default function App() {
     return () => clearTimeout(timer);
   }, []);
 
+  // Connect realtime WebSocket client for calls, live chat and instant streaming
+  useEffect(() => {
+    if (user && user.id) {
+      realtimeClient.connect(user);
+    }
+  }, [user]);
+
   const [firebaseUser, setFirebaseUser] = useState<any>(null);
   const [isCloudSynced, setIsCloudSynced] = useState<boolean>(false);
   const [activeCallSession, setActiveCallSession] = useState<{

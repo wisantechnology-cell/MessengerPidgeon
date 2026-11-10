@@ -20,18 +20,27 @@ export const VoicePlayer: React.FC<VoicePlayerProps> = ({
   const [progress, setProgress] = useState<number>(0);
   const [playbackRate, setPlaybackRate] = useState<number>(1);
   const [realCurrentTime, setRealCurrentTime] = useState<number>(0);
+  const [detectedDuration, setDetectedDuration] = useState<number | null>(null);
 
   const audioRef = useRef<HTMLAudioElement | null>(null);
 
-  // Parse duration in seconds (e.g., "0:24" -> 24)
-  const totalSeconds = (() => {
-    const parts = (durationText || '').split(':');
+  // Parse duration in seconds (e.g., "2:00" -> 120, "0:24" -> 24)
+  const fallbackSeconds = (() => {
+    const parts = (durationText || '').trim().split(':');
     if (parts.length === 2) {
-      const parsed = parseInt(parts[0], 10) * 60 + parseInt(parts[1], 10);
-      return isNaN(parsed) || parsed <= 0 ? 15 : parsed;
+      const m = parseInt(parts[0], 10);
+      const s = parseInt(parts[1], 10);
+      if (!isNaN(m) && !isNaN(s)) {
+        const total = m * 60 + s;
+        if (total > 0) return total;
+      }
     }
     return 15;
   })();
+
+  const effectiveDuration = detectedDuration && detectedDuration > 0
+    ? detectedDuration
+    : fallbackSeconds;
 
   const formatTime = (secs: number) => {
     const clamped = Math.max(0, Math.floor(secs));
@@ -40,16 +49,10 @@ export const VoicePlayer: React.FC<VoicePlayerProps> = ({
     return `${m}:${s < 10 ? '0' : ''}${s}`;
   };
 
-  const canPlayWebM = typeof document !== 'undefined'
-    ? Boolean(document.createElement('audio').canPlayType('audio/webm'))
-    : true;
-
-  const isWebM = audioUrl ? audioUrl.includes('audio/webm') : false;
-
-  // Resolve the playable URL: real voice URL or full-duration generated vocal sound
-  const effectiveAudioUrl = (audioUrl && audioUrl.trim().length > 0 && (!isWebM || canPlayWebM))
+  // Resolve playable URL: real voice URL or small emergency synthesized sound if truly empty
+  const effectiveAudioUrl = (audioUrl && audioUrl.trim().length > 10)
     ? audioUrl
-    : createFallbackVoiceAudio(totalSeconds);
+    : createFallbackVoiceAudio(Math.min(fallbackSeconds, 6));
 
   const applyPitchAndRate = (audio: HTMLAudioElement, rate: number) => {
     let effectiveRate = rate;
@@ -73,30 +76,36 @@ export const VoicePlayer: React.FC<VoicePlayerProps> = ({
     audio.playbackRate = effectiveRate;
   };
 
-  const getEffectiveDuration = (audio: HTMLAudioElement | null) => {
-    if (audio && audio.duration && !isNaN(audio.duration) && isFinite(audio.duration) && audio.duration > 0) {
-      return audio.duration;
-    }
-    return totalSeconds;
-  };
-
   // Re-create or re-configure Audio instance when URL changes
   useEffect(() => {
-    const audio = new Audio(effectiveAudioUrl);
+    const audio = new Audio();
     audioRef.current = audio;
     audio.preload = 'auto';
     audio.volume = 1.0;
+    audio.src = effectiveAudioUrl;
     applyPitchAndRate(audio, playbackRate);
 
+    const onMetadata = () => {
+      if (audio.duration && !isNaN(audio.duration) && isFinite(audio.duration) && audio.duration > 0) {
+        setDetectedDuration(audio.duration);
+      }
+    };
+
+    audio.addEventListener('loadedmetadata', onMetadata);
+    audio.addEventListener('durationchange', onMetadata);
+
     audio.ontimeupdate = () => {
-      const dur = getEffectiveDuration(audio);
-      const cur = audio.currentTime;
-      const pct = Math.min(100, Math.max(0, (cur / dur) * 100));
+      const dur = (audio.duration && isFinite(audio.duration) && audio.duration > 0)
+        ? audio.duration
+        : effectiveDuration;
+
+      const cur = audio.currentTime || 0;
+      const pct = dur > 0 ? Math.min(100, Math.max(0, (cur / dur) * 100)) : 0;
       setProgress(pct);
       setRealCurrentTime(cur);
 
-      // In case browser WebM duration is Infinity and onended doesn't fire naturally
-      if (cur >= dur) {
+      // Only end when actually reaching end of audio (never on 0:00 tick!)
+      if (dur > 0.5 && cur >= dur - 0.1 && cur > 0.4) {
         setIsPlaying(false);
         setProgress(0);
         setRealCurrentTime(0);
@@ -112,16 +121,12 @@ export const VoicePlayer: React.FC<VoicePlayerProps> = ({
     };
 
     audio.onerror = () => {
-      console.warn('Primary audio playback error, falling back to audible synthesis');
-      const fallback = createFallbackVoiceAudio(totalSeconds);
-      if (audio.src !== fallback) {
-        audio.src = fallback;
-        audio.load();
-        audio.play().then(() => setIsPlaying(true)).catch(() => {});
-      }
+      console.warn('Audio decoding error for URL:', effectiveAudioUrl.slice(0, 50));
     };
 
     return () => {
+      audio.removeEventListener('loadedmetadata', onMetadata);
+      audio.removeEventListener('durationchange', onMetadata);
       audio.pause();
       audioRef.current = null;
     };
@@ -148,7 +153,10 @@ export const VoicePlayer: React.FC<VoicePlayerProps> = ({
       audio.pause();
       setIsPlaying(false);
     } else {
-      const dur = getEffectiveDuration(audio);
+      const dur = (audio.duration && isFinite(audio.duration) && audio.duration > 0)
+        ? audio.duration
+        : effectiveDuration;
+
       if (audio.currentTime >= dur || progress >= 100) {
         audio.currentTime = 0;
         setProgress(0);
@@ -163,14 +171,8 @@ export const VoicePlayer: React.FC<VoicePlayerProps> = ({
             setIsPlaying(true);
           })
           .catch((err) => {
-            console.warn('Audio play request failed or blocked by autoplay:', err);
-            // Retry with fallback audio to ensure sound output
-            audio.src = createFallbackVoiceAudio(totalSeconds);
-            audio.load();
-            audio
-              .play()
-              .then(() => setIsPlaying(true))
-              .catch(() => setIsPlaying(false));
+            console.warn('Audio play request notice:', err);
+            setIsPlaying(false);
           });
       }
     }
@@ -192,7 +194,9 @@ export const VoicePlayer: React.FC<VoicePlayerProps> = ({
     setProgress(newPct);
     const audio = audioRef.current;
     if (audio) {
-      const dur = getEffectiveDuration(audio);
+      const dur = (audio.duration && isFinite(audio.duration) && audio.duration > 0)
+        ? audio.duration
+        : effectiveDuration;
       const targetTime = (newPct / 100) * dur;
       audio.currentTime = targetTime;
       setRealCurrentTime(targetTime);

@@ -207,21 +207,27 @@ export const VoiceRecorder: React.FC<VoiceRecorderProps> = ({
 
     let finalAudioUrl = audioUrl;
 
+    if (!finalAudioUrl && mediaRecorderRef.current) {
+      try {
+        const result = await stopMediaRecorderSafely(
+          mediaRecorderRef.current,
+          audioChunksRef.current,
+          streamRef.current,
+          mimeTypeRef.current
+        );
+        if (result && result.dataUrl && result.blob.size > 800) {
+          finalAudioUrl = result.dataUrl;
+        }
+      } catch (e) {
+        console.warn('MediaRecorder stop notice:', e);
+      }
+    }
+
     if (!finalAudioUrl && universalEngineRef.current) {
       finalAudioUrl = await universalEngineRef.current.stop();
     }
 
-    if (!finalAudioUrl && mediaRecorderRef.current) {
-      const result = await stopMediaRecorderSafely(
-        mediaRecorderRef.current,
-        audioChunksRef.current,
-        streamRef.current,
-        mimeTypeRef.current
-      );
-      if (result) {
-        finalAudioUrl = result.dataUrl;
-      }
-    } else if (streamRef.current) {
+    if (streamRef.current) {
       streamRef.current.getTracks().forEach((t) => t.stop());
       streamRef.current = null;
     }

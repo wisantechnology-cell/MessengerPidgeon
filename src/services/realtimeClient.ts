@@ -24,10 +24,29 @@ class RealtimeClient {
   private currentUser: UserProfile | null = null;
   private callbacks: RealtimeCallback = {};
   private reconnectTimer: any = null;
-  private isExplicitlyClosed = false;
+  private activeCallRooms: Set<string> = new Set<string>();
+  private isExplicitlyClosed: boolean = false;
 
   public setCallbacks(cbs: RealtimeCallback) {
     this.callbacks = { ...this.callbacks, ...cbs };
+  }
+
+  public ensureConnected(user?: UserProfile) {
+    if (user) {
+      this.currentUser = user;
+    }
+    if (!this.currentUser) {
+      const storedUid = typeof localStorage !== 'undefined' ? (localStorage.getItem('birdmessage_client_uid') || `user_${Date.now()}`) : `user_${Date.now()}`;
+      this.currentUser = {
+        id: storedUid,
+        name: 'Usuario PidgeX',
+        phone: '16 612 000 000',
+        avatarUrl: '',
+      } as any;
+    }
+    if (!this.ws || this.ws.readyState === WebSocket.CLOSED || this.ws.readyState === WebSocket.CLOSING) {
+      this.initWebSocket();
+    }
   }
 
   public connect(user: UserProfile, roomId: string = 'real_community') {
@@ -45,6 +64,7 @@ class RealtimeClient {
     if (this.ws && (this.ws.readyState === WebSocket.OPEN || this.ws.readyState === WebSocket.CONNECTING)) {
       if (this.ws.readyState === WebSocket.OPEN) {
         this.joinRoom(this.currentRoomId);
+        this.activeCallRooms.forEach((cId) => this.sendJoinRoomPayload(`call_${cId}`));
       }
       return;
     }
@@ -58,6 +78,7 @@ class RealtimeClient {
       this.ws.onopen = () => {
         this.callbacks.onStatusChange?.(true);
         this.joinRoom(this.currentRoomId);
+        this.activeCallRooms.forEach((cId) => this.sendJoinRoomPayload(`call_${cId}`));
       };
 
       this.ws.onmessage = (event) => {
@@ -217,8 +238,7 @@ class RealtimeClient {
     }
   }
 
-  public joinCallRoom(callId: string) {
-    const roomId = `call_${callId}`;
+  private sendJoinRoomPayload(roomId: string) {
     if (this.ws && this.ws.readyState === WebSocket.OPEN && this.currentUser) {
       try {
         this.ws.send(
@@ -233,12 +253,20 @@ class RealtimeClient {
           })
         );
       } catch (e) {
-        console.warn('Failed to join call room:', e);
+        console.warn('Failed to send join room payload:', e);
       }
     }
   }
 
+  public joinCallRoom(callId: string) {
+    const roomId = `call_${callId}`;
+    this.activeCallRooms.add(callId);
+    this.ensureConnected();
+    this.sendJoinRoomPayload(roomId);
+  }
+
   public leaveCallRoom(callId: string) {
+    this.activeCallRooms.delete(callId);
     const roomId = `call_${callId}`;
     if (this.ws && this.ws.readyState === WebSocket.OPEN) {
       try {
@@ -256,6 +284,7 @@ class RealtimeClient {
 
   public sendCallSignal(callId: string, signal: any) {
     const roomId = `call_${callId}`;
+    this.ensureConnected();
     if (this.ws && this.ws.readyState === WebSocket.OPEN) {
       try {
         this.ws.send(
@@ -274,6 +303,7 @@ class RealtimeClient {
 
   public sendCallFrame(callId: string, frame: string, role: string) {
     const roomId = `call_${callId}`;
+    this.ensureConnected();
     if (this.ws && this.ws.readyState === WebSocket.OPEN) {
       try {
         this.ws.send(
@@ -293,6 +323,7 @@ class RealtimeClient {
 
   public sendCallAudio(callId: string, audio: string, role: string) {
     const roomId = `call_${callId}`;
+    this.ensureConnected();
     if (this.ws && this.ws.readyState === WebSocket.OPEN) {
       try {
         this.ws.send(

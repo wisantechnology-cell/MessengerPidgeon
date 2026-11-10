@@ -58,6 +58,10 @@ service cloud.firestore {
       allow get, list, create, update, delete: if true;
     }
 
+    match /calls/{callId}/{document=**} {
+      allow get, list, create, update, delete: if true;
+    }
+
     match /omegle_queue/{queueId} {
       allow get, list, create, update, delete: if true;
     }

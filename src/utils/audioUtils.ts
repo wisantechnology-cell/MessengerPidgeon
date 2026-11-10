@@ -53,11 +53,12 @@ export function blobToDataUrl(blob: Blob): Promise<string> {
 }
 
 export function bufferToBase64(buffer: ArrayBuffer): string {
-  let binary = '';
   const bytes = new Uint8Array(buffer);
-  const len = bytes.byteLength;
-  for (let i = 0; i < len; i++) {
-    binary += String.fromCharCode(bytes[i]);
+  const chunkSize = 8192;
+  let binary = '';
+  for (let i = 0; i < bytes.length; i += chunkSize) {
+    const chunk = bytes.subarray(i, Math.min(i + chunkSize, bytes.length));
+    binary += String.fromCharCode.apply(null, chunk as any);
   }
   return window.btoa(binary);
 }
@@ -91,49 +92,62 @@ function downsampleAudio(
 }
 
 /**
- * Encodes raw float PCM samples into standard 16-bit Mono WAV Data URL
+ * Encodes raw float PCM samples into standard 16-bit or 8-bit Mono WAV Data URL
  */
 export function encodeFloatPcmToWavDataUrl(
   samples: Float32Array,
-  sampleRate: number
+  sampleRate: number,
+  bitsPerSample: 8 | 16 = 16
 ): string {
   const numSamples = samples.length;
-  const buffer = new ArrayBuffer(44 + numSamples * 2);
+  const bytesPerSample = bitsPerSample === 16 ? 2 : 1;
+  const dataSize = numSamples * bytesPerSample;
+  const buffer = new ArrayBuffer(44 + dataSize);
   const view = new DataView(buffer);
 
   // RIFF identifier
   writeString(view, 0, 'RIFF');
   // file length
-  view.setUint32(4, 36 + numSamples * 2, true);
+  view.setUint32(4, 36 + dataSize, true);
   // RIFF type
   writeString(view, 8, 'WAVE');
   // format chunk identifier
   writeString(view, 12, 'fmt ');
   // format chunk length
   view.setUint32(16, 16, true);
-  // sample format (1 = PCM 16-bit)
+  // sample format (1 = PCM)
   view.setUint16(20, 1, true);
   // channel count (1 = mono)
   view.setUint16(22, 1, true);
   // sample rate
   view.setUint32(24, sampleRate, true);
   // byte rate (sample rate * block align)
-  view.setUint32(28, sampleRate * 2, true);
+  view.setUint32(28, sampleRate * bytesPerSample, true);
   // block align (channel count * bytes per sample)
-  view.setUint16(32, 2, true);
+  view.setUint16(32, bytesPerSample, true);
   // bits per sample
-  view.setUint16(34, 16, true);
+  view.setUint16(34, bitsPerSample, true);
   // data chunk identifier
   writeString(view, 36, 'data');
   // data chunk length
-  view.setUint32(40, numSamples * 2, true);
+  view.setUint32(40, dataSize, true);
 
   let offset = 44;
-  for (let i = 0; i < numSamples; i++) {
-    const s = Math.max(-1, Math.min(1, samples[i]));
-    const pcm16 = s < 0 ? s * 0x8000 : s * 0x7fff;
-    view.setInt16(offset, Math.round(pcm16), true);
-    offset += 2;
+  if (bitsPerSample === 16) {
+    for (let i = 0; i < numSamples; i++) {
+      const s = Math.max(-1, Math.min(1, samples[i]));
+      const pcm16 = s < 0 ? s * 0x8000 : s * 0x7fff;
+      view.setInt16(offset, Math.round(pcm16), true);
+      offset += 2;
+    }
+  } else {
+    // 8-bit unsigned PCM: 0..255 (128 is center/silence)
+    for (let i = 0; i < numSamples; i++) {
+      const s = Math.max(-1, Math.min(1, samples[i]));
+      const u8 = Math.round((s + 1) * 127.5);
+      view.setUint8(offset, Math.max(0, Math.min(255, u8)));
+      offset += 1;
+    }
   }
 
   return 'data:audio/wav;base64,' + bufferToBase64(buffer);
@@ -235,17 +249,27 @@ export class UniversalVoiceRecorderEngine {
     // Duration in seconds
     const durationSeconds = totalLength / inputSampleRate;
 
-    // Adapt target sample rate to ensure file stays well below Firestore's 1MB limit
-    // 16kHz for <= 15s (very crisp), 12kHz for <= 30s, 8kHz for longer
+    // Adapt target sample rate & bit depth to strictly guarantee the file stays well below Firestore's 1MB limit:
+    // <= 20s: 16kHz 16-bit (ultra crisp)
+    // 21s - 50s: 11.025kHz 16-bit (~550 KB raw)
+    // 51s - 90s: 8kHz 16-bit (~720 KB raw)
+    // > 90s (e.g. 2-3 mins): 6kHz 8-bit unsigned PCM (~720 KB raw, fits 100% in Firestore)
     let targetRate = 16000;
-    if (durationSeconds > 30) {
+    let bits: 8 | 16 = 16;
+
+    if (durationSeconds > 90) {
+      targetRate = 6000;
+      bits = 8;
+    } else if (durationSeconds > 50) {
       targetRate = 8000;
-    } else if (durationSeconds > 15) {
-      targetRate = 12000;
+      bits = 16;
+    } else if (durationSeconds > 20) {
+      targetRate = 11025;
+      bits = 16;
     }
 
     const downsampled = downsampleAudio(combined, inputSampleRate, targetRate);
-    const wavDataUrl = encodeFloatPcmToWavDataUrl(downsampled, targetRate);
+    const wavDataUrl = encodeFloatPcmToWavDataUrl(downsampled, targetRate, bits);
     return wavDataUrl;
   }
 }
@@ -351,8 +375,8 @@ export async function stopMediaRecorderSafely(
  */
 export function createFallbackVoiceAudio(durationSeconds: number = 3): string {
   try {
-    const sampleRate = 11025; // Compact sample rate, fits in Firestore even at 60s
-    const actualDuration = Math.max(2, Math.min(Math.round(durationSeconds), 90));
+    const sampleRate = 8000; // Ultra-fast lightweight fallback
+    const actualDuration = Math.max(2, Math.min(Math.round(durationSeconds), 6));
     const numSamples = Math.floor(sampleRate * actualDuration);
     const buffer = new ArrayBuffer(44 + numSamples * 2);
     const view = new DataView(buffer);
