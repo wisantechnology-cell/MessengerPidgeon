@@ -66,6 +66,7 @@ export interface Message {
   id: string;
   chatId: string;
   senderId: string; // 'me' or contact id
+  senderPhone?: string;
   senderName: string;
   senderAvatar?: string;
   type: MessageType;

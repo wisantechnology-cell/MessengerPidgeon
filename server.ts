@@ -481,6 +481,45 @@ function getOrCreateRoom(
 // Prepopulate community room
 getOrCreateRoom('real_community');
 
+let globalWss: WebSocketServer | null = null;
+
+function broadcastChatMessage(roomId: string, message: any, excludeWs?: WebSocket) {
+  const room = getOrCreateRoom(roomId);
+  const msgObj = {
+    ...message,
+    id: message.id || `msg_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`,
+    timestamp:
+      message.timestamp ||
+      new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+  };
+
+  if (!room.messages.some((m) => m.id === msgObj.id)) {
+    room.messages.push(msgObj);
+    if (room.messages.length > 200) room.messages.shift();
+  }
+
+  const payload = JSON.stringify({
+    type: 'message',
+    roomId,
+    message: msgObj,
+  });
+
+  if (globalWss) {
+    globalWss.clients.forEach((client) => {
+      if (client !== excludeWs && client.readyState === WebSocket.OPEN) {
+        try {
+          client.send(payload);
+        } catch (err) {
+          console.error('Error broadcasting chat message to client:', err);
+        }
+      }
+    });
+  }
+
+  broadcastPresence(roomId);
+  return msgObj;
+}
+
 function broadcastToRoom(roomId: string, data: any, excludeWs?: WebSocket) {
   const room = realtimeRooms.get(roomId);
   if (!room) return;
@@ -552,25 +591,7 @@ app.post('/api/realtime/room/:roomId/message', (req, res) => {
   if (!message) {
     return res.status(400).json({ error: 'Missing message' });
   }
-  const room = getOrCreateRoom(roomId);
-  const msgObj = {
-    ...message,
-    id:
-      message.id || `msg_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`,
-    timestamp:
-      message.timestamp ||
-      new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
-  };
-  if (!room.messages.some((m) => m.id === msgObj.id)) {
-    room.messages.push(msgObj);
-    if (room.messages.length > 150) room.messages.shift();
-  }
-  broadcastToRoom(roomId, {
-    type: 'message',
-    roomId,
-    message: msgObj,
-  });
-  broadcastPresence(roomId);
+  const msgObj = broadcastChatMessage(roomId, message);
   res.json({ success: true, message: msgObj });
 });
 
@@ -596,6 +617,7 @@ app.post('/api/realtime/create-room', (req, res) => {
 async function startServer() {
   const server = http.createServer(app);
   const wss = new WebSocketServer({ server, path: '/ws' });
+  globalWss = wss;
 
   wss.on('connection', (ws: WebSocket) => {
     const socketRooms = new Set<string>();
@@ -648,16 +670,7 @@ async function startServer() {
           }
         } else if (data.type === 'message') {
           const { roomId, message } = data;
-          const room = getOrCreateRoom(roomId);
-          if (!room.messages.some((m) => m.id === message.id)) {
-            room.messages.push(message);
-            if (room.messages.length > 150) room.messages.shift();
-          }
-          broadcastToRoom(roomId, {
-            type: 'message',
-            roomId,
-            message,
-          });
+          broadcastChatMessage(roomId, message, ws);
         } else if (data.type === 'typing') {
           const { roomId, userId, userName, isTyping } = data;
           broadcastToRoom(

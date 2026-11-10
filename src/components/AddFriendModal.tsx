@@ -10,11 +10,13 @@ import {
   Briefcase,
   AlertCircle,
   Loader2,
+  AlertTriangle,
+  ExternalLink,
 } from 'lucide-react';
 import { ChatCategory } from '../types';
 import { ensurePhoneStartsWith16 } from '../utils/phoneUtils';
 import { createSvgAvatar } from '../utils/avatarUtils';
-import { findUserByPhoneDetailed } from '../utils/phoneValidation';
+import { findUserByPhoneDetailed, PhoneLookupResult } from '../utils/phoneValidation';
 import { CountryFlagBadge } from './CountryFlagBadge';
 
 export interface AddFriendData {
@@ -54,6 +56,7 @@ export const AddFriendModal: React.FC<AddFriendModalProps> = ({
 }) => {
   const [countryCode, setCountryCode] = useState<string>('16');
   const [phoneNumber, setPhoneNumber] = useState<string>('');
+  const [contactNameInput, setContactNameInput] = useState<string>('');
   const [initialMessage, setInitialMessage] = useState<string>(
     '¡Hola! Te agregué a mis amigos en PidgeX.'
   );
@@ -61,12 +64,14 @@ export const AddFriendModal: React.FC<AddFriendModalProps> = ({
   const [successFriendName, setSuccessFriendName] = useState<string | null>(null);
   const [isSearching, setIsSearching] = useState<boolean>(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
+  const [quotaNotice, setQuotaNotice] = useState<{ message: string; url?: string; phone: string } | null>(null);
 
   if (!isOpen) return null;
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setErrorMessage(null);
+    setQuotaNotice(null);
 
     let rawPhone = phoneNumber.trim();
 
@@ -81,7 +86,7 @@ export const AddFriendModal: React.FC<AddFriendModalProps> = ({
     const finalPhone = ensurePhoneStartsWith16(rawPhone);
 
     setIsSearching(true);
-    let lookupResult = { user: null as any, isSelf: false };
+    let lookupResult: PhoneLookupResult = { user: null, isSelf: false };
     try {
       lookupResult = await findUserByPhoneDetailed(finalPhone, currentUserId, currentUserPhone);
     } catch (err) {
@@ -89,22 +94,46 @@ export const AddFriendModal: React.FC<AddFriendModalProps> = ({
     }
     setIsSearching(false);
 
-    // Block self-addition
+    // Self-addition handling: allow adding personal space
     if (lookupResult.isSelf) {
-      setErrorMessage('❌ No puedes agregarte a ti mismo como amigo con tu propio número.');
+      const selfName = contactNameInput.trim() || 'Mi Espacio (Tú)';
+      const friendData: AddFriendData = {
+        name: selfName,
+        phone: finalPhone,
+        avatarUrl: createSvgAvatar(selfName, '#2563eb'),
+        initialMessage: initialMessage.trim() || 'Notas personales 📝',
+        category: 'favorites',
+      };
+      onAddFriend(friendData);
+      setSuccessFriendName(selfName);
+      setTimeout(() => {
+        setSuccessFriendName(null);
+        setPhoneNumber('');
+        onClose();
+      }, 1000);
+      return;
+    }
+
+    // Handle Firestore daily quota reached
+    if (lookupResult.isQuotaExceeded) {
+      setQuotaNotice({
+        message: 'La cuota diaria de lectura de Firebase se ha agotado en este proyecto de prueba.',
+        url: lookupResult.quotaUpgradeUrl,
+        phone: finalPhone,
+      });
       return;
     }
 
     // STRICT: Do NOT add anything if user does NOT exist in PidgeX
     if (!lookupResult.user) {
       setErrorMessage(
-        `❌ El número "${finalPhone}" no existe en PidgeX. Ningún usuario está registrado con este número telefónico. No se agregará nada ni se crearán conversaciones falsas.`
+        `❌ El número "${finalPhone}" no está registrado en PidgeX. La otra persona debe tener su cuenta activa en la app para poder agregarla.`
       );
       return;
     }
 
     const foundUser = lookupResult.user;
-    const friendName = (foundUser && foundUser.name) || `Contacto (${finalPhone})`;
+    const friendName = contactNameInput.trim() || (foundUser && foundUser.name) || `Contacto (${finalPhone})`;
     const friendAvatar = (foundUser && foundUser.avatarUrl) || createSvgAvatar(friendName, '#2563eb');
     const friendUsername = (foundUser && foundUser.username) || undefined;
 
@@ -123,6 +152,35 @@ export const AddFriendModal: React.FC<AddFriendModalProps> = ({
     setTimeout(() => {
       setSuccessFriendName(null);
       setPhoneNumber('');
+      setContactNameInput('');
+      setErrorMessage(null);
+      setQuotaNotice(null);
+      onClose();
+    }, 1000);
+  };
+
+  const handleForceAddOnQuota = () => {
+    if (!quotaNotice) return;
+    const finalPhone = quotaNotice.phone;
+    const friendName = contactNameInput.trim() || `Contacto (${finalPhone})`;
+    const friendAvatar = createSvgAvatar(friendName, '#2563eb');
+
+    const friendData: AddFriendData = {
+      name: friendName,
+      phone: finalPhone,
+      avatarUrl: friendAvatar,
+      initialMessage: initialMessage.trim() || undefined,
+      category,
+    };
+
+    onAddFriend(friendData);
+    setSuccessFriendName(friendName);
+
+    setTimeout(() => {
+      setSuccessFriendName(null);
+      setPhoneNumber('');
+      setContactNameInput('');
+      setQuotaNotice(null);
       setErrorMessage(null);
       onClose();
     }, 1000);
@@ -151,7 +209,7 @@ export const AddFriendModal: React.FC<AddFriendModalProps> = ({
                 </span>
               </div>
               <p className="text-[11px] text-[#8d90a0]">
-                Solo puedes agregar contactos si otra persona ya tiene registrado ese número en la red
+                Ingresa el número telefónico de tu amigo o familiar en PidgeX
               </p>
             </div>
           </div>
@@ -165,16 +223,51 @@ export const AddFriendModal: React.FC<AddFriendModalProps> = ({
 
         {/* Modal Body */}
         <div className="flex-1 overflow-y-auto p-4 sm:p-5 flex flex-col gap-4">
-          {/* Error Message when Phone Number does NOT exist or belongs to self */}
+          {/* Error Message */}
           {errorMessage && (
             <div className="p-3.5 rounded-2xl bg-red-950/90 border border-red-500/60 text-red-200 text-xs font-bold flex items-start gap-2.5 animate-in fade-in zoom-in-95 shadow-xl">
               <AlertCircle className="w-5 h-5 text-red-400 shrink-0 mt-0.5" />
               <div className="flex flex-col gap-1">
                 <span className="text-red-100">{errorMessage}</span>
                 <span className="text-[10px] font-normal text-red-300 leading-snug">
-                  Regla de PidgeX: Solo se permite agregar un contacto si un usuario real diferente ya tiene ese número registrado en la base de datos.
+                  Verifica que la otra persona tenga abierta la app o que hayas escrito el número exactamente como aparece en su perfil.
                 </span>
               </div>
+            </div>
+          )}
+
+          {/* Quota Exceeded Notice */}
+          {quotaNotice && (
+            <div className="p-3.5 rounded-2xl bg-amber-950/90 border border-amber-500/60 text-amber-100 text-xs shadow-xl flex flex-col gap-2 animate-in fade-in zoom-in-95">
+              <div className="flex items-start gap-2">
+                <AlertTriangle className="w-5 h-5 text-amber-400 shrink-0 mt-0.5" />
+                <div className="flex flex-col gap-0.5">
+                  <span className="font-bold">{quotaNotice.message}</span>
+                  <span className="text-[11px] text-amber-200/90 leading-snug">
+                    Si este número es de un familiar o amigo real, puedes agregarlo directamente a tu lista:
+                  </span>
+                </div>
+              </div>
+
+              <button
+                type="button"
+                onClick={handleForceAddOnQuota}
+                className="mt-1 w-full py-2.5 px-3 rounded-xl bg-amber-600 hover:bg-amber-500 text-white font-bold text-xs shadow transition-all cursor-pointer text-center"
+              >
+                Agregar a {quotaNotice.phone} a Amigos
+              </button>
+
+              {quotaNotice.url && (
+                <a
+                  href={quotaNotice.url}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="text-[10px] text-amber-300 underline flex items-center justify-center gap-1 mt-0.5 hover:text-white"
+                >
+                  <span>Ver estado de cuota en Firebase</span>
+                  <ExternalLink className="w-3 h-3" />
+                </a>
+              )}
             </div>
           )}
 
@@ -183,7 +276,7 @@ export const AddFriendModal: React.FC<AddFriendModalProps> = ({
             <div className="flex flex-col gap-2 bg-[#181d28] p-4 rounded-2xl border border-white/10">
               <label className="text-xs font-bold text-[#dfe2ee] flex items-center gap-1.5">
                 <Phone className="w-4 h-4 text-[#7bd0ff]" />
-                <span>Número de Teléfono de otra persona:</span>
+                <span>Número de Teléfono:</span>
               </label>
               <div className="flex gap-2 items-center">
                 <div className="flex items-center gap-1.5 bg-[#0f131c] px-2.5 py-2 rounded-xl border border-white/10">
@@ -205,13 +298,26 @@ export const AddFriendModal: React.FC<AddFriendModalProps> = ({
                   required
                   placeholder="Ej: 612 345 678"
                   value={phoneNumber}
-                  onChange={(e) => setPhoneNumber(e.target.value)}
+                  onChange={(e) => {
+                    setPhoneNumber(e.target.value);
+                    setErrorMessage(null);
+                    setQuotaNotice(null);
+                  }}
                   className="flex-1 bg-[#0f131c] text-sm text-[#dfe2ee] placeholder:text-[#8d90a0] px-3.5 py-2.5 rounded-xl border border-white/10 focus:outline-none focus:border-[#2563eb]"
                 />
               </div>
-              <p className="text-[10px] text-[#8d90a0] italic">
-                El número debe estar previamente registrado por otro usuario real en la base de datos de PidgeX.
-              </p>
+            </div>
+
+            {/* Custom Name */}
+            <div className="flex flex-col gap-1">
+              <label className="text-xs font-bold text-[#dfe2ee]">Nombre o Apodo (opcional):</label>
+              <input
+                type="text"
+                placeholder="Ej: Mi Mamá, Hermano..."
+                value={contactNameInput}
+                onChange={(e) => setContactNameInput(e.target.value)}
+                className="bg-[#0f131c] text-xs text-[#dfe2ee] placeholder:text-[#8d90a0] px-3 py-2.5 rounded-xl border border-white/10 focus:outline-none focus:border-[#2563eb]"
+              />
             </div>
 
             {/* Category selection */}
@@ -283,7 +389,7 @@ export const AddFriendModal: React.FC<AddFriendModalProps> = ({
               {isSearching ? (
                 <>
                   <Loader2 className="w-4 h-4 animate-spin text-white" />
-                  <span>Verificando si alguien tiene este número...</span>
+                  <span>Buscando usuario en PidgeX...</span>
                 </>
               ) : successFriendName ? (
                 <>

@@ -1,8 +1,8 @@
 import React, { useState } from 'react';
-import { X, UserPlus, Phone, MessageSquare, Loader2, User, AlertCircle } from 'lucide-react';
+import { X, UserPlus, Phone, MessageSquare, Loader2, User, AlertCircle, AlertTriangle, ExternalLink } from 'lucide-react';
 import { ensurePhoneStartsWith16 } from '../utils/phoneUtils';
 import { createSvgAvatar } from '../utils/avatarUtils';
-import { findUserByPhoneDetailed } from '../utils/phoneValidation';
+import { findUserByPhoneDetailed, PhoneLookupResult } from '../utils/phoneValidation';
 
 interface NewChatModalProps {
   isOpen: boolean;
@@ -41,12 +41,14 @@ export const NewChatModal: React.FC<NewChatModalProps> = ({
   const [initialMessage, setInitialMessage] = useState<string>('¡Hola! Me alegro de contactar contigo en PidgeX 🕊️');
   const [isSearching, setIsSearching] = useState<boolean>(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
+  const [quotaNotice, setQuotaNotice] = useState<{ message: string; url?: string; phone: string } | null>(null);
 
   if (!isOpen) return null;
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setErrorMessage(null);
+    setQuotaNotice(null);
 
     let rawPhone = phone.trim();
     if (!rawPhone) {
@@ -60,7 +62,7 @@ export const NewChatModal: React.FC<NewChatModalProps> = ({
     const finalPhone = ensurePhoneStartsWith16(rawPhone);
 
     setIsSearching(true);
-    let lookupResult = { user: null as any, isSelf: false };
+    let lookupResult: PhoneLookupResult = { user: null, isSelf: false };
     try {
       lookupResult = await findUserByPhoneDetailed(finalPhone, currentUserId, currentUserPhone);
     } catch (err) {
@@ -68,16 +70,31 @@ export const NewChatModal: React.FC<NewChatModalProps> = ({
     }
     setIsSearching(false);
 
-    // Block self-chatting
+    // If target is current user, allow opening personal self-chat ("Mi Espacio")
     if (lookupResult.isSelf) {
-      setErrorMessage('❌ No puedes iniciar una conversación contigo mismo con tu propio número.');
+      const selfName = customName.trim() || 'Mi Espacio (Tú)';
+      const avatar = createSvgAvatar(selfName, '#2563eb');
+      onCreateChat(selfName, avatar, initialMessage.trim() || 'Notas y recordatorios personales 📝', finalPhone);
+      setPhone('');
+      setCustomName('');
+      onClose();
       return;
     }
 
-    // STRICT: Do NOT add anything if user does NOT exist in PidgeX
+    // Handle Firestore daily quota reached
+    if (lookupResult.isQuotaExceeded) {
+      setQuotaNotice({
+        message: 'La cuota diaria de lectura de Firebase se ha agotado en este proyecto de prueba.',
+        url: lookupResult.quotaUpgradeUrl,
+        phone: finalPhone,
+      });
+      return;
+    }
+
+    // STRICT: Reject non-existent numbers
     if (!lookupResult.user) {
       setErrorMessage(
-        `❌ El número "${finalPhone}" no existe en PidgeX. Ningún usuario está registrado con este número telefónico. No se puede iniciar la conversación.`
+        `❌ El número "${finalPhone}" no está registrado en PidgeX. Para hablar con alguien, esa persona debe tener su cuenta activa en la app.`
       );
       return;
     }
@@ -95,6 +112,20 @@ export const NewChatModal: React.FC<NewChatModalProps> = ({
     onCreateChat(contactName, avatar, initialMessage.trim() || undefined, finalPhone);
     setPhone('');
     setCustomName('');
+    setErrorMessage(null);
+    setQuotaNotice(null);
+    onClose();
+  };
+
+  const handleForceOpenOnQuota = () => {
+    if (!quotaNotice) return;
+    const finalPhone = quotaNotice.phone;
+    const contactName = customName.trim() || `Contacto (${finalPhone})`;
+    const avatar = createSvgAvatar(contactName, '#0284c7');
+    onCreateChat(contactName, avatar, initialMessage.trim() || undefined, finalPhone);
+    setPhone('');
+    setCustomName('');
+    setQuotaNotice(null);
     setErrorMessage(null);
     onClose();
   };
@@ -122,11 +153,45 @@ export const NewChatModal: React.FC<NewChatModalProps> = ({
           </div>
         )}
 
+        {quotaNotice && (
+          <div className="p-3.5 rounded-xl bg-amber-950/90 border border-amber-500/60 text-amber-100 text-xs shadow-lg flex flex-col gap-2">
+            <div className="flex items-start gap-2">
+              <AlertTriangle className="w-4 h-4 text-amber-400 shrink-0 mt-0.5" />
+              <div className="flex flex-col gap-0.5">
+                <span className="font-bold">{quotaNotice.message}</span>
+                <span className="text-[11px] text-amber-200/90">
+                  Si este número pertenece a una persona real (como tu familiar o amigo), puedes iniciar la conversación directamente ahora:
+                </span>
+              </div>
+            </div>
+
+            <button
+              type="button"
+              onClick={handleForceOpenOnQuota}
+              className="mt-1 w-full py-2 px-3 rounded-lg bg-amber-600 hover:bg-amber-500 text-white font-bold text-xs shadow transition-all cursor-pointer text-center"
+            >
+              Iniciar Chat con {quotaNotice.phone} de todos modos
+            </button>
+
+            {quotaNotice.url && (
+              <a
+                href={quotaNotice.url}
+                target="_blank"
+                rel="noreferrer"
+                className="text-[10px] text-amber-300 underline flex items-center justify-center gap-1 mt-0.5 hover:text-white"
+              >
+                <span>Ver cuota en consola de Firebase</span>
+                <ExternalLink className="w-3 h-3" />
+              </a>
+            )}
+          </div>
+        )}
+
         <form onSubmit={handleSubmit} className="flex flex-col gap-3">
           <div className="flex flex-col gap-1.5">
             <label className="text-xs text-[#8d90a0] font-semibold flex items-center gap-1.5">
               <Phone className="w-3.5 h-3.5 text-[#7bd0ff]" />
-              <span>Número de Teléfono PidgeX (Usuario Registrado)</span>
+              <span>Número de Teléfono PidgeX</span>
             </label>
             <div className="flex gap-2">
               <select
@@ -145,12 +210,16 @@ export const NewChatModal: React.FC<NewChatModalProps> = ({
                 required
                 placeholder="Ej: 612 345 678"
                 value={phone}
-                onChange={(e) => setPhone(e.target.value)}
+                onChange={(e) => {
+                  setPhone(e.target.value);
+                  setErrorMessage(null);
+                  setQuotaNotice(null);
+                }}
                 className="flex-1 bg-[#181c24] text-sm text-[#dfe2ee] placeholder:text-[#8d90a0] px-3.5 py-2.5 rounded-xl border border-white/10 focus:outline-none focus:border-[#2563eb]"
               />
             </div>
-            <span className="text-[10px] text-amber-300/80 font-medium">
-              ⚠️ Solo puedes iniciar chats con números que pertenezcan a usuarios reales registrados en PidgeX.
+            <span className="text-[10px] text-sky-300/80 font-medium">
+              🕊️ Puedes colocar el número de otra persona o el tuyo propio para notas personales.
             </span>
           </div>
 
@@ -161,7 +230,7 @@ export const NewChatModal: React.FC<NewChatModalProps> = ({
             </label>
             <input
               type="text"
-              placeholder="Ej: Mi Hermano, Mamá, Alex..."
+              placeholder="Ej: Mi Mamá, Hermano, Alex..."
               value={customName}
               onChange={(e) => setCustomName(e.target.value)}
               className="bg-[#181c24] text-sm text-[#dfe2ee] placeholder:text-[#8d90a0] px-3 py-2 rounded-xl border border-white/10 focus:outline-none focus:border-[#2563eb]"

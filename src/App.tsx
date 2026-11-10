@@ -68,6 +68,12 @@ import { InstallPwaModal } from './components/InstallPwaModal';
 import { FlyingBirdLoader } from './components/FlyingBirdLoader';
 import { BirdNotificationToast, BirdNotification } from './components/BirdNotificationToast';
 import { sendNativeSystemNotification, requestNotificationPermission } from './utils/nativeNotifications';
+import {
+  registerKnownUser,
+  broadcastUserPresence,
+  initPresenceListener,
+  registerChatsContacts,
+} from './utils/localUserRegistry';
 
 export const getCleanPhone = (phone?: string): string => (phone || '').replace(/\D/g, '');
 
@@ -505,16 +511,28 @@ export default function App() {
     return () => unsubscribe();
   }, []);
 
-  // Sync user profile changes to Firestore so other real users can find them by phone
+  // Sync user profile changes to Firestore and local cross-tab registry
   useEffect(() => {
-    if (!user || !user.id || !user.phone) return;
-    try {
-      const userRef = doc(db, 'users', user.id);
-      setDoc(userRef, user, { merge: true });
-    } catch (e) {
-      console.error('Error saving user to Firestore:', e);
+    if (!user) return;
+    broadcastUserPresence(user);
+    const unsubPresence = initPresenceListener();
+
+    if (user.id && user.phone) {
+      try {
+        const userRef = doc(db, 'users', user.id);
+        setDoc(userRef, user, { merge: true }).catch(() => {});
+      } catch (e) {
+        console.warn('Error saving user to Firestore:', e);
+      }
     }
+
+    return () => unsubPresence();
   }, [user]);
+
+  // Index contacts from chats into local registry
+  useEffect(() => {
+    registerChatsContacts(chats);
+  }, [chats]);
 
   // Real-time Incoming Calls Listener
   useEffect(() => {
@@ -758,6 +776,120 @@ export default function App() {
     return () => unsubscribe();
   }, [activeChatId, user.phone, user.id, user.name, user.avatarUrl]);
 
+  // Centralized real-time incoming message processor (handles WebSockets and cross-tab broadcasts)
+  const handleIncomingLiveMessage = (roomId: string, rawMsg: Message) => {
+    if (!rawMsg) return;
+    const myPhoneClean = getCleanPhone(user.phone);
+    const msgSenderPhoneClean = getCleanPhone(rawMsg.senderPhone);
+    const myUserId = user.id || 'me';
+
+    // Ignore messages originated by myself
+    const isFromMe =
+      (Boolean(msgSenderPhoneClean && myPhoneClean) && msgSenderPhoneClean === myPhoneClean) ||
+      (Boolean(rawMsg.senderId && myUserId) && (rawMsg.senderId === myUserId || rawMsg.senderId === 'me'));
+
+    if (isFromMe) return;
+
+    // From recipient's perspective, senderId is 'contact'
+    const incomingMsg: Message = {
+      ...rawMsg,
+      senderId: 'contact',
+      isRead: activeChatId === roomId,
+    };
+
+    setChats((prev) => {
+      const existingIndex = prev.findIndex(
+        (c) =>
+          c.id === roomId ||
+          (c.phone && msgSenderPhoneClean && getCleanPhone(c.phone) === msgSenderPhoneClean) ||
+          (rawMsg.chatId && c.id === rawMsg.chatId)
+      );
+
+      let targetChatName = '';
+      let updatedChats: Chat[];
+
+      if (existingIndex >= 0) {
+        const existingChat = prev[existingIndex];
+        targetChatName = existingChat.name;
+        const currentList = Array.isArray(existingChat.messages) ? existingChat.messages : [];
+        if (currentList.some((m) => m.id === incomingMsg.id)) {
+          return prev;
+        }
+        const updatedChat: Chat = {
+          ...existingChat,
+          messages: [...currentList, incomingMsg],
+          lastMessageText:
+            incomingMsg.text ||
+            (incomingMsg.type === 'voice' ? 'Mensaje de voz' : `[${incomingMsg.type}]`),
+          lastMessageTime: incomingMsg.timestamp,
+          lastMessageRead: activeChatId === existingChat.id,
+          unreadCount: activeChatId === existingChat.id ? 0 : (existingChat.unreadCount || 0) + 1,
+        };
+        updatedChats = [...prev];
+        updatedChats[existingIndex] = updatedChat;
+      } else {
+        // Auto-create chat if other person started conversation first
+        const senderName =
+          incomingMsg.senderName ||
+          (msgSenderPhoneClean ? `Contacto (${msgSenderPhoneClean})` : 'Contacto PidgeX');
+        targetChatName = senderName;
+        const senderPhone = incomingMsg.senderPhone
+          ? ensurePhoneStartsWith16(incomingMsg.senderPhone)
+          : undefined;
+        const senderAvatar =
+          incomingMsg.senderAvatar || createSvgAvatar(senderName, '#0284c7');
+
+        const newChat: Chat = {
+          id: roomId,
+          name: senderName,
+          phone: senderPhone,
+          avatarUrl: senderAvatar,
+          isFriend: true,
+          isOnline: true,
+          statusText: senderPhone ? `Amigo • ${senderPhone}` : 'Amigo en PidgeX',
+          type: 'direct',
+          categories: ['all', 'friends'],
+          unreadCount: 1,
+          lastMessageText:
+            incomingMsg.text ||
+            (incomingMsg.type === 'voice' ? 'Mensaje de voz' : `[${incomingMsg.type}]`),
+          lastMessageTime: incomingMsg.timestamp,
+          lastMessageRead: false,
+          messages: [incomingMsg],
+        };
+        updatedChats = [newChat, ...prev];
+      }
+
+      // Audible chime & visual toast for incoming message
+      soundEffects.playReceive();
+      if (activeChatId !== roomId) {
+        ringtoneManager.playIncomingMessageAlert(user);
+        setInAppNotification({
+          id: `notif_${Date.now()}`,
+          title: targetChatName || incomingMsg.senderName || 'PidgeX',
+          body:
+            incomingMsg.text ||
+            (incomingMsg.type === 'voice' ? 'Nota de voz recibida' : 'Nuevo mensaje recibido'),
+        });
+      }
+
+      return updatedChats;
+    });
+  };
+
+  // Real-time WebSocket connection and active room subscription
+  useEffect(() => {
+    realtimeClient.setCallbacks({
+      onMessage: (roomId, message) => {
+        handleIncomingLiveMessage(roomId, message);
+      },
+    });
+
+    if (activeChatId) {
+      realtimeClient.joinRoom(activeChatId);
+    }
+  }, [activeChatId, user.phone, user.id]);
+
   // Real-time instant BroadcastChannel synchronization across tabs
   useEffect(() => {
     if (typeof window === 'undefined' || !('BroadcastChannel' in window)) return;
@@ -768,27 +900,7 @@ export default function App() {
       if (!data || !data.type) return;
 
       if (data.type === 'NEW_MESSAGE' && data.chatId && data.message) {
-        const incomingMsg: Message = data.message;
-        setChats((prev) =>
-          prev.map((c) => {
-            if (c.id === data.chatId) {
-              const currentList = Array.isArray(c.messages) ? c.messages : [];
-              if (currentList.some((m) => m.id === incomingMsg.id)) return c;
-              const updated = [...currentList, incomingMsg];
-              if (incomingMsg.senderId !== 'me') {
-                ringtoneManager.playIncomingMessageAlert(user);
-              }
-              return {
-                ...c,
-                messages: updated,
-                lastMessageText: incomingMsg.text || `[${incomingMsg.type}]`,
-                lastMessageTime: incomingMsg.timestamp,
-                lastMessageRead: incomingMsg.senderId === 'me',
-              };
-            }
-            return c;
-          })
-        );
+        handleIncomingLiveMessage(data.chatId, data.message);
       } else if (data.type === 'NEW_CHAT' && data.chat) {
         setChats((prev) => {
           if (prev.some((c) => c.id === data.chat.id)) return prev;
@@ -817,7 +929,7 @@ export default function App() {
     return () => {
       bus.close();
     };
-  }, [activeChatId]);
+  }, [activeChatId, user.phone, user.id]);
   const handleStartCall = async (chat: Chat, isVideo: boolean) => {
     const callerPhoneClean = getCleanPhone(user.phone);
     const receiverPhoneClean = getCleanPhone(chat.phone);
@@ -1107,10 +1219,12 @@ export default function App() {
       }
     }
 
+    const myPhoneClean = getCleanPhone(user.phone);
     const newMessage: Message = {
       id: `msg_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`,
       chatId,
       senderId: messageData.senderId || 'me',
+      senderPhone: myPhoneClean || undefined,
       senderName: messageData.senderName || user.name,
       senderAvatar: messageData.senderAvatar || user.avatarUrl,
       type: messageData.type || 'text',
