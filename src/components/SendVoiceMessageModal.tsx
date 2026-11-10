@@ -12,7 +12,12 @@ import {
   Search,
 } from 'lucide-react';
 import { Chat, UserProfile } from '../types';
-import { createFallbackVoiceAudio, blobToDataUrl } from '../utils/audioUtils';
+import {
+  createFallbackVoiceAudio,
+  getBestAudioMimeType,
+  stopMediaRecorderSafely,
+  UniversalVoiceRecorderEngine,
+} from '../utils/audioUtils';
 
 interface SendVoiceMessageModalProps {
   isOpen: boolean;
@@ -46,9 +51,11 @@ export const SendVoiceMessageModal: React.FC<SendVoiceMessageModalProps> = ({
   ]);
 
   const timerRef = useRef<NodeJS.Timeout | null>(null);
+  const universalEngineRef = useRef<UniversalVoiceRecorderEngine | null>(null);
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
   const audioChunksRef = useRef<Blob[]>([]);
   const streamRef = useRef<MediaStream | null>(null);
+  const mimeTypeRef = useRef<string>('');
   const audioContextRef = useRef<AudioContext | null>(null);
   const analyserRef = useRef<AnalyserNode | null>(null);
   const animFrameRef = useRef<number | null>(null);
@@ -73,6 +80,10 @@ export const SendVoiceMessageModal: React.FC<SendVoiceMessageModalProps> = ({
   const resetRecording = () => {
     if (timerRef.current) clearInterval(timerRef.current);
     if (animFrameRef.current) cancelAnimationFrame(animFrameRef.current);
+    if (universalEngineRef.current) {
+      universalEngineRef.current.stop().catch(() => {});
+      universalEngineRef.current = null;
+    }
     if (streamRef.current) {
       streamRef.current.getTracks().forEach((t) => t.stop());
       streamRef.current = null;
@@ -100,8 +111,22 @@ export const SendVoiceMessageModal: React.FC<SendVoiceMessageModalProps> = ({
 
     try {
       if (navigator.mediaDevices && navigator.mediaDevices.getUserMedia) {
-        const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+        const stream = await navigator.mediaDevices.getUserMedia({
+          audio: {
+            echoCancellation: true,
+            noiseSuppression: true,
+            autoGainControl: true,
+          },
+        });
         streamRef.current = stream;
+
+        try {
+          const engine = new UniversalVoiceRecorderEngine();
+          universalEngineRef.current = engine;
+          await engine.start(stream);
+        } catch (engineErr) {
+          console.warn('Modal universal voice recorder engine notice:', engineErr);
+        }
 
         // Analyser for sound wave visuals
         try {
@@ -136,15 +161,13 @@ export const SendVoiceMessageModal: React.FC<SendVoiceMessageModalProps> = ({
           console.warn('AudioContext error:', e);
         }
 
-        // MediaRecorder setup
-        let mimeType = '';
-        if (typeof MediaRecorder !== 'undefined') {
-          if (MediaRecorder.isTypeSupported('audio/webm')) mimeType = 'audio/webm';
-          else if (MediaRecorder.isTypeSupported('audio/mp4')) mimeType = 'audio/mp4';
-          else if (MediaRecorder.isTypeSupported('audio/ogg')) mimeType = 'audio/ogg';
+        // MediaRecorder setup as parallel fallback
+        const detectedMime = getBestAudioMimeType();
+        mimeTypeRef.current = detectedMime;
 
-          const recorder = mimeType
-            ? new MediaRecorder(stream, { mimeType })
+        if (typeof MediaRecorder !== 'undefined') {
+          const recorder = detectedMime
+            ? new MediaRecorder(stream, { mimeType: detectedMime, audioBitsPerSecond: 32000 })
             : new MediaRecorder(stream);
 
           audioChunksRef.current = [];
@@ -154,22 +177,7 @@ export const SendVoiceMessageModal: React.FC<SendVoiceMessageModalProps> = ({
             }
           };
 
-          recorder.onstop = async () => {
-            if (audioChunksRef.current.length > 0) {
-              try {
-                const audioBlob = new Blob(audioChunksRef.current, {
-                  type: mimeType || 'audio/webm',
-                });
-                const dataUrl = await blobToDataUrl(audioBlob);
-                setAudioUrl(dataUrl);
-              } catch {
-                const fallback = createFallbackVoiceAudio(Math.max(2, seconds));
-                setAudioUrl(fallback);
-              }
-            }
-          };
-
-          recorder.start(100);
+          recorder.start(250);
           mediaRecorderRef.current = recorder;
         }
       }
@@ -186,29 +194,29 @@ export const SendVoiceMessageModal: React.FC<SendVoiceMessageModalProps> = ({
   const stopRecording = async () => {
     if (timerRef.current) clearInterval(timerRef.current);
     if (animFrameRef.current) cancelAnimationFrame(animFrameRef.current);
-    if (mediaRecorderRef.current && mediaRecorderRef.current.state !== 'inactive') {
-      mediaRecorderRef.current.stop();
+
+    let recordedUrl: string | null = null;
+    if (universalEngineRef.current) {
+      recordedUrl = await universalEngineRef.current.stop();
     }
-    if (streamRef.current) {
-      streamRef.current.getTracks().forEach((t) => t.stop());
-      streamRef.current = null;
+
+    if (!recordedUrl && mediaRecorderRef.current) {
+      const result = await stopMediaRecorderSafely(
+        mediaRecorderRef.current,
+        audioChunksRef.current,
+        streamRef.current,
+        mimeTypeRef.current
+      );
+      if (result) {
+        recordedUrl = result.dataUrl;
+      }
+    }
+
+    if (recordedUrl) {
+      setAudioUrl(recordedUrl);
     }
     setIsRecording(false);
     setIsPaused(false);
-
-    if (!audioUrl && audioChunksRef.current.length > 0) {
-      try {
-        const audioBlob = new Blob(audioChunksRef.current, { type: 'audio/webm' });
-        const dataUrl = await blobToDataUrl(audioBlob);
-        setAudioUrl(dataUrl);
-      } catch {
-        const fallbackUrl = createFallbackVoiceAudio(Math.max(2, seconds));
-        setAudioUrl(fallbackUrl);
-      }
-    } else if (!audioUrl) {
-      const fallbackUrl = createFallbackVoiceAudio(Math.max(2, seconds));
-      setAudioUrl(fallbackUrl);
-    }
   };
 
   const togglePreviewPlay = () => {
@@ -222,8 +230,10 @@ export const SendVoiceMessageModal: React.FC<SendVoiceMessageModalProps> = ({
       const audio = new Audio(finalUrl);
       previewAudioRef.current = audio;
       audio.ontimeupdate = () => {
-        if (audio.duration) {
+        if (audio.duration && !isNaN(audio.duration) && isFinite(audio.duration)) {
           setPreviewProgress((audio.currentTime / audio.duration) * 100);
+        } else if (seconds > 0) {
+          setPreviewProgress((audio.currentTime / seconds) * 100);
         }
       };
       audio.onended = () => {
@@ -246,28 +256,39 @@ export const SendVoiceMessageModal: React.FC<SendVoiceMessageModalProps> = ({
   const handleSend = async () => {
     if (!selectedChatId) return;
 
-    if (isRecording) {
-      await stopRecording();
-    }
-
+    if (timerRef.current) clearInterval(timerRef.current);
     if (previewAudioRef.current) {
       previewAudioRef.current.pause();
     }
 
-    const durationText = formatTime(Math.max(1, seconds));
     let finalUrl = audioUrl;
-    if (!finalUrl && audioChunksRef.current.length > 0) {
-      try {
-        const audioBlob = new Blob(audioChunksRef.current, { type: 'audio/webm' });
-        finalUrl = await blobToDataUrl(audioBlob);
-      } catch (e) {
-        console.warn('Error converting to dataUrl in SendVoiceMessageModal:', e);
-      }
+
+    if (!finalUrl && universalEngineRef.current) {
+      finalUrl = await universalEngineRef.current.stop();
     }
+
+    if (isRecording || (!finalUrl && mediaRecorderRef.current)) {
+      const result = await stopMediaRecorderSafely(
+        mediaRecorderRef.current,
+        audioChunksRef.current,
+        streamRef.current,
+        mimeTypeRef.current
+      );
+      if (result && !finalUrl) {
+        finalUrl = result.dataUrl;
+      }
+      setIsRecording(false);
+      setIsPaused(false);
+    } else if (streamRef.current) {
+      streamRef.current.getTracks().forEach((t) => t.stop());
+      streamRef.current = null;
+    }
+
     if (!finalUrl) {
       finalUrl = createFallbackVoiceAudio(Math.max(2, seconds));
     }
 
+    const durationText = formatTime(Math.max(1, seconds));
     onSendVoiceMessage(selectedChatId, durationText, finalUrl);
     onClose();
   };

@@ -11,7 +11,8 @@ dotenv.config();
 const app = express();
 const PORT = 3000;
 
-app.use(express.json());
+app.use(express.json({ limit: "15mb" }));
+app.use(express.urlencoded({ extended: true, limit: "15mb" }));
 
 // Lazy-initialized Gemini AI client
 function getGenAI(): GoogleGenAI | null {
@@ -597,21 +598,25 @@ async function startServer() {
   const wss = new WebSocketServer({ server, path: '/ws' });
 
   wss.on('connection', (ws: WebSocket) => {
-    let currentRoomId: string | null = null;
-    let currentUserId: string | null = null;
+    const socketRooms = new Set<string>();
+    let currentUserId: string = `user_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`;
+    let currentUserData: any = null;
 
     ws.on('message', (raw: string) => {
       try {
         const data = JSON.parse(raw.toString());
         if (data.type === 'join') {
           const { roomId = 'real_community', user } = data;
-          currentRoomId = roomId;
-          currentUserId = user?.id || `user_${Date.now()}`;
+          if (user) {
+            currentUserId = user.id || currentUserId;
+            currentUserData = user;
+          }
+          socketRooms.add(roomId);
           const room = getOrCreateRoom(roomId);
           room.users.set(currentUserId, {
             id: currentUserId,
-            name: user?.name || 'Usuario',
-            avatarUrl: user?.avatarUrl,
+            name: currentUserData?.name || 'Usuario',
+            avatarUrl: currentUserData?.avatarUrl,
             ws,
             lastActive: Date.now(),
           });
@@ -631,6 +636,16 @@ async function startServer() {
           );
 
           broadcastPresence(roomId);
+        } else if (data.type === 'leave') {
+          const { roomId } = data;
+          if (roomId) {
+            socketRooms.delete(roomId);
+            const room = realtimeRooms.get(roomId);
+            if (room) {
+              room.users.delete(currentUserId);
+              broadcastPresence(roomId);
+            }
+          }
         } else if (data.type === 'message') {
           const { roomId, message } = data;
           const room = getOrCreateRoom(roomId);
@@ -670,6 +685,35 @@ async function startServer() {
               reactions: msg.reactions,
             });
           }
+        } else if (data.type === 'call_signal') {
+          const { roomId, callId, signal } = data;
+          const targetRoom = roomId || `call_${callId}`;
+          broadcastToRoom(targetRoom, {
+            type: 'call_signal',
+            callId,
+            signal,
+            senderId: currentUserId,
+          }, ws);
+        } else if (data.type === 'call_frame') {
+          const { roomId, callId, frame, role } = data;
+          const targetRoom = roomId || `call_${callId}`;
+          broadcastToRoom(targetRoom, {
+            type: 'call_frame',
+            callId,
+            frame,
+            role,
+            senderId: currentUserId,
+          }, ws);
+        } else if (data.type === 'call_audio') {
+          const { roomId, callId, audio, role } = data;
+          const targetRoom = roomId || `call_${callId}`;
+          broadcastToRoom(targetRoom, {
+            type: 'call_audio',
+            callId,
+            audio,
+            role,
+            senderId: currentUserId,
+          }, ws);
         }
       } catch (err) {
         console.error('WS parse error:', err);
@@ -677,13 +721,14 @@ async function startServer() {
     });
 
     ws.on('close', () => {
-      if (currentRoomId && currentUserId) {
-        const room = realtimeRooms.get(currentRoomId);
+      for (const rId of socketRooms) {
+        const room = realtimeRooms.get(rId);
         if (room) {
           room.users.delete(currentUserId);
-          broadcastPresence(currentRoomId);
+          broadcastPresence(rId);
         }
       }
+      socketRooms.clear();
     });
   });
 

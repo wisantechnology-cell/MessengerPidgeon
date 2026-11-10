@@ -223,6 +223,7 @@ export const EmojiStickerPicker: React.FC<EmojiStickerPickerProps> = ({
                 </div>
               </div>
             ))}
+          </div>
         </div>
       )}
       </div>

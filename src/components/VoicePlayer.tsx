@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { Play, Pause } from 'lucide-react';
 import { SquirrelVoiceIcon, RobotVoiceIcon, DeepVoiceIcon } from './CustomVectorIcons';
+import { createFallbackVoiceAudio } from '../utils/audioUtils';
 
 interface VoicePlayerProps {
   durationText?: string;
@@ -21,11 +22,10 @@ export const VoicePlayer: React.FC<VoicePlayerProps> = ({
   const [realCurrentTime, setRealCurrentTime] = useState<number>(0);
 
   const audioRef = useRef<HTMLAudioElement | null>(null);
-  const intervalRef = useRef<NodeJS.Timeout | null>(null);
 
   // Parse duration in seconds (e.g., "0:24" -> 24)
   const totalSeconds = (() => {
-    const parts = durationText.split(':');
+    const parts = (durationText || '').split(':');
     if (parts.length === 2) {
       const parsed = parseInt(parts[0], 10) * 60 + parseInt(parts[1], 10);
       return isNaN(parsed) || parsed <= 0 ? 15 : parsed;
@@ -34,24 +34,74 @@ export const VoicePlayer: React.FC<VoicePlayerProps> = ({
   })();
 
   const formatTime = (secs: number) => {
-    const m = Math.floor(secs / 60);
-    const s = Math.floor(secs % 60);
+    const clamped = Math.max(0, Math.floor(secs));
+    const m = Math.floor(clamped / 60);
+    const s = clamped % 60;
     return `${m}:${s < 10 ? '0' : ''}${s}`;
   };
 
-  // Setup real HTMLAudioElement if audioUrl is provided
-  useEffect(() => {
-    if (!audioUrl) return;
+  const canPlayWebM = typeof document !== 'undefined'
+    ? Boolean(document.createElement('audio').canPlayType('audio/webm'))
+    : true;
 
-    const audio = new Audio(audioUrl);
+  const isWebM = audioUrl ? audioUrl.includes('audio/webm') : false;
+
+  // Resolve the playable URL: real voice URL or full-duration generated vocal sound
+  const effectiveAudioUrl = (audioUrl && audioUrl.trim().length > 0 && (!isWebM || canPlayWebM))
+    ? audioUrl
+    : createFallbackVoiceAudio(totalSeconds);
+
+  const applyPitchAndRate = (audio: HTMLAudioElement, rate: number) => {
+    let effectiveRate = rate;
+    if (voiceFilter === 'chipmunk') {
+      effectiveRate = rate * 1.35;
+      (audio as any).preservesPitch = false;
+      (audio as any).mozPreservesPitch = false;
+      (audio as any).webkitPreservesPitch = false;
+    } else if (voiceFilter === 'deep') {
+      effectiveRate = rate * 0.8;
+      (audio as any).preservesPitch = false;
+      (audio as any).mozPreservesPitch = false;
+      (audio as any).webkitPreservesPitch = false;
+    } else if (voiceFilter === 'robot') {
+      effectiveRate = rate * 1.05;
+    } else {
+      (audio as any).preservesPitch = true;
+      (audio as any).mozPreservesPitch = true;
+      (audio as any).webkitPreservesPitch = true;
+    }
+    audio.playbackRate = effectiveRate;
+  };
+
+  const getEffectiveDuration = (audio: HTMLAudioElement | null) => {
+    if (audio && audio.duration && !isNaN(audio.duration) && isFinite(audio.duration) && audio.duration > 0) {
+      return audio.duration;
+    }
+    return totalSeconds;
+  };
+
+  // Re-create or re-configure Audio instance when URL changes
+  useEffect(() => {
+    const audio = new Audio(effectiveAudioUrl);
     audioRef.current = audio;
-    audio.playbackRate = playbackRate;
+    audio.preload = 'auto';
+    audio.volume = 1.0;
+    applyPitchAndRate(audio, playbackRate);
 
     audio.ontimeupdate = () => {
-      if (audio.duration && !isNaN(audio.duration)) {
-        const pct = (audio.currentTime / audio.duration) * 100;
-        setProgress(Math.min(100, pct));
-        setRealCurrentTime(audio.currentTime);
+      const dur = getEffectiveDuration(audio);
+      const cur = audio.currentTime;
+      const pct = Math.min(100, Math.max(0, (cur / dur) * 100));
+      setProgress(pct);
+      setRealCurrentTime(cur);
+
+      // In case browser WebM duration is Infinity and onended doesn't fire naturally
+      if (cur >= dur) {
+        setIsPlaying(false);
+        setProgress(0);
+        setRealCurrentTime(0);
+        audio.pause();
+        audio.currentTime = 0;
       }
     };
 
@@ -62,60 +112,67 @@ export const VoicePlayer: React.FC<VoicePlayerProps> = ({
     };
 
     audio.onerror = () => {
-      console.warn('Audio play error, falling back to simulated');
+      console.warn('Primary audio playback error, falling back to audible synthesis');
+      const fallback = createFallbackVoiceAudio(totalSeconds);
+      if (audio.src !== fallback) {
+        audio.src = fallback;
+        audio.load();
+        audio.play().then(() => setIsPlaying(true)).catch(() => {});
+      }
     };
 
     return () => {
       audio.pause();
       audioRef.current = null;
     };
-  }, [audioUrl]);
+  }, [effectiveAudioUrl, voiceFilter]);
 
-  // Handle Play/Pause and fallback timer if audioUrl is not available or fails
+  // Adjust rate when playbackRate state changes
   useEffect(() => {
-    if (!audioUrl) {
-      if (isPlaying) {
-        intervalRef.current = setInterval(() => {
-          setProgress((prev) => {
-            if (prev >= 100) {
-              setIsPlaying(false);
-              return 0;
-            }
-            return prev + (100 / (totalSeconds * 10)) * playbackRate;
-          });
-        }, 100);
-      } else if (intervalRef.current) {
-        clearInterval(intervalRef.current);
-      }
-      return () => {
-        if (intervalRef.current) clearInterval(intervalRef.current);
-      };
+    if (audioRef.current) {
+      applyPitchAndRate(audioRef.current, playbackRate);
     }
-  }, [isPlaying, playbackRate, totalSeconds, audioUrl]);
+  }, [playbackRate, voiceFilter]);
 
   const togglePlay = () => {
-    if (audioRef.current) {
-      if (isPlaying) {
-        audioRef.current.pause();
-        setIsPlaying(false);
-      } else {
-        if (progress >= 100) {
-          audioRef.current.currentTime = 0;
-          setProgress(0);
-        }
-        audioRef.current.playbackRate = playbackRate;
-        audioRef.current
-          .play()
-          .then(() => setIsPlaying(true))
-          .catch((err) => {
-            console.warn('Playback caught:', err);
-            // Fallback to simulated playback
+    let audio = audioRef.current;
+    if (!audio) {
+      audio = new Audio(effectiveAudioUrl);
+      audioRef.current = audio;
+      audio.preload = 'auto';
+      audio.volume = 1.0;
+      applyPitchAndRate(audio, playbackRate);
+    }
+
+    if (isPlaying) {
+      audio.pause();
+      setIsPlaying(false);
+    } else {
+      const dur = getEffectiveDuration(audio);
+      if (audio.currentTime >= dur || progress >= 100) {
+        audio.currentTime = 0;
+        setProgress(0);
+        setRealCurrentTime(0);
+      }
+      applyPitchAndRate(audio, playbackRate);
+
+      const playPromise = audio.play();
+      if (playPromise !== undefined) {
+        playPromise
+          .then(() => {
             setIsPlaying(true);
+          })
+          .catch((err) => {
+            console.warn('Audio play request failed or blocked by autoplay:', err);
+            // Retry with fallback audio to ensure sound output
+            audio.src = createFallbackVoiceAudio(totalSeconds);
+            audio.load();
+            audio
+              .play()
+              .then(() => setIsPlaying(true))
+              .catch(() => setIsPlaying(false));
           });
       }
-    } else {
-      if (progress >= 100) setProgress(0);
-      setIsPlaying(!isPlaying);
     }
   };
 
@@ -127,27 +184,26 @@ export const VoicePlayer: React.FC<VoicePlayerProps> = ({
 
     setPlaybackRate(newRate);
     if (audioRef.current) {
-      audioRef.current.playbackRate = newRate;
+      applyPitchAndRate(audioRef.current, newRate);
     }
   };
 
   const handleSeek = (newPct: number) => {
     setProgress(newPct);
-    if (audioRef.current && audioRef.current.duration) {
-      audioRef.current.currentTime = (newPct / 100) * audioRef.current.duration;
-      setRealCurrentTime(audioRef.current.currentTime);
+    const audio = audioRef.current;
+    if (audio) {
+      const dur = getEffectiveDuration(audio);
+      const targetTime = (newPct / 100) * dur;
+      audio.currentTime = targetTime;
+      setRealCurrentTime(targetTime);
     }
   };
 
-  // Waveform bars
+  // Waveform bars with dynamic heights
   const barHeights = [25, 45, 80, 50, 95, 30, 70, 85, 40, 60, 90, 35, 75, 55, 90, 65, 40, 20];
 
-  const displayTime = audioUrl
-    ? isPlaying || progress > 0
-      ? formatTime(realCurrentTime)
-      : durationText
-    : isPlaying
-    ? formatTime(Math.floor((progress / 100) * totalSeconds))
+  const displayTime = isPlaying || progress > 0
+    ? formatTime(realCurrentTime)
     : durationText;
 
   return (
@@ -189,7 +245,7 @@ export const VoicePlayer: React.FC<VoicePlayerProps> = ({
                 key={i}
                 className="w-1 rounded-full transition-all duration-75"
                 style={{
-                  height: `${h}%`,
+                  height: isPlaying ? `${Math.max(20, (h * (0.8 + 0.4 * Math.sin(realCurrentTime * 6 + i))))}%` : `${h}%`,
                   backgroundColor: isFilled
                     ? isSender
                       ? '#ffffff'

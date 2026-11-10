@@ -13,6 +13,9 @@ export type RealtimeCallback = {
   onReaction?: (roomId: string, messageId: string, reactions: Record<string, number>) => void;
   onHistory?: (roomId: string, messages: Message[]) => void;
   onStatusChange?: (connected: boolean) => void;
+  onCallSignal?: (callId: string, signal: any, senderId: string) => void;
+  onCallFrame?: (callId: string, frame: string, role: string, senderId: string) => void;
+  onCallAudio?: (callId: string, audio: string, role: string, senderId: string) => void;
 };
 
 class RealtimeClient {
@@ -75,6 +78,12 @@ class RealtimeClient {
             this.callbacks.onTyping?.(data.roomId, data.userId, data.userName, data.isTyping);
           } else if (data.type === 'reaction') {
             this.callbacks.onReaction?.(data.roomId, data.messageId, data.reactions);
+          } else if (data.type === 'call_signal') {
+            this.callbacks.onCallSignal?.(data.callId, data.signal, data.senderId);
+          } else if (data.type === 'call_frame') {
+            this.callbacks.onCallFrame?.(data.callId, data.frame, data.role, data.senderId);
+          } else if (data.type === 'call_audio') {
+            this.callbacks.onCallAudio?.(data.callId, data.audio, data.role, data.senderId);
           }
         } catch (e) {
           console.error('Error parsing WS message:', e);
@@ -204,6 +213,99 @@ class RealtimeClient {
         );
       } catch (e) {
         // silent
+      }
+    }
+  }
+
+  public joinCallRoom(callId: string) {
+    const roomId = `call_${callId}`;
+    if (this.ws && this.ws.readyState === WebSocket.OPEN && this.currentUser) {
+      try {
+        this.ws.send(
+          JSON.stringify({
+            type: 'join',
+            roomId,
+            user: {
+              id: this.currentUser.id,
+              name: this.currentUser.name,
+              avatarUrl: this.currentUser.avatarUrl,
+            },
+          })
+        );
+      } catch (e) {
+        console.warn('Failed to join call room:', e);
+      }
+    }
+  }
+
+  public leaveCallRoom(callId: string) {
+    const roomId = `call_${callId}`;
+    if (this.ws && this.ws.readyState === WebSocket.OPEN) {
+      try {
+        this.ws.send(
+          JSON.stringify({
+            type: 'leave',
+            roomId,
+          })
+        );
+      } catch (e) {
+        // silent
+      }
+    }
+  }
+
+  public sendCallSignal(callId: string, signal: any) {
+    const roomId = `call_${callId}`;
+    if (this.ws && this.ws.readyState === WebSocket.OPEN) {
+      try {
+        this.ws.send(
+          JSON.stringify({
+            type: 'call_signal',
+            roomId,
+            callId,
+            signal,
+          })
+        );
+      } catch (e) {
+        console.warn('Failed to send call signal:', e);
+      }
+    }
+  }
+
+  public sendCallFrame(callId: string, frame: string, role: string) {
+    const roomId = `call_${callId}`;
+    if (this.ws && this.ws.readyState === WebSocket.OPEN) {
+      try {
+        this.ws.send(
+          JSON.stringify({
+            type: 'call_frame',
+            roomId,
+            callId,
+            frame,
+            role,
+          })
+        );
+      } catch (e) {
+        // frame drop is acceptable
+      }
+    }
+  }
+
+  public sendCallAudio(callId: string, audio: string, role: string) {
+    const roomId = `call_${callId}`;
+    if (this.ws && this.ws.readyState === WebSocket.OPEN) {
+      try {
+        this.ws.send(
+          JSON.stringify({
+            type: 'call_audio',
+            roomId,
+            callId,
+            audio,
+            role,
+          })
+        );
+      } catch (e) {
+        // audio drop
       }
     }
   }

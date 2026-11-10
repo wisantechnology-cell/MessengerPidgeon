@@ -367,6 +367,25 @@ export default function App() {
   const [activeTab, setActiveTab] = useState<NavTab>('chats');
   const [lastTabDirection, setLastTabDirection] = useState<'left' | 'right'>('right');
 
+  const [windowWidth, setWindowWidth] = useState<number>(() =>
+    typeof window !== 'undefined' ? window.innerWidth : 1024
+  );
+
+  useEffect(() => {
+    const handleResize = () => setWindowWidth(window.innerWidth);
+    window.addEventListener('resize', handleResize);
+    return () => window.removeEventListener('resize', handleResize);
+  }, []);
+
+  const effectiveDeviceMode: 'mobile' | 'desktop' | 'tablet' = (() => {
+    if (user.deviceMode === 'mobile') return 'mobile';
+    if (user.deviceMode === 'desktop') return 'desktop';
+    if (user.deviceMode === 'tablet') return 'tablet';
+    if (windowWidth < 768) return 'mobile';
+    if (windowWidth < 1024) return 'tablet';
+    return 'desktop';
+  })();
+
   const tabIndices: Record<NavTab, number> = {
     chats: 0,
     marketplace: 1,
@@ -674,10 +693,12 @@ export default function App() {
             mediaName: data.mediaName || undefined,
             mediaSize: data.mediaSize || undefined,
             mediaDuration: data.mediaDuration || undefined,
+            voiceFilter: data.voiceFilter || undefined,
             filter: data.filter || undefined,
             stickerTitle: data.stickerTitle || undefined,
             stickerUrl: data.stickerUrl || undefined,
             timestamp: data.timestamp || new Date(data.timestampMs || Date.now()).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+            timestampMs: data.timestampMs || 0,
             isRead: true,
             reactions: data.reactions || {},
           };
@@ -1091,6 +1112,7 @@ export default function App() {
       mediaName: messageData.mediaName,
       mediaSize: messageData.mediaSize,
       mediaDuration: messageData.mediaDuration,
+      voiceFilter: messageData.voiceFilter,
       filter: messageData.filter,
       stickerId: messageData.stickerId,
       stickerTitle: messageData.stickerTitle,
@@ -1180,6 +1202,7 @@ export default function App() {
         mediaName: newMessage.mediaName || null,
         mediaSize: newMessage.mediaSize || null,
         mediaDuration: newMessage.mediaDuration || null,
+        voiceFilter: newMessage.voiceFilter || null,
         filter: newMessage.filter || null,
         stickerTitle: newMessage.stickerTitle || null,
         stickerUrl: newMessage.stickerUrl || null,
@@ -1388,6 +1411,27 @@ export default function App() {
       }
       return nextUser;
     });
+
+    if (updated.avatarUrl || updated.name) {
+      try {
+        const myCleanPhone = getCleanPhone(user.phone);
+        chats.forEach((c) => {
+          if (c.type === 'direct' && c.id.startsWith('direct_')) {
+            const chatDocRef = doc(db, 'chats', c.id);
+            setDoc(chatDocRef, {
+              usersMap: {
+                [myCleanPhone]: {
+                  id: user.id || 'me',
+                  name: updated.name || user.name,
+                  avatarUrl: updated.avatarUrl || user.avatarUrl,
+                  phone: user.phone,
+                },
+              },
+            }, { merge: true }).catch(() => {});
+          }
+        });
+      } catch {}
+    }
   };
 
   // Dedicated Wallpaper selector
@@ -2033,6 +2077,7 @@ export default function App() {
               wallpapers={WALLPAPERS}
               allContacts={chats}
               isNightMode={isNightMode}
+              deviceMode={effectiveDeviceMode}
               onToggleNightMode={handleToggleNightMode}
               onBack={() => {
                 setActiveChatId(null);

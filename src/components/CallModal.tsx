@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
 import {
   Phone,
   PhoneOff,
@@ -10,9 +10,11 @@ import {
   Crown,
   ChevronLeft,
   Maximize2,
+  Volume2,
 } from 'lucide-react';
 import { GroupMember } from '../types';
-import { db, doc, onSnapshot, setDoc, updateDoc, addDoc, collection } from '../firebase';
+import { db, doc, onSnapshot, updateDoc, addDoc, collection } from '../firebase';
+import { realtimeClient } from '../services/realtimeClient';
 
 interface CallModalProps {
   isOpen: boolean;
@@ -51,8 +53,10 @@ export const CallModal: React.FC<CallModalProps> = ({
   const [isVideoOff, setIsVideoOff] = useState<boolean>(!isVideo);
   const [declineReason, setDeclineReason] = useState<string | null>(null);
   const [remoteVideoFrame, setRemoteVideoFrame] = useState<string | null>(null);
+  const [audioNeedsUnlock, setAudioNeedsUnlock] = useState<boolean>(false);
 
-  const audioCtxRef = useRef<AudioContext | null>(null);
+  // References
+  const outRingCtxRef = useRef<AudioContext | null>(null);
   const outRingIntervalRef = useRef<NodeJS.Timeout | null>(null);
   const localVideoRef = useRef<HTMLVideoElement | null>(null);
   const hiddenLocalVideoRef = useRef<HTMLVideoElement | null>(null);
@@ -60,27 +64,183 @@ export const CallModal: React.FC<CallModalProps> = ({
   const remoteAudioRef = useRef<HTMLAudioElement | null>(null);
   const pcRef = useRef<RTCPeerConnection | null>(null);
   const mediaStreamRef = useRef<MediaStream | null>(null);
-  const remoteStreamRef = useRef<MediaStream | null>(null);
   const hiddenCanvasRef = useRef<HTMLCanvasElement | null>(null);
 
-  // Helper to unlock audio output on browser user interaction
-  const unlockAudio = () => {
-    if (remoteAudioRef.current && remoteAudioRef.current.srcObject) {
+  // Audio relay references for guaranteed live sound
+  const txAudioCtxRef = useRef<AudioContext | null>(null);
+  const txProcessorRef = useRef<ScriptProcessorNode | null>(null);
+  const rxAudioCtxRef = useRef<AudioContext | null>(null);
+  const nextPlayTimeRef = useRef<number>(0);
+  const isMutedRef = useRef<boolean>(false);
+  const candidateQueueRef = useRef<RTCIceCandidateInit[]>([]);
+  const isRemoteDescriptionSetRef = useRef<boolean>(false);
+
+  const myRole = isCaller ? 'caller' : 'receiver';
+  const remoteRole = isCaller ? 'receiver' : 'caller';
+
+  // Keep isMutedRef in sync
+  useEffect(() => {
+    isMutedRef.current = isMuted;
+    if (mediaStreamRef.current) {
+      mediaStreamRef.current.getAudioTracks().forEach((track) => {
+        track.enabled = !isMuted;
+      });
+    }
+  }, [isMuted]);
+
+  // Keep isVideoOff in sync with video tracks
+  useEffect(() => {
+    if (mediaStreamRef.current) {
+      mediaStreamRef.current.getVideoTracks().forEach((track) => {
+        track.enabled = !isVideoOff;
+      });
+    }
+  }, [isVideoOff]);
+
+  // Unlock browser audio upon user click or tap
+  const unlockAudio = useCallback(() => {
+    setAudioNeedsUnlock(false);
+
+    if (rxAudioCtxRef.current && rxAudioCtxRef.current.state === 'suspended') {
+      rxAudioCtxRef.current.resume().catch(() => {});
+    }
+    if (txAudioCtxRef.current && txAudioCtxRef.current.state === 'suspended') {
+      txAudioCtxRef.current.resume().catch(() => {});
+    }
+    if (remoteAudioRef.current) {
+      remoteAudioRef.current.muted = false;
+      remoteAudioRef.current.volume = 1.0;
       remoteAudioRef.current.play().catch(() => {});
     }
-    if (remoteVideoRef.current && remoteVideoRef.current.srcObject) {
+    if (remoteVideoRef.current) {
+      remoteVideoRef.current.muted = false;
+      remoteVideoRef.current.volume = 1.0;
       remoteVideoRef.current.play().catch(() => {});
     }
-  };
+  }, []);
 
+  // 1. Join realtime call room on mount, clean up on unmount
   useEffect(() => {
-    if (!isOpen) {
-      if (mediaStreamRef.current) {
-        mediaStreamRef.current.getTracks().forEach((track) => track.stop());
-        mediaStreamRef.current = null;
+    if (!isOpen || !callId) return;
+
+    realtimeClient.joinCallRoom(callId);
+
+    return () => {
+      realtimeClient.leaveCallRoom(callId);
+    };
+  }, [isOpen, callId]);
+
+  // 2. Play receiving audio chunks seamlessly through Rx AudioContext
+  const handleIncomingAudioChunk = useCallback((audioB64: string) => {
+    try {
+      if (!rxAudioCtxRef.current) {
+        const AudioCtx = window.AudioContext || (window as any).webkitAudioContext;
+        if (AudioCtx) {
+          rxAudioCtxRef.current = new AudioCtx({ sampleRate: 16000 });
+        }
       }
-      return;
+
+      const rxCtx = rxAudioCtxRef.current;
+      if (!rxCtx) return;
+
+      if (rxCtx.state === 'suspended') {
+        setAudioNeedsUnlock(true);
+        rxCtx.resume().catch(() => {});
+      }
+
+      // Decode base64 to binary string -> Int16Array -> Float32Array
+      const binaryStr = atob(audioB64);
+      const byteLen = binaryStr.length;
+      const u8 = new Uint8Array(byteLen);
+      for (let i = 0; i < byteLen; i++) {
+        u8[i] = binaryStr.charCodeAt(i);
+      }
+      const pcm16 = new Int16Array(u8.buffer);
+      const float32 = new Float32Array(pcm16.length);
+      for (let i = 0; i < pcm16.length; i++) {
+        float32[i] = pcm16[i] / 32768.0;
+      }
+
+      const audioBuffer = rxCtx.createBuffer(1, float32.length, 16000);
+      audioBuffer.getChannelData(0).set(float32);
+
+      const bufferSource = rxCtx.createBufferSource();
+      bufferSource.buffer = audioBuffer;
+      bufferSource.connect(rxCtx.destination);
+
+      const now = rxCtx.currentTime;
+      if (nextPlayTimeRef.current < now || nextPlayTimeRef.current > now + 0.35) {
+        nextPlayTimeRef.current = now + 0.04; // 40ms jitter buffer
+      }
+      bufferSource.start(nextPlayTimeRef.current);
+      nextPlayTimeRef.current += audioBuffer.duration;
+    } catch (e) {
+      // ignore corrupted chunk
     }
+  }, []);
+
+  // 3. Register WebSocket real-time call callbacks (signal, frame, audio)
+  useEffect(() => {
+    if (!isOpen || !callId) return;
+
+    realtimeClient.setCallbacks({
+      onCallSignal: async (incomingCallId, signal) => {
+        if (incomingCallId !== callId) return;
+        const pc = pcRef.current;
+        if (!pc) return;
+
+        try {
+          if (signal.type === 'offer' && !isCaller) {
+            if (!isRemoteDescriptionSetRef.current) {
+              await pc.setRemoteDescription(new RTCSessionDescription(signal.desc));
+              isRemoteDescriptionSetRef.current = true;
+              // Drain queued candidates
+              while (candidateQueueRef.current.length > 0) {
+                const c = candidateQueueRef.current.shift();
+                if (c) await pc.addIceCandidate(new RTCIceCandidate(c)).catch(() => {});
+              }
+              const answer = await pc.createAnswer();
+              await pc.setLocalDescription(answer);
+              realtimeClient.sendCallSignal(callId, { type: 'answer', desc: { type: answer.type, sdp: answer.sdp } });
+            }
+          } else if (signal.type === 'answer' && isCaller) {
+            if (!isRemoteDescriptionSetRef.current) {
+              await pc.setRemoteDescription(new RTCSessionDescription(signal.desc));
+              isRemoteDescriptionSetRef.current = true;
+              while (candidateQueueRef.current.length > 0) {
+                const c = candidateQueueRef.current.shift();
+                if (c) await pc.addIceCandidate(new RTCIceCandidate(c)).catch(() => {});
+              }
+            }
+          } else if (signal.type === 'candidate' && signal.candidate) {
+            if (isRemoteDescriptionSetRef.current) {
+              await pc.addIceCandidate(new RTCIceCandidate(signal.candidate)).catch(() => {});
+            } else {
+              candidateQueueRef.current.push(signal.candidate);
+            }
+          }
+        } catch (e) {
+          console.warn('WS call signal handle error:', e);
+        }
+      },
+      onCallFrame: (incomingCallId, frame, role) => {
+        if (incomingCallId === callId && role === remoteRole) {
+          setRemoteVideoFrame(frame);
+        }
+      },
+      onCallAudio: (incomingCallId, audioB64, role) => {
+        if (incomingCallId === callId && role === remoteRole) {
+          handleIncomingAudioChunk(audioB64);
+        }
+      },
+    });
+  }, [isOpen, callId, isCaller, remoteRole, handleIncomingAudioChunk]);
+
+  // 4. Request user media (Microphone + Camera) immediately upon opening
+  useEffect(() => {
+    if (!isOpen) return;
+
+    let isMounted = true;
 
     async function initMedia() {
       try {
@@ -92,15 +252,14 @@ export const CallModal: React.FC<CallModalProps> = ({
               audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true },
             });
             setIsVideoOff(false);
-          } catch (vidErr) {
+          } catch {
             try {
               stream = await navigator.mediaDevices.getUserMedia({
                 video: true,
                 audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true },
               });
               setIsVideoOff(false);
-            } catch (vidErr2) {
-              console.warn('Video access fallback to audio:', vidErr2);
+            } catch {
               stream = await navigator.mediaDevices.getUserMedia({
                 audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true },
               });
@@ -112,10 +271,15 @@ export const CallModal: React.FC<CallModalProps> = ({
             stream = await navigator.mediaDevices.getUserMedia({
               audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true },
             });
-          } catch (audErr) {
-            console.warn('Audio access error:', audErr);
+          } catch (e) {
+            console.warn('Microphone permission warning:', e);
           }
           setIsVideoOff(true);
+        }
+
+        if (!isMounted) {
+          if (stream) stream.getTracks().forEach((t) => t.stop());
+          return;
         }
 
         mediaStreamRef.current = stream;
@@ -128,23 +292,15 @@ export const CallModal: React.FC<CallModalProps> = ({
           localVideoRef.current.srcObject = stream;
           localVideoRef.current.play().catch(() => {});
         }
-
-        // Add tracks to WebRTC peer connection if active
-        if (pcRef.current && stream) {
-          stream.getTracks().forEach((t) => {
-            try {
-              pcRef.current?.addTrack(t, stream!);
-            } catch {}
-          });
-        }
       } catch (err) {
-        console.warn('Media devices access error (camera/mic):', err);
+        console.warn('Failed to access media devices:', err);
       }
     }
 
     initMedia();
 
     return () => {
+      isMounted = false;
       if (mediaStreamRef.current) {
         mediaStreamRef.current.getTracks().forEach((track) => track.stop());
         mediaStreamRef.current = null;
@@ -152,125 +308,280 @@ export const CallModal: React.FC<CallModalProps> = ({
     };
   }, [isOpen, isVideo]);
 
+  // 5. Connect local mic audio stream to WebSocket live transmitter (Tx Audio)
   useEffect(() => {
-    if (mediaStreamRef.current) {
-      mediaStreamRef.current.getAudioTracks().forEach((track) => {
-        track.enabled = !isMuted;
-      });
-    }
-  }, [isMuted]);
+    if (!isOpen || callStatus !== 'connected' || !callId) return;
 
-  useEffect(() => {
-    if (mediaStreamRef.current) {
-      mediaStreamRef.current.getVideoTracks().forEach((track) => {
-        track.enabled = !isVideoOff;
-      });
-    }
-  }, [isVideoOff]);
+    let localCtx: AudioContext | null = null;
+    let processor: ScriptProcessorNode | null = null;
+    let micSource: MediaStreamAudioSourceNode | null = null;
+    let silentGain: GainNode | null = null;
 
-  useEffect(() => {
-    if (mediaStreamRef.current) {
+    try {
       const stream = mediaStreamRef.current;
-      if (hiddenLocalVideoRef.current && hiddenLocalVideoRef.current.srcObject !== stream) {
-        hiddenLocalVideoRef.current.srcObject = stream;
-        hiddenLocalVideoRef.current.play().catch(() => {});
-      }
-      if (localVideoRef.current && localVideoRef.current.srcObject !== stream) {
-        localVideoRef.current.srcObject = stream;
-        localVideoRef.current.play().catch(() => {});
-      }
-    }
-  });
+      if (!stream || stream.getAudioTracks().length === 0) return;
 
-  // Toggle camera video dynamically mid-call
-  const toggleVideo = async () => {
-    unlockAudio();
-    const nextVideoOff = !isVideoOff;
-    setIsVideoOff(nextVideoOff);
+      const AudioCtx = window.AudioContext || (window as any).webkitAudioContext;
+      if (AudioCtx) {
+        localCtx = new AudioCtx({ sampleRate: 16000 });
+        txAudioCtxRef.current = localCtx;
 
-    if (!nextVideoOff) {
-      // Enabling camera
-      try {
-        let vidTrack: MediaStreamTrack | null = null;
+        micSource = localCtx.createMediaStreamSource(stream);
+        processor = localCtx.createScriptProcessor(2048, 1, 1);
+        txProcessorRef.current = processor;
 
-        if (mediaStreamRef.current) {
-          const vidTracks = mediaStreamRef.current.getVideoTracks();
-          if (vidTracks.length > 0) {
-            vidTracks.forEach((t) => (t.enabled = true));
-            vidTrack = vidTracks[0];
+        processor.onaudioprocess = (e) => {
+          if (isMutedRef.current) return;
+          const input = e.inputBuffer.getChannelData(0);
+          const pcm16 = new Int16Array(input.length);
+          for (let i = 0; i < input.length; i++) {
+            const s = Math.max(-1, Math.min(1, input[i]));
+            pcm16[i] = s < 0 ? s * 0x8000 : s * 0x7FFF;
           }
+
+          const u8 = new Uint8Array(pcm16.buffer);
+          let binary = '';
+          const len = u8.byteLength;
+          for (let i = 0; i < len; i++) {
+            binary += String.fromCharCode(u8[i]);
+          }
+          const b64 = btoa(binary);
+          realtimeClient.sendCallAudio(callId, b64, myRole);
+        };
+
+        silentGain = localCtx.createGain();
+        silentGain.gain.setValueAtTime(0, localCtx.currentTime);
+
+        micSource.connect(processor);
+        processor.connect(silentGain);
+        silentGain.connect(localCtx.destination);
+      }
+    } catch (e) {
+      console.warn('Audio transmitter setup notice:', e);
+    }
+
+    return () => {
+      if (processor) processor.disconnect();
+      if (micSource) micSource.disconnect();
+      if (silentGain) silentGain.disconnect();
+      if (localCtx) localCtx.close().catch(() => {});
+      txProcessorRef.current = null;
+      txAudioCtxRef.current = null;
+    };
+  }, [isOpen, callStatus, callId, myRole]);
+
+  // 6. Camera Frame Broadcaster via WebSocket (and Firestore fallback)
+  useEffect(() => {
+    if (!isOpen || callStatus !== 'connected' || isVideoOff || !callId) return;
+
+    const canvas = hiddenCanvasRef.current || document.createElement('canvas');
+    hiddenCanvasRef.current = canvas;
+    canvas.width = 320;
+    canvas.height = 240;
+    const ctx = canvas.getContext('2d');
+
+    const captureAndSend = () => {
+      const vidSource = hiddenLocalVideoRef.current || localVideoRef.current;
+      if (vidSource && ctx) {
+        try {
+          if (vidSource.videoWidth > 0 || vidSource.readyState >= 2) {
+            ctx.drawImage(vidSource, 0, 0, 320, 240);
+            const frameDataUrl = canvas.toDataURL('image/jpeg', 0.4);
+            realtimeClient.sendCallFrame(callId, frameDataUrl, myRole);
+          }
+        } catch {
+          // ignore canvas capture frame drops
+        }
+      }
+    };
+
+    const interval = setInterval(captureAndSend, 100);
+    return () => clearInterval(interval);
+  }, [isOpen, callStatus, isVideoOff, callId, myRole]);
+
+  // 7. WebRTC Peer Connection with Queued ICE Candidates & Dual Signaling
+  useEffect(() => {
+    if (!isOpen || callStatus !== 'connected' || !callId || callId.startsWith('local_')) return;
+
+    let pc: RTCPeerConnection | null = null;
+    let isCancelled = false;
+    isRemoteDescriptionSetRef.current = false;
+    candidateQueueRef.current = [];
+
+    async function initWebRTC() {
+      try {
+        pc = new RTCPeerConnection({
+          iceServers: [
+            { urls: 'stun:stun.l.google.com:19302' },
+            { urls: 'stun:stun1.l.google.com:19302' },
+            { urls: 'stun:stun2.l.google.com:19302' },
+            { urls: 'stun:stun3.l.google.com:19302' },
+            { urls: 'stun:stun4.l.google.com:19302' },
+          ],
+        });
+        pcRef.current = pc;
+
+        // Add local media tracks
+        if (mediaStreamRef.current) {
+          mediaStreamRef.current.getTracks().forEach((track) => {
+            try {
+              pc?.addTrack(track, mediaStreamRef.current!);
+            } catch {}
+          });
         }
 
-        if (!vidTrack) {
-          let vStream: MediaStream | null = null;
-          try {
-            vStream = await navigator.mediaDevices.getUserMedia({
-              video: { facingMode: 'user', width: { ideal: 640 }, height: { ideal: 480 } },
+        // Incoming remote WebRTC media tracks
+        pc.ontrack = (event) => {
+          if (isCancelled) return;
+          const incomingStream = (event.streams && event.streams[0])
+            ? event.streams[0]
+            : new MediaStream([event.track]);
+
+          if (remoteAudioRef.current) {
+            remoteAudioRef.current.srcObject = incomingStream;
+            remoteAudioRef.current.volume = 1.0;
+            remoteAudioRef.current.muted = false;
+            remoteAudioRef.current.play().catch(() => {
+              setAudioNeedsUnlock(true);
             });
-          } catch {
-            vStream = await navigator.mediaDevices.getUserMedia({ video: true });
           }
 
-          const freshTrack = vStream.getVideoTracks()[0];
-          if (freshTrack) {
-            vidTrack = freshTrack;
-            if (!mediaStreamRef.current) {
-              mediaStreamRef.current = vStream;
-            } else {
-              mediaStreamRef.current.addTrack(freshTrack);
+          if (remoteVideoRef.current) {
+            remoteVideoRef.current.srcObject = incomingStream;
+            remoteVideoRef.current.volume = 1.0;
+            remoteVideoRef.current.muted = false;
+            remoteVideoRef.current.play().catch(() => {});
+          }
+        };
+
+        const callDocRef = doc(db, 'calls', callId);
+
+        // ICE Candidate dispatch
+        pc.onicecandidate = (event) => {
+          if (event.candidate && callId) {
+            const candidateJSON = event.candidate.toJSON();
+            // 1. Send via WebSocket
+            realtimeClient.sendCallSignal(callId, { type: 'candidate', candidate: candidateJSON });
+            // 2. Also send via Firestore collection
+            if (!callId.startsWith('local_')) {
+              const subcol = isCaller ? 'callerCandidates' : 'receiverCandidates';
+              addDoc(collection(db, 'calls', callId, subcol), candidateJSON).catch(() => {});
             }
           }
-        }
+        };
 
-        if (mediaStreamRef.current) {
-          if (hiddenLocalVideoRef.current) {
-            hiddenLocalVideoRef.current.srcObject = mediaStreamRef.current;
-            hiddenLocalVideoRef.current.play().catch(() => {});
-          }
-          if (localVideoRef.current) {
-            localVideoRef.current.srcObject = mediaStreamRef.current;
-            localVideoRef.current.play().catch(() => {});
-          }
-        }
+        if (isCaller) {
+          // Caller creates SDP Offer
+          const offer = await pc.createOffer({
+            offerToReceiveAudio: true,
+            offerToReceiveVideo: isVideo,
+          });
+          await pc.setLocalDescription(offer);
 
-        if (pcRef.current && vidTrack && mediaStreamRef.current) {
-          try {
-            pcRef.current.addTrack(vidTrack, mediaStreamRef.current);
-          } catch (e) {
-            // track already exists
-          }
+          // Broadcast offer via WebSocket & Firestore
+          realtimeClient.sendCallSignal(callId, { type: 'offer', desc: { type: offer.type, sdp: offer.sdp } });
+          await updateDoc(callDocRef, {
+            offer: { type: offer.type, sdp: offer.sdp },
+          }).catch(() => {});
+
+          // Firestore answer listener
+          const unsubDoc = onSnapshot(callDocRef, async (snap) => {
+            if (snap.exists() && pc && !isRemoteDescriptionSetRef.current) {
+              const data = snap.data();
+              if (data?.answer) {
+                await pc.setRemoteDescription(new RTCSessionDescription(data.answer)).catch(() => {});
+                isRemoteDescriptionSetRef.current = true;
+                while (candidateQueueRef.current.length > 0) {
+                  const c = candidateQueueRef.current.shift();
+                  if (c) await pc.addIceCandidate(new RTCIceCandidate(c)).catch(() => {});
+                }
+              }
+            }
+          });
+
+          // Firestore ICE candidates listener
+          const unsubCandidates = onSnapshot(collection(db, 'calls', callId, 'receiverCandidates'), (snap) => {
+            snap.docChanges().forEach(async (change) => {
+              if (change.type === 'added' && pc) {
+                const candData = change.doc.data() as RTCIceCandidateInit;
+                if (isRemoteDescriptionSetRef.current) {
+                  await pc.addIceCandidate(new RTCIceCandidate(candData)).catch(() => {});
+                } else {
+                  candidateQueueRef.current.push(candData);
+                }
+              }
+            });
+          });
+
+          return () => {
+            unsubDoc();
+            unsubCandidates();
+          };
+        } else {
+          // Receiver listens for Offer, creates Answer
+          const unsubDoc = onSnapshot(callDocRef, async (snap) => {
+            if (snap.exists() && pc && !isRemoteDescriptionSetRef.current) {
+              const data = snap.data();
+              if (data?.offer) {
+                await pc.setRemoteDescription(new RTCSessionDescription(data.offer)).catch(() => {});
+                isRemoteDescriptionSetRef.current = true;
+                while (candidateQueueRef.current.length > 0) {
+                  const c = candidateQueueRef.current.shift();
+                  if (c) await pc.addIceCandidate(new RTCIceCandidate(c)).catch(() => {});
+                }
+                const answer = await pc.createAnswer();
+                await pc.setLocalDescription(answer);
+
+                realtimeClient.sendCallSignal(callId, { type: 'answer', desc: { type: answer.type, sdp: answer.sdp } });
+                await updateDoc(callDocRef, {
+                  answer: { type: answer.type, sdp: answer.sdp },
+                }).catch(() => {});
+              }
+            }
+          });
+
+          // Firestore caller candidates listener
+          const unsubCandidates = onSnapshot(collection(db, 'calls', callId, 'callerCandidates'), (snap) => {
+            snap.docChanges().forEach(async (change) => {
+              if (change.type === 'added' && pc) {
+                const candData = change.doc.data() as RTCIceCandidateInit;
+                if (isRemoteDescriptionSetRef.current) {
+                  await pc.addIceCandidate(new RTCIceCandidate(candData)).catch(() => {});
+                } else {
+                  candidateQueueRef.current.push(candData);
+                }
+              }
+            });
+          });
+
+          return () => {
+            unsubDoc();
+            unsubCandidates();
+          };
         }
-      } catch (err) {
-        console.warn('Error enabling camera:', err);
-      }
-    } else {
-      // Disabling camera
-      if (mediaStreamRef.current) {
-        mediaStreamRef.current.getVideoTracks().forEach((t) => (t.enabled = false));
+      } catch (e) {
+        console.warn('WebRTC initialization warning:', e);
       }
     }
-  };
 
-  // Reset state on open/close
-  useEffect(() => {
-    if (!isOpen) {
-      setCallStatus('calling');
-      setCallDuration(0);
-      setIsVideoOff(!isVideo);
-      setDeclineReason(null);
-      setRemoteVideoFrame(null);
-      return;
-    }
-    setCallStatus(initialCallStatus);
-  }, [isOpen, initialCallStatus, isVideo]);
+    initWebRTC();
 
-  // Outgoing ringing audio when caller is waiting for receiver to pick up
+    return () => {
+      isCancelled = true;
+      if (pcRef.current) {
+        pcRef.current.close();
+        pcRef.current = null;
+      }
+    };
+  }, [isOpen, callStatus, callId, isCaller, isVideo]);
+
+  // 8. Outgoing call ringing audio for caller
   useEffect(() => {
     if (!isOpen || callStatus !== 'calling' || !isCaller) {
       if (outRingIntervalRef.current) clearInterval(outRingIntervalRef.current);
-      if (audioCtxRef.current) {
-        audioCtxRef.current.close().catch(() => {});
-        audioCtxRef.current = null;
+      if (outRingCtxRef.current) {
+        outRingCtxRef.current.close().catch(() => {});
+        outRingCtxRef.current = null;
       }
       return;
     }
@@ -278,11 +589,11 @@ export const CallModal: React.FC<CallModalProps> = ({
     try {
       const AudioCtx = window.AudioContext || (window as any).webkitAudioContext;
       if (AudioCtx) {
-        audioCtxRef.current = new AudioCtx();
+        outRingCtxRef.current = new AudioCtx();
 
         const playTone = () => {
-          if (!audioCtxRef.current) return;
-          const ctx = audioCtxRef.current;
+          if (!outRingCtxRef.current) return;
+          const ctx = outRingCtxRef.current;
           if (ctx.state === 'suspended') ctx.resume().catch(() => {});
 
           const now = ctx.currentTime;
@@ -308,25 +619,25 @@ export const CallModal: React.FC<CallModalProps> = ({
         outRingIntervalRef.current = setInterval(playTone, 3500);
       }
     } catch (e) {
-      console.warn('Outgoing ring audio error:', e);
+      console.warn('Outgoing ring tone error:', e);
     }
 
     return () => {
       if (outRingIntervalRef.current) clearInterval(outRingIntervalRef.current);
-      if (audioCtxRef.current) {
-        audioCtxRef.current.close().catch(() => {});
-        audioCtxRef.current = null;
+      if (outRingCtxRef.current) {
+        outRingCtxRef.current.close().catch(() => {});
+        outRingCtxRef.current = null;
       }
     };
   }, [isOpen, callStatus, isCaller]);
 
-  // Real-time Firestore sync with calls/{callId}
+  // 9. Firestore Call Status Sync
   useEffect(() => {
     if (!isOpen || !callId || callId.startsWith('local_')) return;
 
     let hasEverExisted = false;
-
     const callDocRef = doc(db, 'calls', callId);
+
     const unsubscribe = onSnapshot(callDocRef, (snap) => {
       if (!snap.exists()) {
         if (hasEverExisted) {
@@ -360,216 +671,9 @@ export const CallModal: React.FC<CallModalProps> = ({
     });
 
     return () => unsubscribe();
-  }, [isOpen, callId, contactName, isCaller, onClose]);
+  }, [isOpen, callId, contactName, isCaller, onClose, unlockAudio]);
 
-  // Dedicated subcollection remote camera frame listener (calls/{callId}/frames/caller or receiver)
-  useEffect(() => {
-    if (!isOpen || !callId || callId.startsWith('local_')) return;
-
-    const targetRole = isCaller ? 'receiver' : 'caller';
-    const remoteFrameDocRef = doc(db, 'calls', callId, 'frames', targetRole);
-
-    const unsubscribe = onSnapshot(remoteFrameDocRef, (snap) => {
-      if (snap.exists()) {
-        const data = snap.data();
-        if (data?.frame) {
-          setRemoteVideoFrame(data.frame);
-        }
-      }
-    }, (err) => {
-      console.warn('Subcollection frame listener error:', err);
-    });
-
-    return () => unsubscribe();
-  }, [isOpen, callId, isCaller]);
-
-  // WebRTC Live Audio & Video Signaling via Firestore
-  useEffect(() => {
-    if (!isOpen || callStatus !== 'connected' || !callId || callId.startsWith('local_')) return;
-
-    let pc: RTCPeerConnection | null = null;
-    let isCancelled = false;
-
-    async function initWebRTC() {
-      try {
-        pc = new RTCPeerConnection({
-          iceServers: [
-            { urls: 'stun:stun.l.google.com:19302' },
-            { urls: 'stun:stun1.l.google.com:19302' },
-            { urls: 'stun:stun2.l.google.com:19302' },
-            { urls: 'stun:stun3.l.google.com:19302' },
-            { urls: 'stun:stun4.l.google.com:19302' },
-          ],
-        });
-        pcRef.current = pc;
-
-        // Add local media tracks to peer connection
-        if (mediaStreamRef.current) {
-          mediaStreamRef.current.getTracks().forEach((track) => {
-            try {
-              pc?.addTrack(track, mediaStreamRef.current!);
-            } catch (e) {}
-          });
-        }
-
-        // Handle remote stream & play audio/video
-        pc.ontrack = (event) => {
-          if (isCancelled) return;
-          const incomingStream = (event.streams && event.streams[0])
-            ? event.streams[0]
-            : new MediaStream([event.track]);
-
-          remoteStreamRef.current = incomingStream;
-
-          // Dedicated unmuted audio element for incoming speaker voice
-          if (remoteAudioRef.current) {
-            remoteAudioRef.current.srcObject = incomingStream;
-            remoteAudioRef.current.volume = 1.0;
-            remoteAudioRef.current.muted = false;
-            remoteAudioRef.current.play().catch((err) => console.warn('Audio play error:', err));
-          }
-
-          // Dedicated video element for incoming video feed
-          if (remoteVideoRef.current) {
-            remoteVideoRef.current.srcObject = incomingStream;
-            remoteVideoRef.current.volume = 1.0;
-            remoteVideoRef.current.muted = false;
-            remoteVideoRef.current.play().catch((err) => console.warn('Video play error:', err));
-          }
-        };
-
-        const callDocRef = doc(db, 'calls', callId);
-
-        // ICE Candidate handling
-        pc.onicecandidate = (event) => {
-          if (event.candidate && callId && !callId.startsWith('local_')) {
-            const subcol = isCaller ? 'callerCandidates' : 'receiverCandidates';
-            addDoc(collection(db, 'calls', callId, subcol), event.candidate.toJSON()).catch(() => {});
-          }
-        };
-
-        if (isCaller) {
-          // Caller creates SDP Offer
-          const offer = await pc.createOffer();
-          await pc.setLocalDescription(offer);
-          await updateDoc(callDocRef, {
-            offer: { type: offer.type, sdp: offer.sdp },
-          }).catch(() => {});
-
-          // Listen for Answer
-          const unsubDoc = onSnapshot(callDocRef, async (snap) => {
-            if (snap.exists() && pc) {
-              const data = snap.data();
-              if (data?.answer && !pc.remoteDescription) {
-                await pc.setRemoteDescription(new RTCSessionDescription(data.answer)).catch(() => {});
-              }
-            }
-          });
-
-          // Listen for Receiver ICE Candidates
-          const unsubCandidates = onSnapshot(collection(db, 'calls', callId, 'receiverCandidates'), (snap) => {
-            snap.docChanges().forEach(async (change) => {
-              if (change.type === 'added' && pc) {
-                await pc.addIceCandidate(new RTCIceCandidate(change.doc.data())).catch(() => {});
-              }
-            });
-          });
-
-          return () => {
-            unsubDoc();
-            unsubCandidates();
-          };
-        } else {
-          // Receiver listens for Offer, creates Answer
-          const unsubDoc = onSnapshot(callDocRef, async (snap) => {
-            if (snap.exists() && pc) {
-              const data = snap.data();
-              if (data?.offer && !pc.remoteDescription) {
-                await pc.setRemoteDescription(new RTCSessionDescription(data.offer)).catch(() => {});
-                const answer = await pc.createAnswer();
-                await pc.setLocalDescription(answer);
-                await updateDoc(callDocRef, {
-                  answer: { type: answer.type, sdp: answer.sdp },
-                }).catch(() => {});
-              }
-            }
-          });
-
-          // Listen for Caller ICE Candidates
-          const unsubCandidates = onSnapshot(collection(db, 'calls', callId, 'callerCandidates'), (snap) => {
-            snap.docChanges().forEach(async (change) => {
-              if (change.type === 'added' && pc) {
-                await pc.addIceCandidate(new RTCIceCandidate(change.doc.data())).catch(() => {});
-              }
-            });
-          });
-
-          return () => {
-            unsubDoc();
-            unsubCandidates();
-          };
-        }
-      } catch (e) {
-        console.warn('WebRTC peer connection error:', e);
-      }
-    }
-
-    initWebRTC();
-
-    return () => {
-      isCancelled = true;
-      if (pcRef.current) {
-        pcRef.current.close();
-        pcRef.current = null;
-      }
-    };
-  }, [isOpen, callStatus, callId, isCaller]);
-
-  // Real-time Camera Frame Broadcaster to Firestore Subcollection calls/{callId}/frames/caller or receiver
-  useEffect(() => {
-    if (!isOpen || callStatus !== 'connected' || isVideoOff || !callId || callId.startsWith('local_')) return;
-
-    const canvas = hiddenCanvasRef.current || document.createElement('canvas');
-    hiddenCanvasRef.current = canvas;
-    canvas.width = 320;
-    canvas.height = 240;
-    const ctx = canvas.getContext('2d');
-
-    const roleDocName = isCaller ? 'caller' : 'receiver';
-    const frameDocRef = doc(db, 'calls', callId, 'frames', roleDocName);
-    const mainDocRef = doc(db, 'calls', callId);
-
-    const captureAndSend = () => {
-      const vidSource = hiddenLocalVideoRef.current || localVideoRef.current;
-      if (vidSource && ctx) {
-        try {
-          if (vidSource.videoWidth > 0 || vidSource.readyState >= 2) {
-            ctx.drawImage(vidSource, 0, 0, 320, 240);
-            const frameDataUrl = canvas.toDataURL('image/jpeg', 0.35);
-
-            // 1. Send to dedicated frame document in subcollection
-            setDoc(frameDocRef, {
-              frame: frameDataUrl,
-              timestamp: Date.now(),
-            }, { merge: true }).catch(() => {});
-
-            // 2. Also send to main call document as fallback
-            const mainUpdate = isCaller
-              ? { callerVideoFrame: frameDataUrl }
-              : { receiverVideoFrame: frameDataUrl };
-            setDoc(mainDocRef, mainUpdate, { merge: true }).catch(() => {});
-          }
-        } catch (e) {
-          // ignore canvas capture errors
-        }
-      }
-    };
-
-    const interval = setInterval(captureAndSend, 180);
-    return () => clearInterval(interval);
-  }, [isOpen, callStatus, isVideoOff, callId, isCaller]);
-
-  // Call timer - ONLY counts up when callStatus is strictly 'connected'
+  // 10. Call duration timer (strictly when connected)
   useEffect(() => {
     let interval: NodeJS.Timeout;
     if (isOpen && callStatus === 'connected') {
@@ -580,33 +684,88 @@ export const CallModal: React.FC<CallModalProps> = ({
     return () => clearInterval(interval);
   }, [isOpen, callStatus]);
 
+  // Toggle video mid-call
+  const toggleVideo = async () => {
+    unlockAudio();
+    const nextVideoOff = !isVideoOff;
+    setIsVideoOff(nextVideoOff);
+
+    if (!nextVideoOff) {
+      try {
+        let vidTrack: MediaStreamTrack | null = null;
+        if (mediaStreamRef.current) {
+          const tracks = mediaStreamRef.current.getVideoTracks();
+          if (tracks.length > 0) {
+            tracks.forEach((t) => (t.enabled = true));
+            vidTrack = tracks[0];
+          }
+        }
+
+        if (!vidTrack) {
+          const vStream = await navigator.mediaDevices.getUserMedia({
+            video: { facingMode: 'user', width: { ideal: 640 }, height: { ideal: 480 } },
+          });
+          const freshTrack = vStream.getVideoTracks()[0];
+          if (freshTrack) {
+            vidTrack = freshTrack;
+            if (mediaStreamRef.current) {
+              mediaStreamRef.current.addTrack(freshTrack);
+            } else {
+              mediaStreamRef.current = vStream;
+            }
+          }
+        }
+
+        if (mediaStreamRef.current) {
+          if (hiddenLocalVideoRef.current) {
+            hiddenLocalVideoRef.current.srcObject = mediaStreamRef.current;
+            hiddenLocalVideoRef.current.play().catch(() => {});
+          }
+          if (localVideoRef.current) {
+            localVideoRef.current.srcObject = mediaStreamRef.current;
+            localVideoRef.current.play().catch(() => {});
+          }
+        }
+
+        if (pcRef.current && vidTrack && mediaStreamRef.current) {
+          try {
+            pcRef.current.addTrack(vidTrack, mediaStreamRef.current);
+          } catch {}
+        }
+      } catch (err) {
+        console.warn('Camera toggle error:', err);
+      }
+    } else {
+      if (mediaStreamRef.current) {
+        mediaStreamRef.current.getVideoTracks().forEach((t) => (t.enabled = false));
+      }
+    }
+  };
+
   const handleHangUp = () => {
-    // 1. Stop local audio and video tracks
+    // 1. Leave WS call room
+    if (callId) {
+      realtimeClient.leaveCallRoom(callId);
+    }
+    // 2. Stop local tracks
     if (mediaStreamRef.current) {
-      mediaStreamRef.current.getTracks().forEach((track) => track.stop());
+      mediaStreamRef.current.getTracks().forEach((t) => t.stop());
       mediaStreamRef.current = null;
     }
-    // 2. Stop remote video stream tracks
-    if (remoteVideoRef.current && remoteVideoRef.current.srcObject) {
-      const stream = remoteVideoRef.current.srcObject as MediaStream;
-      stream.getTracks().forEach((track) => track.stop());
-      remoteVideoRef.current.srcObject = null;
-    }
-    if (remoteAudioRef.current && remoteAudioRef.current.srcObject) {
-      const stream = remoteAudioRef.current.srcObject as MediaStream;
-      stream.getTracks().forEach((track) => track.stop());
-      remoteAudioRef.current.srcObject = null;
-    }
-    // 3. Close WebRTC peer connection
+    // 3. Clear video element sources
+    if (remoteVideoRef.current) remoteVideoRef.current.srcObject = null;
+    if (remoteAudioRef.current) remoteAudioRef.current.srcObject = null;
+    if (localVideoRef.current) localVideoRef.current.srcObject = null;
+    if (hiddenLocalVideoRef.current) hiddenLocalVideoRef.current.srcObject = null;
+    // 4. Close WebRTC
     if (pcRef.current) {
       pcRef.current.close();
       pcRef.current = null;
     }
-    // 4. Update Firestore doc to notify other person
+    // 5. Update Firestore
     if (callId && !callId.startsWith('local_')) {
       updateDoc(doc(db, 'calls', callId), { status: 'ended', endedAt: Date.now() }).catch(() => {});
     }
-    // 5. Close modal completely
     onClose();
   };
 
@@ -618,38 +777,18 @@ export const CallModal: React.FC<CallModalProps> = ({
     return `${m}:${s < 10 ? '0' : ''}${s}`;
   };
 
-  // Video call is active whenever camera is NOT turned off
   const isVideoCallActive = !isVideoOff;
 
-  // MINIMIZED FLOATING CALL BAR (Allows chatting & browsing while call stays active)
+  // MINIMIZED CALL BAR
   if (isMinimized) {
     return (
       <div
         onClick={unlockAudio}
         className="fixed top-3 left-1/2 -translate-x-1/2 z-50 bg-[#121620]/95 border border-emerald-500/50 rounded-full px-4 py-2 shadow-2xl backdrop-blur-xl flex items-center gap-3 animate-in slide-in-from-top-4"
       >
-        {/* Dedicated unmuted audio element for remote speaker output */}
-        <audio
-          ref={remoteAudioRef}
-          autoPlay
-          playsInline
-          className="hidden"
-        />
-
-        {/* Off-screen active video element to guarantee continuous active GPU decoding & frame capture */}
-        <video
-          ref={hiddenLocalVideoRef}
-          autoPlay
-          playsInline
-          muted
-          className="fixed -top-[9999px] -left-[9999px] w-80 h-60 opacity-0 pointer-events-none"
-        />
-        <video
-          ref={remoteVideoRef}
-          autoPlay
-          playsInline
-          className="hidden"
-        />
+        <audio ref={remoteAudioRef} autoPlay playsInline className="hidden" />
+        <video ref={hiddenLocalVideoRef} autoPlay playsInline muted className="hidden" />
+        <video ref={remoteVideoRef} autoPlay playsInline className="hidden" />
 
         <div className="relative">
           <img src={contactAvatar} alt={contactName} className="w-8 h-8 rounded-full object-cover border border-emerald-400" />
@@ -662,20 +801,18 @@ export const CallModal: React.FC<CallModalProps> = ({
           </span>
         </div>
 
-        {/* Expand / Restore Full Screen Call */}
         <button
           onClick={() => {
             unlockAudio();
             if (onRestore) onRestore();
           }}
           className="flex items-center gap-1 px-3 py-1 rounded-full bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold transition-all shadow cursor-pointer active:scale-95"
-          title="Regresar a la llamada en pantalla completa"
+          title="Ver llamada"
         >
           <Maximize2 className="w-3.5 h-3.5" />
-          <span>Ver llamada</span>
+          <span>Ver</span>
         </button>
 
-        {/* Mic Mute Toggle */}
         <button
           onClick={() => {
             unlockAudio();
@@ -689,7 +826,6 @@ export const CallModal: React.FC<CallModalProps> = ({
           {isMuted ? <MicOff className="w-3.5 h-3.5" /> : <Mic className="w-3.5 h-3.5" />}
         </button>
 
-        {/* Hang Up Button (ONLY button that actually ends the call) */}
         <button
           onClick={handleHangUp}
           className="w-8 h-8 rounded-full bg-red-600 hover:bg-red-500 text-white flex items-center justify-center transition-all shadow cursor-pointer border border-red-400 active:scale-95"
@@ -704,28 +840,26 @@ export const CallModal: React.FC<CallModalProps> = ({
   return (
     <div
       onClick={unlockAudio}
+      onTouchStart={unlockAudio}
       className="fixed inset-0 z-50 bg-[#0a0e16]/95 backdrop-blur-2xl flex flex-col items-center justify-between p-3 sm:p-6 animate-in fade-in zoom-in-95 duration-200 overflow-y-auto min-h-screen"
     >
-      {/* Dedicated unmuted audio element for remote speaker output */}
-      <audio
-        ref={remoteAudioRef}
-        autoPlay
-        playsInline
-        className="hidden"
-      />
+      {/* Hidden audio & video elements for background decoding */}
+      <audio ref={remoteAudioRef} autoPlay playsInline className="hidden" />
+      <video ref={hiddenLocalVideoRef} autoPlay playsInline muted className="hidden" />
 
-      {/* Off-screen active video element to guarantee continuous active GPU decoding & frame capture */}
-      <video
-        ref={hiddenLocalVideoRef}
-        autoPlay
-        playsInline
-        muted
-        className="fixed -top-[9999px] -left-[9999px] w-80 h-60 opacity-0 pointer-events-none"
-      />
+      {/* Audio Unlock Warning Banner if browser requires user gesture */}
+      {audioNeedsUnlock && (
+        <div
+          onClick={unlockAudio}
+          className="w-full max-w-md mx-auto mb-2 py-2 px-4 rounded-full bg-emerald-500/90 text-white text-xs font-bold flex items-center justify-center gap-2 shadow-lg animate-bounce cursor-pointer z-30"
+        >
+          <Volume2 className="w-4 h-4 animate-pulse" />
+          <span>🔊 Toca la pantalla para activar el altavoz</span>
+        </div>
+      )}
 
-      {/* Top Bar matching hand-drawn sketch layout (Volver al chat + Call Info) */}
+      {/* Top Bar */}
       <div className="w-full max-w-4xl flex items-center justify-between mt-2 sm:mt-4 z-20 shrink-0 px-2">
-        {/* Volver al Chat button -> MINIMIZES call into floating bar without hanging up! */}
         <button
           onClick={() => {
             unlockAudio();
@@ -739,7 +873,6 @@ export const CallModal: React.FC<CallModalProps> = ({
           <span>Volver al chat</span>
         </button>
 
-        {/* Status Badge & Name in Center */}
         <div className="flex flex-col items-center text-center">
           <div className="flex items-center gap-1.5 px-3 py-0.5 rounded-full bg-blue-500/20 text-[#38bdf8] border border-blue-500/30 text-[11px] font-bold uppercase tracking-wider shadow-md">
             {isGroup ? <Users className="w-3.5 h-3.5" /> : isVideoCallActive ? <Video className="w-3.5 h-3.5" /> : <Phone className="w-3.5 h-3.5" />}
@@ -748,7 +881,6 @@ export const CallModal: React.FC<CallModalProps> = ({
           <h3 className="text-lg sm:text-xl font-black text-white tracking-tight mt-0.5">{contactName}</h3>
         </div>
 
-        {/* Right spacing balance */}
         <div className="flex items-center gap-2">
           {callStatus === 'calling' && (
             <span className="w-2.5 h-2.5 rounded-full bg-amber-400 animate-ping" />
@@ -768,7 +900,7 @@ export const CallModal: React.FC<CallModalProps> = ({
         </div>
       </div>
 
-      {/* Main Area: Video feed ("La de mi amigo") with TOP-RIGHT Local Camera PIP ("Mi cámara") */}
+      {/* Main Area: Remote Feed ("La de mi amigo") with TOP-RIGHT Local Camera PIP ("Mi cámara") */}
       <div className="relative flex items-center justify-center my-auto w-full max-w-4xl px-2 sm:px-4 z-10 shrink-0 min-h-0">
         {isGroup ? (
           <div className="grid grid-cols-2 sm:grid-cols-3 gap-3 w-full py-4">
@@ -812,7 +944,7 @@ export const CallModal: React.FC<CallModalProps> = ({
           </div>
         ) : isVideoCallActive ? (
           <div className="relative w-full max-w-3xl h-[340px] sm:h-[480px] rounded-3xl overflow-hidden border border-white/20 shadow-2xl bg-[#141822] flex items-center justify-center my-2">
-            {/* Main Full-Screen Video Area: Remote Friend Camera ("La de mi amigo") */}
+            {/* Main Remote Feed: WebRTC Video element */}
             <video
               ref={remoteVideoRef}
               autoPlay
@@ -820,7 +952,7 @@ export const CallModal: React.FC<CallModalProps> = ({
               className="w-full h-full object-cover absolute inset-0 z-0"
             />
 
-            {/* Firestore real-time frame snapshot sync (Works exactly like chat messages subcollection streaming!) */}
+            {/* Instant WebSocket Remote Video Frame Layer (Shows friend's camera smoothly) */}
             {remoteVideoFrame ? (
               <img
                 src={remoteVideoFrame}
@@ -851,7 +983,7 @@ export const CallModal: React.FC<CallModalProps> = ({
               </div>
             )}
 
-            {/* TOP-RIGHT Local Camera Preview PIP ("Mi cámara" box from hand-drawn sketch) */}
+            {/* TOP-RIGHT Local Camera Preview PIP ("Mi cámara") */}
             <div className="absolute top-4 right-4 w-32 sm:w-40 h-24 sm:h-32 rounded-2xl bg-[#1c2028] border-2 border-white/40 shadow-2xl overflow-hidden flex flex-col items-center justify-center z-30">
               <video
                 ref={localVideoRef}
@@ -867,13 +999,7 @@ export const CallModal: React.FC<CallModalProps> = ({
           </div>
         ) : (
           <div className="relative flex flex-col items-center py-6">
-            {/* Hidden remoteVideoRef element for audio playback in voice mode */}
-            <video
-              ref={remoteVideoRef}
-              autoPlay
-              playsInline
-              className="hidden"
-            />
+            <video ref={remoteVideoRef} autoPlay playsInline className="hidden" />
             {callStatus === 'calling' && (
               <div className="absolute -inset-8 rounded-full bg-blue-500/20 animate-ping" style={{ animationDuration: '2.5s' }} />
             )}
@@ -891,7 +1017,7 @@ export const CallModal: React.FC<CallModalProps> = ({
         )}
       </div>
 
-      {/* Controls Bar - Matching Skitched Layout (Mic, Phone Hang Up, Video Toggle) */}
+      {/* Controls Bar */}
       <div className="sticky bottom-2 sm:bottom-4 flex items-center justify-center gap-4 sm:gap-6 bg-[#1c2028]/95 px-6 py-3 rounded-full border border-white/20 backdrop-blur-2xl shadow-2xl z-50 mt-auto shrink-0">
         <button
           onClick={() => {

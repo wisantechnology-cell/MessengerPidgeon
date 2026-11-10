@@ -36,6 +36,7 @@ import { DEFAULT_PIDGEON_AVATAR, PRESET_AVATARS } from '../utils/avatarUtils';
 import { isPhoneTakenByAnotherUser } from '../utils/phoneValidation';
 import { PidgeXFullLogo } from './BirdLogo';
 import { ProfileQrCardModal } from './ProfileQrCardModal';
+import { AvatarCaptureModal } from './AvatarCaptureModal';
 import { MONTHLY_THEMES } from '../utils/monthlyThemes';
 import {
   CALL_RINGTONE_OPTIONS,
@@ -353,8 +354,9 @@ export const SettingsProfileView: React.FC<SettingsProfileViewProps> = ({
                   className="w-24 h-24 rounded-full object-cover ring-4 ring-blue-500/40 shadow-2xl"
                 />
                 <button
-                  onClick={() => setShowAvatarPicker(!showAvatarPicker)}
-                  className="absolute bottom-0 right-0 w-8 h-8 rounded-full bg-blue-600 text-white flex items-center justify-center shadow-lg hover:scale-110 active:scale-95 transition-all cursor-pointer"
+                  onClick={() => setShowAvatarPicker(true)}
+                  title="Cambiar foto de perfil (Galería o Cámara)"
+                  className="absolute bottom-0 right-0 w-8 h-8 rounded-full bg-gradient-to-tr from-cyan-500 to-blue-600 text-white flex items-center justify-center shadow-lg hover:scale-110 active:scale-95 transition-all cursor-pointer ring-2 ring-[#181c24]"
                 >
                   <Camera className="w-4 h-4" />
                 </button>
@@ -364,27 +366,17 @@ export const SettingsProfileView: React.FC<SettingsProfileViewProps> = ({
               <span className="text-xs text-blue-400 font-mono mt-0.5">{username}</span>
               <p className="text-xs text-gray-300 mt-2 italic">"{bio}"</p>
 
-              {/* Avatar Picker Preset Drawer */}
-              {showAvatarPicker && (
-                <div className="mt-4 p-3 rounded-2xl bg-black/40 border border-white/10 flex flex-col gap-2 w-full animate-in zoom-in-95 duration-150">
-                  <span className="text-[11px] font-bold text-[#8d90a0]">Elige un avatar preestablecido</span>
-                  <div className="grid grid-cols-4 gap-2">
-                    {PRESET_AVATARS.map((avatar, i) => (
-                      <img
-                        key={i}
-                        src={avatar.url}
-                        alt={avatar.name || 'preset'}
-                        onClick={() => {
-                          setAvatarUrl(avatar.url);
-                          onUpdateUser({ avatarUrl: avatar.url });
-                          setShowAvatarPicker(false);
-                        }}
-                        className="w-12 h-12 rounded-full object-cover cursor-pointer hover:scale-110 border-2 border-transparent hover:border-blue-500 transition-all"
-                      />
-                    ))}
-                  </div>
-                </div>
-              )}
+              {/* Action button to change profile picture */}
+              <div className="flex items-center gap-2 mt-3">
+                <button
+                  type="button"
+                  onClick={() => setShowAvatarPicker(true)}
+                  className="px-3.5 py-2 rounded-xl bg-gradient-to-r from-cyan-600 to-blue-600 hover:from-cyan-500 hover:to-blue-500 text-white text-xs font-bold flex items-center gap-1.5 shadow-md shadow-cyan-500/20 active:scale-95 transition-all cursor-pointer"
+                >
+                  <Camera className="w-3.5 h-3.5" />
+                  <span>Cambiar Foto (Galería o Cámara)</span>
+                </button>
+              </div>
 
               <button
                 onClick={() => setShowQrCardModal(true)}
@@ -1330,6 +1322,19 @@ export const SettingsProfileView: React.FC<SettingsProfileViewProps> = ({
         user={user}
         isNightMode={isNightMode}
         onAddScannedContact={onAddScannedContact}
+      />
+
+      {/* Avatar Capture Modal (Gallery & Live Camera) */}
+      <AvatarCaptureModal
+        isOpen={showAvatarPicker}
+        onClose={() => setShowAvatarPicker(false)}
+        currentAvatarUrl={avatarUrl}
+        onSaveAvatar={(newAvatar) => {
+          setAvatarUrl(newAvatar);
+          onUpdateUser({ avatarUrl: newAvatar });
+          setSavedFeedback(true);
+          setTimeout(() => setSavedFeedback(false), 2500);
+        }}
       />
     </div>
   );

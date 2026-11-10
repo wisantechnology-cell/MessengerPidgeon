@@ -1,6 +1,11 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { Mic, Trash2, Send, Pause, Play, RotateCcw, Volume2, Sparkles } from 'lucide-react';
-import { createFallbackVoiceAudio, blobToDataUrl } from '../utils/audioUtils';
+import { Trash2, Volume2, Sparkles, Play, Pause, Send } from 'lucide-react';
+import {
+  createFallbackVoiceAudio,
+  getBestAudioMimeType,
+  stopMediaRecorderSafely,
+  UniversalVoiceRecorderEngine,
+} from '../utils/audioUtils';
 import { SquirrelVoiceIcon, RobotVoiceIcon, DeepVoiceIcon } from './CustomVectorIcons';
 
 interface VoiceRecorderProps {
@@ -26,9 +31,11 @@ export const VoiceRecorder: React.FC<VoiceRecorderProps> = ({
   ]);
 
   const timerRef = useRef<NodeJS.Timeout | null>(null);
+  const universalEngineRef = useRef<UniversalVoiceRecorderEngine | null>(null);
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
   const audioChunksRef = useRef<Blob[]>([]);
   const streamRef = useRef<MediaStream | null>(null);
+  const mimeTypeRef = useRef<string>('');
   const audioContextRef = useRef<AudioContext | null>(null);
   const analyserRef = useRef<AnalyserNode | null>(null);
   const animFrameRef = useRef<number | null>(null);
@@ -40,12 +47,27 @@ export const VoiceRecorder: React.FC<VoiceRecorderProps> = ({
     async function startAudioRecording() {
       try {
         if (navigator.mediaDevices && navigator.mediaDevices.getUserMedia) {
-          const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+          const stream = await navigator.mediaDevices.getUserMedia({
+            audio: {
+              echoCancellation: true,
+              noiseSuppression: true,
+              autoGainControl: true,
+            },
+          });
           if (!isMounted) {
             stream.getTracks().forEach((track) => track.stop());
             return;
           }
           streamRef.current = stream;
+
+          // Start the universal PCM -> WAV recorder engine
+          try {
+            const engine = new UniversalVoiceRecorderEngine();
+            universalEngineRef.current = engine;
+            await engine.start(stream);
+          } catch (engineErr) {
+            console.warn('UniversalVoiceRecorderEngine init notice:', engineErr);
+          }
 
           try {
             const AudioCtx = window.AudioContext || (window as any).webkitAudioContext;
@@ -79,14 +101,12 @@ export const VoiceRecorder: React.FC<VoiceRecorderProps> = ({
             console.warn('AudioContext setup skipped:', audioCtxErr);
           }
 
-          let mimeType = '';
-          if (typeof MediaRecorder !== 'undefined') {
-            if (MediaRecorder.isTypeSupported('audio/webm')) mimeType = 'audio/webm';
-            else if (MediaRecorder.isTypeSupported('audio/mp4')) mimeType = 'audio/mp4';
-            else if (MediaRecorder.isTypeSupported('audio/ogg')) mimeType = 'audio/ogg';
+          const detectedMime = getBestAudioMimeType();
+          mimeTypeRef.current = detectedMime;
 
-            const recorder = mimeType
-              ? new MediaRecorder(stream, { mimeType })
+          if (typeof MediaRecorder !== 'undefined') {
+            const recorder = detectedMime
+              ? new MediaRecorder(stream, { mimeType: detectedMime, audioBitsPerSecond: 32000 })
               : new MediaRecorder(stream);
 
             audioChunksRef.current = [];
@@ -96,22 +116,7 @@ export const VoiceRecorder: React.FC<VoiceRecorderProps> = ({
               }
             };
 
-            recorder.onstop = async () => {
-              if (audioChunksRef.current.length > 0) {
-                try {
-                  const audioBlob = new Blob(audioChunksRef.current, {
-                    type: mimeType || 'audio/webm',
-                  });
-                  const dataUrl = await blobToDataUrl(audioBlob);
-                  setAudioUrl(dataUrl);
-                } catch {
-                  const fallback = createFallbackVoiceAudio(Math.max(2, seconds));
-                  setAudioUrl(fallback);
-                }
-              }
-            };
-
-            recorder.start(100);
+            recorder.start(250);
             mediaRecorderRef.current = recorder;
           }
         }
@@ -130,6 +135,9 @@ export const VoiceRecorder: React.FC<VoiceRecorderProps> = ({
       isMounted = false;
       if (timerRef.current) clearInterval(timerRef.current);
       if (animFrameRef.current) cancelAnimationFrame(animFrameRef.current);
+      if (universalEngineRef.current) {
+        universalEngineRef.current.stop().catch(() => {});
+      }
       if (streamRef.current) {
         streamRef.current.getTracks().forEach((track) => track.stop());
       }
@@ -148,11 +156,30 @@ export const VoiceRecorder: React.FC<VoiceRecorderProps> = ({
     return `${mins}:${remSecs < 10 ? '0' : ''}${remSecs}`;
   };
 
-  const handleStopAndPreview = () => {
+  const handleStopAndPreview = async () => {
     setIsPreviewing(true);
     setIsPaused(true);
-    if (mediaRecorderRef.current && mediaRecorderRef.current.state !== 'inactive') {
-      mediaRecorderRef.current.stop();
+    if (timerRef.current) clearInterval(timerRef.current);
+
+    let recordedUrl: string | null = null;
+    if (universalEngineRef.current) {
+      recordedUrl = await universalEngineRef.current.stop();
+    }
+
+    if (!recordedUrl && mediaRecorderRef.current) {
+      const result = await stopMediaRecorderSafely(
+        mediaRecorderRef.current,
+        audioChunksRef.current,
+        streamRef.current,
+        mimeTypeRef.current
+      );
+      if (result) {
+        recordedUrl = result.dataUrl;
+      }
+    }
+
+    if (recordedUrl) {
+      setAudioUrl(recordedUrl);
     }
   };
 
@@ -173,41 +200,48 @@ export const VoiceRecorder: React.FC<VoiceRecorderProps> = ({
   };
 
   const handleSend = async () => {
+    if (timerRef.current) clearInterval(timerRef.current);
     if (previewAudioRef.current) {
       previewAudioRef.current.pause();
     }
-    if (mediaRecorderRef.current && mediaRecorderRef.current.state !== 'inactive') {
-      mediaRecorderRef.current.stop();
-    }
-    if (streamRef.current) {
-      streamRef.current.getTracks().forEach((t) => t.stop());
-    }
 
-    const finalDuration = formatTime(Math.max(1, seconds));
     let finalAudioUrl = audioUrl;
 
-    if (!finalAudioUrl && audioChunksRef.current.length > 0) {
-      try {
-        const audioBlob = new Blob(audioChunksRef.current, { type: 'audio/webm' });
-        finalAudioUrl = await blobToDataUrl(audioBlob);
-      } catch (err) {
-        console.warn('Could not convert blob to data url:', err);
+    if (!finalAudioUrl && universalEngineRef.current) {
+      finalAudioUrl = await universalEngineRef.current.stop();
+    }
+
+    if (!finalAudioUrl && mediaRecorderRef.current) {
+      const result = await stopMediaRecorderSafely(
+        mediaRecorderRef.current,
+        audioChunksRef.current,
+        streamRef.current,
+        mimeTypeRef.current
+      );
+      if (result) {
+        finalAudioUrl = result.dataUrl;
       }
+    } else if (streamRef.current) {
+      streamRef.current.getTracks().forEach((t) => t.stop());
+      streamRef.current = null;
     }
 
     if (!finalAudioUrl) {
       finalAudioUrl = createFallbackVoiceAudio(Math.max(2, seconds));
     }
 
+    const finalDuration = formatTime(Math.max(1, seconds));
     onSendVoice(finalDuration, finalAudioUrl, voiceFilter);
   };
 
   const handleDiscard = () => {
+    if (timerRef.current) clearInterval(timerRef.current);
     if (previewAudioRef.current) {
       previewAudioRef.current.pause();
     }
     if (streamRef.current) {
       streamRef.current.getTracks().forEach((t) => t.stop());
+      streamRef.current = null;
     }
     onCancel();
   };
