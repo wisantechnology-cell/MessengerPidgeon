@@ -130,7 +130,7 @@ export const GroupMembersModal: React.FC<GroupMembersModalProps> = ({
     }
 
     setIsSearchingPhone(true);
-    const foundUser = await findUserByPhone(finalPhone, user.id);
+    const foundUser = await findUserByPhone(finalPhone, user.id, user.phone);
     setIsSearchingPhone(false);
 
     if (!foundUser) {

@@ -2336,6 +2336,7 @@ export default function App() {
               onClose={() => setIsNewChatModalOpen(false)}
               onCreateChat={handleCreateChat}
               currentUserId={user.id}
+              currentUserPhone={user.phone}
             />
 
             {/* New Group Modal */}
@@ -2353,6 +2354,7 @@ export default function App() {
               onClose={() => setIsAddFriendModalOpen(false)}
               onAddFriend={handleAddFriend}
               currentUserId={user.id}
+              currentUserPhone={user.phone}
             />
 
             {/* Send Voice Message Modal */}

@@ -14,7 +14,7 @@ import {
 import { ChatCategory } from '../types';
 import { ensurePhoneStartsWith16 } from '../utils/phoneUtils';
 import { createSvgAvatar } from '../utils/avatarUtils';
-import { findUserByPhone } from '../utils/phoneValidation';
+import { findUserByPhoneDetailed } from '../utils/phoneValidation';
 import { CountryFlagBadge } from './CountryFlagBadge';
 
 export interface AddFriendData {
@@ -31,6 +31,7 @@ interface AddFriendModalProps {
   onClose: () => void;
   onAddFriend: (data: AddFriendData) => void;
   currentUserId?: string;
+  currentUserPhone?: string;
 }
 
 const COUNTRY_CODES = [
@@ -49,6 +50,7 @@ export const AddFriendModal: React.FC<AddFriendModalProps> = ({
   onClose,
   onAddFriend,
   currentUserId,
+  currentUserPhone,
 }) => {
   const [countryCode, setCountryCode] = useState<string>('16');
   const [phoneNumber, setPhoneNumber] = useState<string>('');
@@ -79,14 +81,29 @@ export const AddFriendModal: React.FC<AddFriendModalProps> = ({
     const finalPhone = ensurePhoneStartsWith16(rawPhone);
 
     setIsSearching(true);
-    let foundUser = null;
+    let lookupResult = { user: null as any, isSelf: false };
     try {
-      foundUser = await findUserByPhone(finalPhone, currentUserId);
+      lookupResult = await findUserByPhoneDetailed(finalPhone, currentUserId, currentUserPhone);
     } catch (err) {
       console.warn('Error checking friend by phone:', err);
     }
     setIsSearching(false);
 
+    // Block self-addition
+    if (lookupResult.isSelf) {
+      setErrorMessage('❌ No puedes agregarte a ti mismo como amigo con tu propio número.');
+      return;
+    }
+
+    // STRICT: Do NOT add anything if user does NOT exist in PidgeX
+    if (!lookupResult.user) {
+      setErrorMessage(
+        `❌ El número "${finalPhone}" no existe en PidgeX. Ningún usuario está registrado con este número telefónico. No se agregará nada ni se crearán conversaciones falsas.`
+      );
+      return;
+    }
+
+    const foundUser = lookupResult.user;
     const friendName = (foundUser && foundUser.name) || `Contacto (${finalPhone})`;
     const friendAvatar = (foundUser && foundUser.avatarUrl) || createSvgAvatar(friendName, '#2563eb');
     const friendUsername = (foundUser && foundUser.username) || undefined;
