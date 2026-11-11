@@ -1,58 +1,71 @@
-// PidgeX Progressive Web App Service Worker with Native Push Notifications
-const CACHE_NAME = 'pidgex-pwa-v2';
-const PRECACHE_ASSETS = [
-  '/',
-  '/index.html',
-  '/manifest.json',
-  '/pidgex-logo.svg'
-];
+// PidgeX Progressive Web App Service Worker with Native Push & Call Notifications
+const CACHE_NAME = 'pidgex-pwa-v6';
 
 self.addEventListener('install', (event) => {
-  event.waitUntil(
-    caches.open(CACHE_NAME).then((cache) => {
-      return cache.addAll(PRECACHE_ASSETS).catch((err) => {
-        console.warn('Pre-cache warning:', err);
-      });
-    })
-  );
   self.skipWaiting();
 });
 
 self.addEventListener('activate', (event) => {
   event.waitUntil(
     caches.keys().then((keys) => {
-      return Promise.all(
-        keys.filter((key) => key !== CACHE_NAME).map((key) => caches.delete(key))
-      );
+      return Promise.all(keys.map((key) => caches.delete(key)));
     })
   );
   self.clients.claim();
 });
 
+// Resilient Network-First fetch handler that NEVER returns undefined or breaks Google Chrome
 self.addEventListener('fetch', (event) => {
   if (event.request.method !== 'GET') return;
+
   const url = new URL(event.request.url);
-  if (url.pathname.startsWith('/api') || url.hostname.includes('firestore') || url.hostname.includes('googleapis')) {
+
+  // Bypass service worker for dynamic API, websockets, live dev modules and external resources
+  if (
+    url.pathname.startsWith('/api') ||
+    url.pathname.startsWith('/ws') ||
+    url.pathname.startsWith('/@') ||
+    url.pathname.startsWith('/src') ||
+    url.pathname.startsWith('/node_modules') ||
+    url.hostname.includes('firestore') ||
+    url.hostname.includes('googleapis') ||
+    url.hostname.includes('google') ||
+    url.hostname.includes('gstatic')
+  ) {
     return;
   }
 
-  event.respondWith(
-    caches.match(event.request).then((cachedResponse) => {
-      if (cachedResponse) {
-        return cachedResponse;
-      }
-      return fetch(event.request).catch(() => {
-        if (event.request.headers.get('accept')?.includes('text/html')) {
-          return caches.match('/index.html');
-        }
-      });
-    })
-  );
+  // Handle navigation requests (opening the app in Chrome/Google)
+  if (event.request.mode === 'navigate') {
+    event.respondWith(
+      fetch(event.request).catch(async () => {
+        try {
+          const cached = await caches.match('/index.html');
+          if (cached) return cached;
+        } catch {}
+        return new Response(
+          '<!doctype html><html><head><meta charset="utf-8"><title>PidgeX</title><meta name="viewport" content="width=device-width,initial-scale=1"></head><body style="background:#0f131c;color:#fff;font-family:sans-serif;display:flex;align-items:center;justify-content:center;height:100vh;margin:0;"><div style="text-align:center"><h2>PidgeX</h2><p>Reconectando a la red...</p><button onclick="location.reload()" style="padding:10px 20px;border-radius:8px;background:#2563eb;color:#fff;border:none;cursor:pointer">Reintentar</button></div></body></html>',
+          {
+            status: 200,
+            headers: { 'Content-Type': 'text/html' },
+          }
+        );
+      })
+    );
+    return;
+  }
 });
 
-// OS Native Push Notifications Handler (Lockscreen & System Tray)
+// OS Native Push Notifications Handler (Lockscreen, Background & System Tray)
 self.addEventListener('push', (event) => {
-  let data = { title: 'PidgeX', body: 'Tienes una nueva notificación de PidgeX', icon: '/pidgex-logo.svg' };
+  let data = {
+    title: 'PidgeX 🐦',
+    body: 'Tienes un nuevo mensaje en PidgeX',
+    icon: '/pidgex-logo.svg',
+    type: 'message',
+    url: '/',
+  };
+
   try {
     if (event.data) {
       data = event.data.json();
@@ -63,39 +76,89 @@ self.addEventListener('push', (event) => {
     }
   }
 
-  const options = {
-    body: data.body || 'Nuevo mensaje o llamada en PidgeX',
-    icon: data.icon || '/pidgex-logo.svg',
-    badge: '/pidgex-logo.svg',
-    vibrate: [200, 100, 200, 100, 300],
-    tag: data.tag || `pidgex_${Date.now()}`,
-    renotify: true,
-    data: { url: data.url || '/' },
-    actions: [
-      { action: 'open', title: 'Abrir PidgeX 🐦' }
-    ]
-  };
+  const isCall =
+    data.type === 'call' ||
+    (data.title && data.title.toLowerCase().includes('llamada'));
+
+  const options = isCall
+    ? {
+        body: data.body || '📞 Llamada entrante en PidgeX. Toca para contestar.',
+        icon: data.icon || '/pidgex-logo.svg',
+        badge: '/pidgex-logo.svg',
+        vibrate: [800, 400, 800, 400, 800, 400, 1000],
+        tag: 'incoming_call',
+        renotify: true,
+        requireInteraction: true,
+        data: {
+          url: data.url || `/?autoAnswerCall=${data.callId || ''}`,
+          callId: data.callId,
+          type: 'call',
+        },
+        actions: [
+          { action: 'answer', title: '📞 Contestar' },
+          { action: 'decline', title: '❌ Rechazar' },
+        ],
+      }
+    : {
+        body: data.body || 'Nuevo mensaje recibido en PidgeX',
+        icon: data.icon || '/pidgex-logo.svg',
+        badge: '/pidgex-logo.svg',
+        vibrate: [250, 100, 250],
+        tag: data.tag || `msg_${Date.now()}`,
+        renotify: true,
+        requireInteraction: false,
+        data: {
+          url: data.url || (data.chatId ? `/?chatId=${data.chatId}` : '/'),
+          chatId: data.chatId,
+          type: 'message',
+        },
+        actions: [{ action: 'open', title: '💬 Abrir Chat' }],
+      };
 
   event.waitUntil(
-    self.registration.showNotification(data.title || 'PidgeX 🐦', options)
+    self.registration.showNotification(data.title || (isCall ? '📞 Llamada en PidgeX' : 'PidgeX 🐦'), options)
   );
 });
 
-// Notification Click Handler (Brings app to foreground)
+// Notification Click Handler (Brings app to foreground / answers call directly)
 self.addEventListener('notificationclick', (event) => {
   event.notification.close();
-  const targetUrl = event.notification.data?.url || '/';
+  const notificationData = event.notification.data || {};
+  const action = event.action;
+  const targetUrl = notificationData.url || '/';
 
   event.waitUntil(
-    clients.matchAll({ type: 'window', includeUncontrolled: true }).then((clientList) => {
-      for (const client of clientList) {
-        if (client.url && 'focus' in client) {
-          return client.focus();
+    clients
+      .matchAll({ type: 'window', includeUncontrolled: true })
+      .then((clientList) => {
+        // If user tapped "Decline"
+        if (action === 'decline') {
+          for (const client of clientList) {
+            client.postMessage({
+              type: 'DECLINE_CALL',
+              callId: notificationData.callId,
+            });
+          }
+          return;
         }
-      }
-      if (clients.openWindow) {
-        return clients.openWindow(targetUrl);
-      }
-    })
+
+        // Check if an existing PidgeX tab is open
+        for (const client of clientList) {
+          if (client.url && 'focus' in client) {
+            if (action === 'answer' && notificationData.callId) {
+              client.postMessage({
+                type: 'ANSWER_CALL',
+                callId: notificationData.callId,
+              });
+            }
+            return client.focus();
+          }
+        }
+
+        // If no open tab, open new window to target URL
+        if (clients.openWindow) {
+          return clients.openWindow(targetUrl);
+        }
+      })
   );
 });

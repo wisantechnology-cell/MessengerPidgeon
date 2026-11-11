@@ -677,28 +677,20 @@ export const SettingsProfileView: React.FC<SettingsProfileViewProps> = ({
 
               {/* Toggles: Vibrar y Prender Celular */}
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                {/* Toggle Vibrar al llamar */}
-                <div className="p-3.5 rounded-2xl bg-[#1a202c] border border-white/10 flex flex-col justify-between gap-3">
+                {/* Indicador Vibrar al llamar - Permanente */}
+                <div className="p-3.5 rounded-2xl bg-[#1a202c] border border-emerald-500/30 flex flex-col justify-between gap-3 shadow-sm">
                   <div className="flex items-center justify-between">
                     <div className="flex items-center gap-2">
                       <Vibrate className="w-4 h-4 text-emerald-400" />
                       <span className="text-xs font-bold text-white">Vibrar mi Celular</span>
                     </div>
-                    <button
-                      onClick={() => onUpdateUser({ vibrateOnCall: user.vibrateOnCall === false ? true : false })}
-                      className={`w-12 h-6 rounded-full transition-colors relative cursor-pointer ${
-                        user.vibrateOnCall !== false ? 'bg-emerald-600' : 'bg-white/10'
-                      }`}
-                    >
-                      <span
-                        className={`w-5 h-5 rounded-full bg-white absolute top-0.5 transition-transform ${
-                          user.vibrateOnCall !== false ? 'right-0.5' : 'left-0.5'
-                        }`}
-                      />
-                    </button>
+                    <div className="flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-emerald-500/20 border border-emerald-500/40 text-emerald-300 text-[10px] font-bold">
+                      <Shield className="w-3 h-3 text-emerald-400" />
+                      <span>Permanente</span>
+                    </div>
                   </div>
                   <p className="text-[10px] text-[#8d90a0]">
-                    Hace vibrar tu teléfono de forma continua mientras suena la llamada entrante.
+                    Vibración continua obligatoria en llamadas entrantes. No se puede desactivar para que nunca pierdas una llamada.
                   </p>
                   <button
                     onClick={handleTestCallVibration}
@@ -710,28 +702,20 @@ export const SettingsProfileView: React.FC<SettingsProfileViewProps> = ({
                   </button>
                 </div>
 
-                {/* Toggle Prender Celular / Pantalla */}
-                <div className="p-3.5 rounded-2xl bg-[#1a202c] border border-white/10 flex flex-col justify-between gap-3">
+                {/* Indicador Prender Celular / Pantalla - Permanente */}
+                <div className="p-3.5 rounded-2xl bg-[#1a202c] border border-amber-500/30 flex flex-col justify-between gap-3 shadow-sm">
                   <div className="flex items-center justify-between">
                     <div className="flex items-center gap-2">
                       <Sun className="w-4 h-4 text-amber-400" />
                       <span className="text-xs font-bold text-white">Prender Pantalla / Wake</span>
                     </div>
-                    <button
-                      onClick={() => onUpdateUser({ wakeScreenOnCall: user.wakeScreenOnCall === false ? true : false })}
-                      className={`w-12 h-6 rounded-full transition-colors relative cursor-pointer ${
-                        user.wakeScreenOnCall !== false ? 'bg-emerald-600' : 'bg-white/10'
-                      }`}
-                    >
-                      <span
-                        className={`w-5 h-5 rounded-full bg-white absolute top-0.5 transition-transform ${
-                          user.wakeScreenOnCall !== false ? 'right-0.5' : 'left-0.5'
-                        }`}
-                      />
-                    </button>
+                    <div className="flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-amber-500/20 border border-amber-500/40 text-amber-300 text-[10px] font-bold">
+                      <Shield className="w-3 h-3 text-amber-400" />
+                      <span>Permanente</span>
+                    </div>
                   </div>
                   <p className="text-[10px] text-[#8d90a0]">
-                    Enciende la pantalla y muestra destellos visuales para que notes la llamada aunque esté oscuro.
+                    Enciende la pantalla automáticamente al recibir una llamada. No se puede desactivar para garantizar que veas quién te llama.
                   </p>
                   <button
                     onClick={handleTestScreenWake}

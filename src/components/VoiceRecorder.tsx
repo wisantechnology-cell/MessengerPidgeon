@@ -5,6 +5,7 @@ import {
   getBestAudioMimeType,
   stopMediaRecorderSafely,
   UniversalVoiceRecorderEngine,
+  uploadVoiceAudio,
 } from '../utils/audioUtils';
 import { SquirrelVoiceIcon, RobotVoiceIcon, DeepVoiceIcon } from './CustomVectorIcons';
 
@@ -207,6 +208,10 @@ export const VoiceRecorder: React.FC<VoiceRecorderProps> = ({
 
     let finalAudioUrl = audioUrl;
 
+    if (!finalAudioUrl && universalEngineRef.current) {
+      finalAudioUrl = await universalEngineRef.current.stop();
+    }
+
     if (!finalAudioUrl && mediaRecorderRef.current) {
       try {
         const result = await stopMediaRecorderSafely(
@@ -223,10 +228,6 @@ export const VoiceRecorder: React.FC<VoiceRecorderProps> = ({
       }
     }
 
-    if (!finalAudioUrl && universalEngineRef.current) {
-      finalAudioUrl = await universalEngineRef.current.stop();
-    }
-
     if (streamRef.current) {
       streamRef.current.getTracks().forEach((t) => t.stop());
       streamRef.current = null;
@@ -234,6 +235,13 @@ export const VoiceRecorder: React.FC<VoiceRecorderProps> = ({
 
     if (!finalAudioUrl) {
       finalAudioUrl = createFallbackVoiceAudio(Math.max(2, seconds));
+    }
+
+    // Upload audio to backend storage for instant streaming & Firestore quota safety
+    try {
+      finalAudioUrl = await uploadVoiceAudio(finalAudioUrl);
+    } catch (e) {
+      console.warn('Upload error, using inline audio:', e);
     }
 
     const finalDuration = formatTime(Math.max(1, seconds));

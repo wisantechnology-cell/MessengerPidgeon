@@ -152,17 +152,18 @@ export const CallModal: React.FC<CallModalProps> = ({
         rxCtx.resume().catch(() => {});
       }
 
-      // Decode base64 to binary string -> Int16Array -> Float32Array
+      // Safely decode 16-bit PCM bytes without alignment errors
       const binaryStr = atob(audioB64);
-      const byteLen = binaryStr.length;
-      const u8 = new Uint8Array(byteLen);
-      for (let i = 0; i < byteLen; i++) {
-        u8[i] = binaryStr.charCodeAt(i);
-      }
-      const pcm16 = new Int16Array(u8.buffer);
-      const float32 = new Float32Array(pcm16.length);
-      for (let i = 0; i < pcm16.length; i++) {
-        float32[i] = pcm16[i] / 32768.0;
+      const sampleCount = Math.floor(binaryStr.length / 2);
+      if (sampleCount === 0) return;
+
+      const float32 = new Float32Array(sampleCount);
+      for (let i = 0; i < sampleCount; i++) {
+        const b0 = binaryStr.charCodeAt(i * 2);
+        const b1 = binaryStr.charCodeAt(i * 2 + 1);
+        let val = (b1 << 8) | b0;
+        if (val >= 0x8000) val -= 0x10000;
+        float32[i] = val / 32768.0;
       }
 
       const audioBuffer = rxCtx.createBuffer(1, float32.length, 12000);
@@ -178,8 +179,8 @@ export const CallModal: React.FC<CallModalProps> = ({
       }
       bufferSource.start(nextPlayTimeRef.current);
       nextPlayTimeRef.current += audioBuffer.duration;
-    } catch {
-      // ignore corrupted chunk
+    } catch (err) {
+      console.warn('Audio chunk decode notice:', err);
     }
   }, []);
 
@@ -480,13 +481,14 @@ export const CallModal: React.FC<CallModalProps> = ({
               remoteVideoRef.current.srcObject = incomingStream;
               remoteVideoRef.current.volume = 1.0;
               remoteVideoRef.current.muted = false;
-              remoteVideoRef.current.play().catch(() => {});
+              remoteVideoRef.current.play().catch(() => {
+                setAudioNeedsUnlock(true);
+              });
             }
           }
 
           // Handle Audio Track
           if (event.track.kind === 'audio' || incomingStream.getAudioTracks().length > 0) {
-            // 1. Element playback
             if (remoteAudioRef.current) {
               remoteAudioRef.current.srcObject = incomingStream;
               remoteAudioRef.current.volume = 1.0;
@@ -495,21 +497,10 @@ export const CallModal: React.FC<CallModalProps> = ({
                 setAudioNeedsUnlock(true);
               });
             }
-
-            // 2. Hardware speaker pipe through Web Audio API for unblockable sound
-            try {
-              const AudioCtx = window.AudioContext || (window as any).webkitAudioContext;
-              if (AudioCtx) {
-                if (!webrtcAudioCtxRef.current || webrtcAudioCtxRef.current.state === 'closed') {
-                  webrtcAudioCtxRef.current = new AudioCtx();
-                }
-                const actx = webrtcAudioCtxRef.current;
-                if (actx.state === 'suspended') actx.resume().catch(() => {});
-                const src = actx.createMediaStreamSource(incomingStream);
-                src.connect(actx.destination);
-              }
-            } catch (err) {
-              console.warn('Audio pipe notice:', err);
+            if (remoteVideoRef.current) {
+              remoteVideoRef.current.volume = 1.0;
+              remoteVideoRef.current.muted = false;
+              remoteVideoRef.current.play().catch(() => {});
             }
           }
         };

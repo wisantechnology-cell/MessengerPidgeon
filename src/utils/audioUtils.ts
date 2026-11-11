@@ -368,15 +368,41 @@ export async function stopMediaRecorderSafely(
 }
 
 /**
+ * Uploads audio to backend storage for instant HTTP streaming and Firestore 1MB quota safety.
+ * Returns the short HTTP URL if successful, or the original Data URL if offline.
+ */
+export async function uploadVoiceAudio(dataUrl: string): Promise<string> {
+  if (!dataUrl || !dataUrl.startsWith('data:')) {
+    return dataUrl;
+  }
+  try {
+    const res = await fetch('/api/audio/upload', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ dataUrl }),
+    });
+    if (res.ok) {
+      const data = await res.json();
+      if (data.audioUrl) {
+        return data.audioUrl;
+      }
+    }
+  } catch (err) {
+    console.warn('Audio upload notice, using raw dataUrl fallback:', err);
+  }
+  return dataUrl;
+}
+
+/**
  * Generate a complete, audible, self-contained WAV audio Data URL for voice notes
  * when microphone is unavailable or blocked.
  * Produces clear, full-volume human voice vocal formants and cadences for the entire duration.
- * Optimized at 11,025 Hz so it is compact (< 450 KB) and always fits in Firestore.
+ * Optimized at 8,000 Hz so it is compact and always plays smoothly without cuts.
  */
-export function createFallbackVoiceAudio(durationSeconds: number = 3): string {
+export function createFallbackVoiceAudio(durationSeconds: number = 15): string {
   try {
     const sampleRate = 8000; // Ultra-fast lightweight fallback
-    const actualDuration = Math.max(2, Math.min(Math.round(durationSeconds), 6));
+    const actualDuration = Math.max(2, Math.min(Math.round(durationSeconds), 180));
     const numSamples = Math.floor(sampleRate * actualDuration);
     const buffer = new ArrayBuffer(44 + numSamples * 2);
     const view = new DataView(buffer);

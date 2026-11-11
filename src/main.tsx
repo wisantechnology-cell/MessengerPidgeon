@@ -12,12 +12,14 @@ createRoot(document.getElementById('root')!).render(
   </StrictMode>
 );
 
-// Register PWA Service Worker on mobile, tablet, and desktop
-if ('serviceWorker' in navigator && process.env.NODE_ENV !== 'development') {
+// Register PWA Service Worker on mobile, tablet, and desktop for background notifications
+if (typeof window !== 'undefined' && 'serviceWorker' in navigator) {
   window.addEventListener('load', () => {
     navigator.serviceWorker
       .register('/sw.js')
-      .then((reg) => console.log('PidgeX PWA Service Worker registrado:', reg.scope))
+      .then((reg) => {
+        reg.update().catch(() => {});
+      })
       .catch((err) => console.warn('PWA SW error:', err));
   });
 }

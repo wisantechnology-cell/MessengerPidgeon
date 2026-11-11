@@ -67,7 +67,13 @@ import { createSvgAvatar } from './utils/avatarUtils';
 import { InstallPwaModal } from './components/InstallPwaModal';
 import { FlyingBirdLoader } from './components/FlyingBirdLoader';
 import { BirdNotificationToast, BirdNotification } from './components/BirdNotificationToast';
-import { sendNativeSystemNotification, requestNotificationPermission } from './utils/nativeNotifications';
+import {
+  sendNativeCallNotification,
+  sendNativeMessageNotification,
+  sendNativeSystemNotification,
+  requestNotificationPermission,
+} from './utils/nativeNotifications';
+import { NotificationPermissionBanner } from './components/NotificationPermissionBanner';
 import {
   registerKnownUser,
   broadcastUserPresence,
@@ -418,8 +424,8 @@ export default function App() {
   const [isTimeCapsuleModalOpen, setIsTimeCapsuleModalOpen] = useState<boolean>(false);
   const [isLocalRadarOpen, setIsLocalRadarOpen] = useState<boolean>(false);
   const [isClassicMode, setIsClassicMode] = useState<boolean>(localStorage.getItem('pidge_classic_mode') === 'true');
-  const [isTutorialOpen, setIsTutorialOpen] = useState<boolean>(!localStorage.getItem('pidge_tutorial_seen'));
-  const [isTourOpen, setIsTourOpen] = useState<boolean>(!localStorage.getItem('pidge_spotlight_seen'));
+  const [isTutorialOpen, setIsTutorialOpen] = useState<boolean>(false);
+  const [isTourOpen, setIsTourOpen] = useState<boolean>(false);
   const [isInstallModalOpen, setIsInstallModalOpen] = useState<boolean>(false);
   const [isAppLoading, setIsAppLoading] = useState<boolean>(true);
 
@@ -587,11 +593,12 @@ export default function App() {
         });
 
         if (foundCall && (!incomingCallData || incomingCallData.id !== foundCall.id)) {
-          sendNativeSystemNotification(
-            `📞 Llamada de ${foundCall.callerName}`,
-            foundCall.isVideo ? 'Videollamada en vivo PidgeX' : 'Llamada de voz PidgeX',
+          sendNativeCallNotification(
+            foundCall.callerName,
+            foundCall.isVideo,
             foundCall.callerAvatar,
-            foundCall.chatId
+            foundCall.id,
+            user
           );
         }
 
@@ -779,6 +786,44 @@ export default function App() {
   // Centralized real-time incoming message processor (handles WebSockets and cross-tab broadcasts)
   const handleIncomingLiveMessage = (roomId: string, rawMsg: Message) => {
     if (!rawMsg) return;
+
+    // Handle high-priority call ringing signal via WebSockets
+    if (rawMsg.text && rawMsg.text.startsWith('PIDGEX_CALL_RINGING:')) {
+      try {
+        const payload = JSON.parse(rawMsg.text.substring('PIDGEX_CALL_RINGING:'.length));
+        const myPhoneClean = getCleanPhone(user.phone);
+        const myUserId = user.id || 'me';
+        const recPhone = getCleanPhone(payload.receiverPhone);
+        const isTargetedToMe =
+          (recPhone && myPhoneClean && recPhone === myPhoneClean) ||
+          (payload.receiverId && payload.receiverId === myUserId) ||
+          (payload.receiverPhone && user.phone && payload.receiverPhone === user.phone);
+
+        if (isTargetedToMe && payload.callerId !== myUserId) {
+          const callData: IncomingCallData = {
+            id: payload.callId || `call_${Date.now()}`,
+            callerId: payload.callerId || 'unknown',
+            callerName: payload.callerName || 'Contacto PidgeX',
+            callerPhone: payload.callerPhone || '',
+            callerAvatar: payload.callerAvatar || '',
+            isVideo: Boolean(payload.isVideo),
+            chatId: payload.chatId || roomId,
+          };
+          sendNativeCallNotification(
+            callData.callerName,
+            callData.isVideo,
+            callData.callerAvatar,
+            callData.id,
+            user
+          );
+          setIncomingCallData(callData);
+        }
+      } catch (err) {
+        console.warn('Failed parsing PIDGEX_CALL_RINGING payload:', err);
+      }
+      return;
+    }
+
     const myPhoneClean = getCleanPhone(user.phone);
     const msgSenderPhoneClean = getCleanPhone(rawMsg.senderPhone);
     const myUserId = user.id || 'me';
@@ -862,14 +907,20 @@ export default function App() {
 
       // Audible chime & visual toast for incoming message
       soundEffects.playReceive();
+      const senderDisplayName = targetChatName || incomingMsg.senderName || 'Contacto PidgeX';
+      const previewText =
+        incomingMsg.text ||
+        (incomingMsg.type === 'voice' ? '🎙️ Mensaje de voz' : `📎 ${incomingMsg.type}`);
+
+      // Native device vibration and screen wake lock notification (even when screen is off)
+      sendNativeMessageNotification(senderDisplayName, previewText, roomId);
+
       if (activeChatId !== roomId) {
         ringtoneManager.playIncomingMessageAlert(user);
         setInAppNotification({
           id: `notif_${Date.now()}`,
-          title: targetChatName || incomingMsg.senderName || 'PidgeX',
-          body:
-            incomingMsg.text ||
-            (incomingMsg.type === 'voice' ? 'Nota de voz recibida' : 'Nuevo mensaje recibido'),
+          title: senderDisplayName,
+          body: previewText,
         });
       }
 
@@ -930,6 +981,7 @@ export default function App() {
       bus.close();
     };
   }, [activeChatId, user.phone, user.id]);
+
   const handleStartCall = async (chat: Chat, isVideo: boolean) => {
     const callerPhoneClean = getCleanPhone(user.phone);
     const receiverPhoneClean = getCleanPhone(chat.phone);
@@ -968,9 +1020,47 @@ export default function App() {
     } catch (e) {
       console.warn('Error syncing call doc to Firestore:', e);
     }
+
+    // Also broadcast ringing signal via WebSocket and BroadcastChannel to reach phones instantly
+    try {
+      const callRingingPayload = {
+        callId: realCallId,
+        callerId: user.id || 'me',
+        callerName: user.name,
+        callerAvatar: user.avatarUrl,
+        callerPhone: callerPhoneClean,
+        receiverId: chat.id || '',
+        receiverPhone: receiverPhoneClean,
+        isVideo,
+        chatId: chat.id,
+      };
+      const ringingMsg: Message = {
+        id: `call_signal_${realCallId}`,
+        senderId: user.id || 'me',
+        senderName: user.name,
+        senderAvatar: user.avatarUrl,
+        senderPhone: callerPhoneClean,
+        timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+        timestampMs: Date.now(),
+        type: 'text',
+        text: `PIDGEX_CALL_RINGING:${JSON.stringify(callRingingPayload)}`,
+        chatId: chat.id,
+        isRead: true,
+      };
+      realtimeClient.sendMessage(chat.id, ringingMsg);
+      realtimeClient.sendMessage('global_calls', ringingMsg);
+      if (typeof window !== 'undefined' && 'BroadcastChannel' in window) {
+        const bc = new BroadcastChannel('pidgex_channel_sync_bus');
+        bc.postMessage({ type: 'NEW_MESSAGE', chatId: chat.id, message: ringingMsg });
+        bc.close();
+      }
+    } catch (e) {
+      console.warn('Error broadcasting call ringing signal:', e);
+    }
   };
 
   const handleAcceptIncomingCall = async (call: IncomingCallData) => {
+    ringtoneManager.stopIncomingCallAlert();
     try {
       const callDocRef = doc(db, 'calls', call.id);
       await updateDoc(callDocRef, {
@@ -1021,6 +1111,7 @@ export default function App() {
   };
 
   const handleDeclineIncomingCall = async (call: IncomingCallData) => {
+    ringtoneManager.stopIncomingCallAlert();
     try {
       const callDocRef = doc(db, 'calls', call.id);
       await updateDoc(callDocRef, {
@@ -1032,6 +1123,40 @@ export default function App() {
     }
     setIncomingCallData(null);
   };
+
+  // Service Worker background action listener (Answer/Decline directly from phone lockscreen notifications)
+  useEffect(() => {
+    if (typeof navigator === 'undefined' || !('serviceWorker' in navigator)) return;
+
+    const handleSWMessage = (event: MessageEvent) => {
+      const { type, callId } = event.data || {};
+      if (type === 'ANSWER_CALL') {
+        if (incomingCallData && (!callId || incomingCallData.id === callId)) {
+          handleAcceptIncomingCall(incomingCallData);
+        }
+      } else if (type === 'DECLINE_CALL') {
+        if (incomingCallData && (!callId || incomingCallData.id === callId)) {
+          handleDeclineIncomingCall(incomingCallData);
+        }
+      }
+    };
+
+    navigator.serviceWorker.addEventListener('message', handleSWMessage);
+
+    // Check URL parameters when opened from notification
+    try {
+      const urlParams = new URLSearchParams(window.location.search);
+      const openChatId = urlParams.get('chatId');
+      if (openChatId) {
+        setActiveChatId(openChatId);
+        setActiveTab('chats');
+      }
+    } catch {}
+
+    return () => {
+      navigator.serviceWorker.removeEventListener('message', handleSWMessage);
+    };
+  }, [incomingCallData]);
 
   const handleGoogleLogin = async () => {
     try {
@@ -1994,25 +2119,35 @@ export default function App() {
   // Start chat with seller on product inquiry (Facebook Marketplace style)
   const handleStartChatWithSeller = (product: MarketplaceProduct, inquiryMessage: string) => {
     const timestamp = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+    const userPhoneClean = getCleanPhone(user.phone);
+    const sellerPhoneClean = getCleanPhone(product.sellerPhone || '');
 
     let targetChat = chats.find(
       (c) =>
+        (sellerPhoneClean && c.phone && getCleanPhone(c.phone) === sellerPhoneClean) ||
         (product.sellerPhone && c.phone === product.sellerPhone) ||
         c.name.toLowerCase() === product.sellerName.toLowerCase() ||
         c.id === `chat_${product.sellerId}`
     );
 
-    const chatId = targetChat ? targetChat.id : `chat_seller_${Date.now()}`;
+    const chatId = targetChat
+      ? targetChat.id
+      : (userPhoneClean && sellerPhoneClean
+          ? getDirectChatId(user.phone, product.sellerPhone)
+          : `chat_seller_${product.sellerId || Date.now()}`);
 
     const inquiryMsgObj: Message = {
       id: `msg_prod_${Date.now()}`,
       chatId,
-      senderId: user.id || 'current_user',
+      senderId: user.id || 'me',
       senderName: user.name || 'Tú',
+      senderAvatar: user.avatarUrl,
+      senderPhone: userPhoneClean,
       type: 'text',
-      text: `*Pregunta de BirdMarketplace*\nArtículo: **${product.title}**\nPrecio: $${product.price}\n\n"${inquiryMessage}"`,
+      text: `🛍️ *Pregunta por producto de PidgeX Market*\n📦 *Artículo:* ${product.title}\n💵 *Precio:* $${product.price}\n\n"${inquiryMessage}"`,
       mediaUrl: product.imageUrl,
       timestamp,
+      timestampMs: Date.now(),
       isRead: true,
       reactions: {},
     };
@@ -2023,7 +2158,7 @@ export default function App() {
           c.id === targetChat!.id
             ? {
                 ...c,
-                messages: [...c.messages, inquiryMsgObj],
+                messages: [...(c.messages || []), inquiryMsgObj],
                 lastMessageText: `${product.title}: ${inquiryMessage}`,
                 lastMessageTime: timestamp,
                 lastMessageRead: true,
@@ -2032,17 +2167,16 @@ export default function App() {
             : c
         )
       );
-      setActiveChatId(targetChat.id);
     } else {
       const newChat: Chat = {
         id: chatId,
         name: product.sellerName,
-        phone: product.sellerPhone || undefined,
+        phone: product.sellerPhone ? ensurePhoneStartsWith16(product.sellerPhone) : undefined,
         isFriend: true,
-        avatarUrl: product.sellerAvatarUrl,
+        avatarUrl: product.sellerAvatarUrl || createSvgAvatar(product.sellerName),
         isVerified: true,
         isOnline: true,
-        statusText: `Vendedor en BirdMarketplace • ${product.location}`,
+        statusText: `Vendedor en PidgeX Market • ${product.location}`,
         type: 'direct',
         categories: ['all', 'friends'],
         unreadCount: 0,
@@ -2053,21 +2187,33 @@ export default function App() {
       };
 
       setChats((prev) => [newChat, ...prev]);
-      setActiveChatId(chatId);
+    }
+
+    // Switch view to chats tab and open conversation immediately
+    setActiveChatId(chatId);
+    setActiveTab('chats');
+
+    // Broadcast in real-time via WebSockets and local bus
+    try {
+      realtimeClient.sendMessage(chatId, inquiryMsgObj);
+      if (typeof window !== 'undefined' && 'BroadcastChannel' in window) {
+        const bus = new BroadcastChannel('pidgex_channel_sync_bus');
+        bus.postMessage({ type: 'NEW_MESSAGE', chatId, message: inquiryMsgObj });
+        bus.close();
+      }
+    } catch (err) {
+      console.warn('Realtime broadcast error on seller inquiry:', err);
     }
 
     // Sync marketplace inquiry to Firestore so seller receives it immediately
     try {
-      const userPhoneClean = getCleanPhone(user.phone);
-      const sellerPhoneClean = getCleanPhone(product.sellerPhone || '');
-
       const chatDocRef = doc(db, 'chats', chatId);
       setDoc(chatDocRef, {
         id: chatId,
         name: product.sellerName,
         type: 'direct',
         participantPhones: [userPhoneClean, sellerPhoneClean].filter(Boolean),
-        participants: [user.id || 'me', product.sellerId],
+        participants: [user.id || 'me', product.sellerId].filter(Boolean),
         usersMap: {
           [userPhoneClean]: {
             id: user.id || 'me',
@@ -2276,9 +2422,11 @@ export default function App() {
           <>
             {/* Main Tabs with 1 Second Directional Slide Transitions */}
             {activeTab === 'chats' && (
-              <div key="tab_chats" className={`w-full h-full animate-in ${lastTabDirection === 'right' ? 'slide-in-from-right-16' : 'slide-in-from-left-16'} duration-1000 ease-out`}>
-                <ChatsListView
-                  chats={chats}
+              <div key="tab_chats" className={`w-full h-full flex flex-col overflow-hidden animate-in ${lastTabDirection === 'right' ? 'slide-in-from-right-16' : 'slide-in-from-left-16'} duration-1000 ease-out`}>
+                <NotificationPermissionBanner isNightMode={isNightMode} />
+                <div className="flex-1 min-h-0 overflow-hidden">
+                  <ChatsListView
+                    chats={chats}
                   user={user}
                   wallpapers={WALLPAPERS}
                   statuses={statuses}
@@ -2308,6 +2456,7 @@ export default function App() {
                   onOpenAddFriend={() => setIsAddFriendModalOpen(true)}
                   isClassicMode={isClassicMode}
                 />
+                </div>
               </div>
             )}
 

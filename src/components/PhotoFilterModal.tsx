@@ -5,16 +5,22 @@ import {
   Upload,
   Camera,
   RefreshCw,
+  Video as VideoIcon,
+  Square,
+  Play,
+  Film,
+  Loader2,
 } from 'lucide-react';
 
 interface PhotoFilterModalProps {
   isOpen: boolean;
   onClose: () => void;
   onSendPhoto: (
-    photoUrl: string,
+    mediaUrl: string,
     caption: string,
     filter: string,
-    fileName: string
+    fileName: string,
+    mediaType?: 'image' | 'video'
   ) => void;
   contactName?: string;
 }
@@ -25,27 +31,45 @@ export const PhotoFilterModal: React.FC<PhotoFilterModalProps> = ({
   onSendPhoto,
   contactName = 'Contacto',
 }) => {
-  const [selectedPhoto, setSelectedPhoto] = useState<string>('');
-  const [photoName, setPhotoName] = useState<string>('');
+  const [selectedMedia, setSelectedMedia] = useState<string>('');
+  const [mediaType, setMediaType] = useState<'image' | 'video'>('image');
+  const [mediaName, setMediaName] = useState<string>('');
   const [caption, setCaption] = useState<string>('');
   const [isCameraActive, setIsCameraActive] = useState<boolean>(false);
   const [cameraFacing, setCameraFacing] = useState<'user' | 'environment'>('user');
+  const [isRecordingVideo, setIsRecordingVideo] = useState<boolean>(false);
+  const [recordSeconds, setRecordSeconds] = useState<number>(0);
+  const [isUploading, setIsUploading] = useState<boolean>(false);
 
   const fileInputRef = useRef<HTMLInputElement>(null);
   const videoRef = useRef<HTMLVideoElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const streamRef = useRef<MediaStream | null>(null);
+  const mediaRecorderRef = useRef<MediaRecorder | null>(null);
+  const recordedChunksRef = useRef<Blob[]>([]);
+  const recordTimerRef = useRef<any>(null);
 
   // Stop camera stream helper
   const stopCamera = () => {
+    if (recordTimerRef.current) {
+      clearInterval(recordTimerRef.current);
+      recordTimerRef.current = null;
+    }
+    if (mediaRecorderRef.current && mediaRecorderRef.current.state === 'recording') {
+      try {
+        mediaRecorderRef.current.stop();
+      } catch {}
+    }
     if (streamRef.current) {
       streamRef.current.getTracks().forEach((track) => track.stop());
       streamRef.current = null;
     }
     setIsCameraActive(false);
+    setIsRecordingVideo(false);
+    setRecordSeconds(0);
   };
 
-  // Start camera
+  // Start live camera
   const startCamera = async (facing: 'user' | 'environment' = cameraFacing) => {
     stopCamera();
     try {
@@ -55,7 +79,7 @@ export const PhotoFilterModal: React.FC<PhotoFilterModalProps> = ({
           width: { ideal: 1280 },
           height: { ideal: 720 },
         },
-        audio: false,
+        audio: true, // Allow microphone for video recording
       });
       streamRef.current = stream;
       setIsCameraActive(true);
@@ -65,8 +89,23 @@ export const PhotoFilterModal: React.FC<PhotoFilterModalProps> = ({
         videoRef.current.play().catch(() => {});
       }
     } catch (err) {
-      console.warn('Camera access error or denied:', err);
-      setIsCameraActive(false);
+      console.warn('Camera access denied or error, retrying video only:', err);
+      try {
+        const stream = await navigator.mediaDevices.getUserMedia({
+          video: { facingMode: facing },
+          audio: false,
+        });
+        streamRef.current = stream;
+        setIsCameraActive(true);
+        setCameraFacing(facing);
+        if (videoRef.current) {
+          videoRef.current.srcObject = stream;
+          videoRef.current.play().catch(() => {});
+        }
+      } catch (e) {
+        console.warn('Camera failed:', e);
+        setIsCameraActive(false);
+      }
     }
   };
 
@@ -77,7 +116,8 @@ export const PhotoFilterModal: React.FC<PhotoFilterModalProps> = ({
     }
   }, [isCameraActive]);
 
-  const handleCaptureCamera = () => {
+  // Capture instant photo from camera
+  const handleCapturePhoto = () => {
     if (videoRef.current && canvasRef.current) {
       const video = videoRef.current;
       const canvas = canvasRef.current;
@@ -91,11 +131,76 @@ export const PhotoFilterModal: React.FC<PhotoFilterModalProps> = ({
         }
         ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
         const dataUrl = canvas.toDataURL('image/jpeg', 0.92);
-        setSelectedPhoto(dataUrl);
-        setPhotoName(`Foto_${Date.now()}.jpg`);
+        setSelectedMedia(dataUrl);
+        setMediaType('image');
+        setMediaName(`Foto_${Date.now()}.jpg`);
         stopCamera();
       }
     }
+  };
+
+  // Start recording video clip with camera
+  const handleStartRecordVideo = () => {
+    if (!streamRef.current) return;
+    recordedChunksRef.current = [];
+
+    let mimeType = 'video/webm;codecs=vp8,opus';
+    if (!MediaRecorder.isTypeSupported(mimeType)) {
+      mimeType = 'video/webm';
+      if (!MediaRecorder.isTypeSupported(mimeType)) {
+        mimeType = 'video/mp4';
+      }
+    }
+
+    try {
+      const recorder = new MediaRecorder(streamRef.current, { mimeType });
+      recorder.ondataavailable = (e) => {
+        if (e.data && e.data.size > 0) {
+          recordedChunksRef.current.push(e.data);
+        }
+      };
+
+      recorder.onstop = () => {
+        const blob = new Blob(recordedChunksRef.current, { type: mimeType });
+        const reader = new FileReader();
+        reader.onloadend = () => {
+          if (typeof reader.result === 'string') {
+            setSelectedMedia(reader.result);
+            setMediaType('video');
+            setMediaName(`Video_${Date.now()}.${mimeType.includes('mp4') ? 'mp4' : 'webm'}`);
+            stopCamera();
+          }
+        };
+        reader.readAsDataURL(blob);
+      };
+
+      recorder.start(100);
+      mediaRecorderRef.current = recorder;
+      setIsRecordingVideo(true);
+      setRecordSeconds(0);
+
+      recordTimerRef.current = setInterval(() => {
+        setRecordSeconds((s) => s + 1);
+      }, 1000);
+    } catch (err) {
+      console.error('Failed to start MediaRecorder:', err);
+    }
+  };
+
+  // Stop recording video clip
+  const handleStopRecordVideo = () => {
+    if (recordTimerRef.current) {
+      clearInterval(recordTimerRef.current);
+      recordTimerRef.current = null;
+    }
+    if (mediaRecorderRef.current && mediaRecorderRef.current.state === 'recording') {
+      try {
+        mediaRecorderRef.current.stop();
+      } catch (err) {
+        console.warn('Error stopping video recording:', err);
+      }
+    }
+    setIsRecordingVideo(false);
   };
 
   // Switch front/back camera
@@ -104,15 +209,20 @@ export const PhotoFilterModal: React.FC<PhotoFilterModalProps> = ({
     startCamera(nextFacing);
   };
 
-  // Upload file from local device
+  // Upload photo or video file from device
   const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (file) {
+      const isVideoFile =
+        file.type.startsWith('video') ||
+        /\.(mp4|mov|webm|mkv|3gp|m4v)$/i.test(file.name);
+
       const reader = new FileReader();
       reader.onload = () => {
         if (typeof reader.result === 'string') {
-          setSelectedPhoto(reader.result);
-          setPhotoName(file.name);
+          setSelectedMedia(reader.result);
+          setMediaType(isVideoFile ? 'video' : 'image');
+          setMediaName(file.name);
           stopCamera();
         }
       };
@@ -120,11 +230,47 @@ export const PhotoFilterModal: React.FC<PhotoFilterModalProps> = ({
     }
   };
 
-  const handleSend = () => {
-    if (!selectedPhoto) return;
-    onSendPhoto(selectedPhoto, caption.trim(), '', photoName || 'Foto.jpg');
+  // Send photo or video
+  const handleSend = async () => {
+    if (!selectedMedia) return;
+    setIsUploading(true);
+
+    let finalMediaUrl = selectedMedia;
+
+    // If media is a data URL, upload to server storage to avoid Firestore 1MB document quota limit
+    if (selectedMedia.startsWith('data:')) {
+      try {
+        const response = await fetch('/api/media/upload', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            dataUrl: selectedMedia,
+            filename: mediaName,
+          }),
+        });
+        if (response.ok) {
+          const resData = await response.json();
+          if (resData.mediaUrl) {
+            finalMediaUrl = resData.mediaUrl;
+          }
+        }
+      } catch (err) {
+        console.warn('Media upload to server failed, using local payload:', err);
+      }
+    }
+
+    onSendPhoto(
+      finalMediaUrl,
+      caption.trim(),
+      '',
+      mediaName || (mediaType === 'video' ? 'Video.mp4' : 'Foto.jpg'),
+      mediaType
+    );
+
+    setIsUploading(false);
     stopCamera();
-    setSelectedPhoto('');
+    setSelectedMedia('');
+    setMediaName('');
     setCaption('');
     onClose();
   };
@@ -133,9 +279,10 @@ export const PhotoFilterModal: React.FC<PhotoFilterModalProps> = ({
   useEffect(() => {
     if (!isOpen) {
       stopCamera();
-      setSelectedPhoto('');
-      setPhotoName('');
+      setSelectedMedia('');
+      setMediaName('');
       setCaption('');
+      setIsUploading(false);
     }
   }, [isOpen]);
 
@@ -145,7 +292,7 @@ export const PhotoFilterModal: React.FC<PhotoFilterModalProps> = ({
     <div
       role="dialog"
       aria-modal="true"
-      aria-labelledby="photo-modal-title"
+      aria-labelledby="media-modal-title"
       className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-4 bg-black/85 backdrop-blur-md animate-in fade-in duration-200"
     >
       <div className="relative w-full max-w-lg bg-[#181d28] border border-white/10 rounded-3xl shadow-2xl overflow-hidden flex flex-col max-h-[92vh]">
@@ -153,11 +300,11 @@ export const PhotoFilterModal: React.FC<PhotoFilterModalProps> = ({
         <div className="flex items-center justify-between px-5 py-4 border-b border-white/5 bg-[#141822]">
           <div className="flex items-center gap-2.5">
             <div className="w-8 h-8 rounded-full bg-[#2563eb]/20 text-[#38bdf8] flex items-center justify-center">
-              <Camera className="w-4 h-4" />
+              {mediaType === 'video' ? <Film className="w-4 h-4" /> : <Camera className="w-4 h-4" />}
             </div>
             <div>
-              <h2 id="photo-modal-title" className="text-sm font-bold text-[#dfe2ee]">
-                Enviar Foto
+              <h2 id="media-modal-title" className="text-sm font-bold text-[#dfe2ee]">
+                Enviar Foto o Video
               </h2>
               <p className="text-[11px] text-[#8d90a0]">Para: {contactName}</p>
             </div>
@@ -167,7 +314,7 @@ export const PhotoFilterModal: React.FC<PhotoFilterModalProps> = ({
               stopCamera();
               onClose();
             }}
-            aria-label="Cerrar modal de foto"
+            aria-label="Cerrar modal"
             className="w-8 h-8 rounded-full bg-white/5 hover:bg-white/10 text-[#8d90a0] hover:text-white flex items-center justify-center transition-colors cursor-pointer"
           >
             <X className="w-4 h-4" />
@@ -189,51 +336,104 @@ export const PhotoFilterModal: React.FC<PhotoFilterModalProps> = ({
                     cameraFacing === 'user' ? 'scale-x-[-1]' : ''
                   }`}
                 />
+
+                {/* Live Recording Badge */}
+                {isRecordingVideo && (
+                  <div className="absolute top-4 left-4 z-20 flex items-center gap-2 px-3 py-1.5 rounded-full bg-red-600/90 text-white text-xs font-bold shadow-lg animate-pulse">
+                    <span className="w-2.5 h-2.5 rounded-full bg-white animate-ping" />
+                    <span>Grabando Video: {Math.floor(recordSeconds / 60)}:{String(recordSeconds % 60).padStart(2, '0')}</span>
+                  </div>
+                )}
+
                 {/* Camera controls overlay */}
-                <div className="absolute bottom-4 inset-x-0 flex items-center justify-center gap-6 z-20">
+                <div className="absolute bottom-4 inset-x-0 flex items-center justify-center gap-5 z-20 px-3">
                   <button
                     onClick={handleToggleFacing}
                     title="Girar cámara"
-                    className="w-11 h-11 rounded-full bg-black/60 text-white border border-white/20 flex items-center justify-center hover:bg-black/80 transition-all active:scale-95 cursor-pointer"
+                    disabled={isRecordingVideo}
+                    className="w-11 h-11 rounded-full bg-black/60 text-white border border-white/20 flex items-center justify-center hover:bg-black/80 transition-all active:scale-95 cursor-pointer disabled:opacity-40"
                   >
                     <RefreshCw className="w-5 h-5" />
                   </button>
 
-                  <button
-                    onClick={handleCaptureCamera}
-                    title="Capturar foto"
-                    className="w-16 h-16 rounded-full bg-white p-1 shadow-2xl active:scale-90 transition-all cursor-pointer"
-                  >
-                    <div className="w-full h-full rounded-full border-2 border-black bg-white flex items-center justify-center" />
-                  </button>
+                  {/* Take Photo Button */}
+                  {!isRecordingVideo ? (
+                    <button
+                      onClick={handleCapturePhoto}
+                      title="Tomar Foto"
+                      className="w-16 h-16 rounded-full bg-white p-1 shadow-2xl active:scale-90 transition-all cursor-pointer flex items-center justify-center"
+                    >
+                      <div className="w-full h-full rounded-full border-2 border-black bg-white flex items-center justify-center">
+                        <Camera className="w-6 h-6 text-black" />
+                      </div>
+                    </button>
+                  ) : (
+                    <button
+                      onClick={handleStopRecordVideo}
+                      title="Detener Grabación"
+                      className="w-16 h-16 rounded-full bg-red-600 p-1 shadow-2xl active:scale-90 transition-all cursor-pointer flex items-center justify-center animate-pulse"
+                    >
+                      <Square className="w-7 h-7 text-white fill-white" />
+                    </button>
+                  )}
+
+                  {/* Record Video Button */}
+                  {!isRecordingVideo ? (
+                    <button
+                      onClick={handleStartRecordVideo}
+                      title="Grabar Video con Cámara"
+                      className="w-11 h-11 rounded-full bg-red-600 hover:bg-red-500 text-white border border-red-400 flex items-center justify-center transition-all active:scale-95 cursor-pointer shadow-lg"
+                    >
+                      <VideoIcon className="w-5 h-5" />
+                    </button>
+                  ) : null}
 
                   <button
                     onClick={stopCamera}
-                    title="Cancelar cámara"
+                    title="Cancelar"
                     className="w-11 h-11 rounded-full bg-black/60 text-white border border-white/20 flex items-center justify-center hover:bg-black/80 transition-all active:scale-95 cursor-pointer"
                   >
                     <X className="w-5 h-5" />
                   </button>
                 </div>
               </div>
-            ) : selectedPhoto ? (
-              <div className="relative w-full h-full flex items-center justify-center">
-                <img
-                  src={selectedPhoto}
-                  alt={photoName || 'Foto seleccionada'}
-                  className="w-full h-full object-contain"
-                />
+            ) : selectedMedia ? (
+              <div className="relative w-full h-full flex items-center justify-center bg-black">
+                {mediaType === 'video' ? (
+                  <video
+                    src={selectedMedia}
+                    controls
+                    playsInline
+                    className="w-full h-full object-contain"
+                  />
+                ) : (
+                  <img
+                    src={selectedMedia}
+                    alt={mediaName || 'Foto seleccionada'}
+                    className="w-full h-full object-contain"
+                  />
+                )}
+                <button
+                  onClick={() => {
+                    setSelectedMedia('');
+                    setMediaName('');
+                  }}
+                  title="Cambiar archivo"
+                  className="absolute top-3 right-3 w-8 h-8 rounded-full bg-black/70 text-white hover:bg-red-600 transition-colors flex items-center justify-center cursor-pointer shadow-md"
+                >
+                  <X className="w-4 h-4" />
+                </button>
               </div>
             ) : (
-              /* Blank state when no photo is selected yet */
+              /* Blank state */
               <div className="flex flex-col items-center justify-center p-6 text-center gap-3">
                 <div className="w-16 h-16 rounded-full bg-blue-500/10 border border-blue-500/20 flex items-center justify-center text-[#38bdf8]">
                   <Upload className="w-8 h-8" />
                 </div>
                 <div>
-                  <h3 className="text-sm font-bold text-white">Ninguna foto seleccionada</h3>
+                  <h3 className="text-sm font-bold text-white">Ningún archivo seleccionado</h3>
                   <p className="text-xs text-[#8d90a0] mt-1 max-w-xs">
-                    Toma una foto con tu cámara o sube un archivo directamente desde tu dispositivo.
+                    Toma una foto, graba un video con tu cámara o sube fotos y videos directamente desde tu galería.
                   </p>
                 </div>
               </div>
@@ -258,7 +458,7 @@ export const PhotoFilterModal: React.FC<PhotoFilterModalProps> = ({
               }`}
             >
               <Camera className="w-4 h-4 text-[#38bdf8]" />
-              <span>{isCameraActive ? 'Cámara Activa' : 'Tomar con Cámara'}</span>
+              <span>{isCameraActive ? 'Cámara Activa' : 'Abrir Cámara'}</span>
             </button>
 
             <button
@@ -266,12 +466,12 @@ export const PhotoFilterModal: React.FC<PhotoFilterModalProps> = ({
               className="flex items-center justify-center gap-2 py-3 px-3 rounded-xl bg-[#212634] hover:bg-[#2a3042] border border-white/10 text-[#dfe2ee] text-xs font-bold transition-all cursor-pointer active:scale-98"
             >
               <Upload className="w-4 h-4 text-[#7bd0ff]" />
-              <span>Subir de Galería</span>
+              <span>Subir Foto o Video</span>
             </button>
             <input
               ref={fileInputRef}
               type="file"
-              accept="image/*"
+              accept="image/*,video/*"
               onChange={handleFileUpload}
               className="hidden"
             />
@@ -280,13 +480,13 @@ export const PhotoFilterModal: React.FC<PhotoFilterModalProps> = ({
           {/* Caption Input */}
           <div className="flex flex-col gap-1">
             <label className="text-xs font-bold text-[#dfe2ee]">
-              Pie de foto o mensaje (opcional):
+              Pie de {mediaType === 'video' ? 'video' : 'foto'} o mensaje (opcional):
             </label>
             <input
               type="text"
               value={caption}
               onChange={(e) => setCaption(e.target.value)}
-              placeholder="Escribe algo sobre esta foto..."
+              placeholder={mediaType === 'video' ? 'Escribe algo sobre este video...' : 'Escribe algo sobre esta foto...'}
               className="w-full bg-[#0f131c] text-xs text-[#dfe2ee] placeholder:text-[#8d90a0] px-3.5 py-2.5 rounded-xl border border-white/10 focus:outline-none focus:border-[#2563eb]"
             />
           </div>
@@ -299,18 +499,28 @@ export const PhotoFilterModal: React.FC<PhotoFilterModalProps> = ({
               stopCamera();
               onClose();
             }}
-            className="px-4 py-2.5 rounded-xl text-xs font-bold text-[#8d90a0] hover:text-white bg-white/5 hover:bg-white/10 transition-colors cursor-pointer"
+            disabled={isUploading}
+            className="px-4 py-2.5 rounded-xl text-xs font-bold text-[#8d90a0] hover:text-white bg-white/5 hover:bg-white/10 transition-colors cursor-pointer disabled:opacity-40"
           >
             Cancelar
           </button>
 
           <button
             onClick={handleSend}
-            disabled={!selectedPhoto || isCameraActive}
+            disabled={!selectedMedia || isCameraActive || isUploading}
             className="flex-1 py-2.5 px-4 rounded-xl bg-gradient-to-r from-[#2563eb] to-[#00a6e0] hover:from-[#1d4ed8] hover:to-[#0284c7] text-white text-xs font-bold shadow-lg shadow-blue-900/30 flex items-center justify-center gap-2 active:scale-98 transition-all disabled:opacity-40 disabled:pointer-events-none cursor-pointer"
           >
-            <Send className="w-4 h-4" />
-            <span>Enviar Foto</span>
+            {isUploading ? (
+              <>
+                <Loader2 className="w-4 h-4 animate-spin" />
+                <span>Enviando multimedia...</span>
+              </>
+            ) : (
+              <>
+                <Send className="w-4 h-4" />
+                <span>Enviar {mediaType === 'video' ? 'Video' : 'Foto'}</span>
+              </>
+            )}
           </button>
         </div>
       </div>

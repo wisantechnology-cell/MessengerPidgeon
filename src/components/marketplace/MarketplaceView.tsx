@@ -564,14 +564,15 @@ export const MarketplaceView: React.FC<MarketplaceViewProps> = ({
                             e.stopPropagation();
                             setSelectedProduct(product);
                           }}
-                          className={`flex items-center gap-1 px-2.5 py-1 rounded-lg text-[10px] font-bold transition-all shrink-0 cursor-pointer ${
+                          className={`flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-[10px] font-bold transition-all shrink-0 cursor-pointer ${
                             isNightMode
-                              ? 'bg-[#0084ff]/15 hover:bg-[#0084ff] text-[#7bd0ff] hover:text-white'
+                              ? 'bg-[#0084ff]/20 hover:bg-[#0084ff] text-[#7bd0ff] hover:text-white border border-[#0084ff]/30'
                               : 'bg-sky-50 hover:bg-[#0084ff] text-[#0084ff] hover:text-white border border-sky-200 hover:border-transparent'
                           }`}
+                          title="Preguntar por el producto y abrir chat con el vendedor"
                         >
                           <MessageSquare className="w-3 h-3" />
-                          <span>Preguntar</span>
+                          <span>Preguntar por el producto</span>
                         </button>
                       )}
                     </div>

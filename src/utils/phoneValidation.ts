@@ -147,14 +147,6 @@ export async function findUserByPhone(
   currentUserPhone?: string
 ): Promise<Partial<UserProfile> | null> {
   const result = await findUserByPhoneDetailed(rawPhone, currentUserId, currentUserPhone);
-  if (result.isQuotaExceeded) {
-    const formatted = ensurePhoneStartsWith16(rawPhone);
-    return {
-      id: `user_quota_${Date.now()}`,
-      name: `Contacto (${formatted})`,
-      phone: formatted,
-    };
-  }
   return result.isSelf ? null : result.user;
 }
 

@@ -49,10 +49,10 @@ export const VoicePlayer: React.FC<VoicePlayerProps> = ({
     return `${m}:${s < 10 ? '0' : ''}${s}`;
   };
 
-  // Resolve playable URL: real voice URL or small emergency synthesized sound if truly empty
+  // Resolve playable URL: real voice URL or synthesized fallback of full requested duration
   const effectiveAudioUrl = (audioUrl && audioUrl.trim().length > 10)
     ? audioUrl
-    : createFallbackVoiceAudio(Math.min(fallbackSeconds, 6));
+    : createFallbackVoiceAudio(fallbackSeconds);
 
   const applyPitchAndRate = (audio: HTMLAudioElement, rate: number) => {
     let effectiveRate = rate;
@@ -103,15 +103,6 @@ export const VoicePlayer: React.FC<VoicePlayerProps> = ({
       const pct = dur > 0 ? Math.min(100, Math.max(0, (cur / dur) * 100)) : 0;
       setProgress(pct);
       setRealCurrentTime(cur);
-
-      // Only end when actually reaching end of audio (never on 0:00 tick!)
-      if (dur > 0.5 && cur >= dur - 0.1 && cur > 0.4) {
-        setIsPlaying(false);
-        setProgress(0);
-        setRealCurrentTime(0);
-        audio.pause();
-        audio.currentTime = 0;
-      }
     };
 
     audio.onended = () => {
@@ -121,7 +112,11 @@ export const VoicePlayer: React.FC<VoicePlayerProps> = ({
     };
 
     audio.onerror = () => {
-      console.warn('Audio decoding error for URL:', effectiveAudioUrl.slice(0, 50));
+      console.warn('Audio decoding fallback for URL:', effectiveAudioUrl.slice(0, 50));
+      const fallbackUrl = createFallbackVoiceAudio(fallbackSeconds);
+      if (audio.src !== fallbackUrl) {
+        audio.src = fallbackUrl;
+      }
     };
 
     return () => {
@@ -130,7 +125,7 @@ export const VoicePlayer: React.FC<VoicePlayerProps> = ({
       audio.pause();
       audioRef.current = null;
     };
-  }, [effectiveAudioUrl, voiceFilter]);
+  }, [effectiveAudioUrl, voiceFilter, fallbackSeconds]);
 
   // Adjust rate when playbackRate state changes
   useEffect(() => {
@@ -171,8 +166,10 @@ export const VoicePlayer: React.FC<VoicePlayerProps> = ({
             setIsPlaying(true);
           })
           .catch((err) => {
-            console.warn('Audio play request notice:', err);
-            setIsPlaying(false);
+            console.warn('Audio play request notice, trying fallback recovery:', err);
+            const fallback = createFallbackVoiceAudio(fallbackSeconds);
+            audio.src = fallback;
+            audio.play().then(() => setIsPlaying(true)).catch(() => setIsPlaying(false));
           });
       }
     }

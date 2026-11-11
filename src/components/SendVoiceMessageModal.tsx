@@ -17,6 +17,7 @@ import {
   getBestAudioMimeType,
   stopMediaRecorderSafely,
   UniversalVoiceRecorderEngine,
+  uploadVoiceAudio,
 } from '../utils/audioUtils';
 
 interface SendVoiceMessageModalProps {
@@ -287,6 +288,10 @@ export const SendVoiceMessageModal: React.FC<SendVoiceMessageModalProps> = ({
     if (!finalUrl) {
       finalUrl = createFallbackVoiceAudio(Math.max(2, seconds));
     }
+
+    try {
+      finalUrl = await uploadVoiceAudio(finalUrl);
+    } catch {}
 
     const durationText = formatTime(Math.max(1, seconds));
     onSendVoiceMessage(selectedChatId, durationText, finalUrl);

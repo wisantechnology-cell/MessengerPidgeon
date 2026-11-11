@@ -361,15 +361,16 @@ export const ChatView: React.FC<ChatViewProps> = ({
     photoUrl: string,
     caption: string,
     _filter: string,
-    fileName: string
+    fileName: string,
+    mediaType: 'image' | 'video' = 'image'
   ) => {
     onSendMessage(chat.id, {
       senderId: 'me',
       senderName: user.name,
-      type: 'image',
+      type: mediaType,
       mediaUrl: photoUrl,
       mediaName: fileName,
-      mediaSize: '3.2 MB',
+      mediaSize: mediaType === 'video' ? '12.4 MB' : '3.2 MB',
       text: caption || undefined,
       timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
       isRead: true,
@@ -1626,34 +1627,7 @@ export const ChatView: React.FC<ChatViewProps> = ({
                   <Sparkles className="w-2 h-2 text-black" />
                 </span>
               </div>
-              <span className="text-xs text-amber-300 font-bold">Foto</span>
-            </button>
-
-            <button
-              onClick={() => {
-                setShowAttachSheet(false);
-                onSendMessage(chat.id, {
-                  senderId: 'me',
-                  senderName: user.name,
-                  type: 'video',
-                  mediaUrl:
-                    'https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/ForBiggerBlazes.mp4',
-                  mediaName: 'Video_Demo_Bird.mp4',
-                  mediaDuration: '0:15',
-                  text: 'Compartiendo demo de video',
-                  timestamp: new Date().toLocaleTimeString([], {
-                    hour: '2-digit',
-                    minute: '2-digit',
-                  }),
-                  isRead: true,
-                });
-              }}
-              className="flex flex-col items-center gap-1.5 p-2 rounded-xl bg-[#1c2028] hover:bg-[#181c24] transition-colors cursor-pointer"
-            >
-              <div className="w-11 h-11 rounded-full bg-[#2563eb] flex items-center justify-center text-white shadow-md">
-                <VideoIcon className="w-5 h-5" />
-              </div>
-              <span className="text-xs text-[#dfe2ee] font-medium">Video</span>
+              <span className="text-xs text-amber-300 font-bold">Foto o Video</span>
             </button>
 
             <button

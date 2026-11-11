@@ -52,6 +52,9 @@ export const ProductDetailModal: React.FC<ProductDetailModalProps> = ({
 
   useEffect(() => {
     setIsConfirmingDelete(false);
+    if (product) {
+      setCustomMessage(`¡Hola ${product.sellerName.split(' ')[0]}! Me interesa tu producto "${product.title}" por $${product.price}. ¿Sigue disponible?`);
+    }
   }, [product?.id]);
 
   if (!product) return null;
@@ -291,109 +294,127 @@ export const ProductDetailModal: React.FC<ProductDetailModalProps> = ({
               </div>
             )}
 
-            {/* "Preguntar por el producto" Section (Facebook Marketplace style) */}
-            {!isOwner ? (
-              <div className="flex flex-col gap-2">
-                <section className={`flex flex-col gap-3 p-4 rounded-xl border shadow-sm ${
-                  isNightMode
-                    ? 'bg-gradient-to-br from-[#182236] to-[#121926] border-[#0084ff]/30 shadow-lg'
-                    : 'bg-gradient-to-br from-sky-50 to-cyan-50/70 border-sky-200'
-                }`}>
-                  <div className="flex items-center gap-2">
-                    <div className="w-6 h-6 rounded-lg bg-[#0084ff]/20 text-[#0084ff] flex items-center justify-center">
-                      <MessageSquare className="w-3.5 h-3.5" />
+            {/* SECCIÓN PREGUNTAR POR EL PRODUCTO - Siempre visible al ver el producto y picarle */}
+            <div className="flex flex-col gap-2">
+              <section className={`flex flex-col gap-3 p-4 sm:p-5 rounded-2xl border shadow-md ${
+                isNightMode
+                  ? 'bg-gradient-to-br from-[#162032] via-[#121927] to-[#0d131f] border-sky-500/30 shadow-sky-950/40'
+                  : 'bg-gradient-to-br from-sky-50 via-white to-cyan-50/70 border-sky-300 shadow-sky-100'
+              }`}>
+                {/* Header de la sección */}
+                <div className="flex items-center justify-between gap-2">
+                  <div className="flex items-center gap-2.5">
+                    <div className="w-8 h-8 rounded-xl bg-gradient-to-tr from-[#0084ff] to-cyan-500 text-white flex items-center justify-center shadow-md">
+                      <MessageSquare className="w-4 h-4" />
                     </div>
-                    <h4 className={`font-bold text-sm ${isNightMode ? 'text-white' : 'text-[#0c2340]'}`}>
-                      Preguntar por el producto
-                    </h4>
+                    <div>
+                      <h3 className={`font-black text-sm sm:text-base ${isNightMode ? 'text-white' : 'text-[#0c2340]'}`}>
+                        Preguntar por el producto
+                      </h3>
+                      <p className={`text-[11px] ${isNightMode ? 'text-[#8d90a0]' : 'text-[#476788]'}`}>
+                        Chatea directamente con <strong className={isNightMode ? 'text-sky-300' : 'text-[#0084ff]'}>{product.sellerName}</strong>
+                      </p>
+                    </div>
                   </div>
 
-                  {/* Preset Fast Inquiry Questions */}
+                  <span className="px-2 py-0.5 rounded-full bg-emerald-500/15 text-emerald-400 border border-emerald-500/30 text-[10px] font-bold">
+                    Chat directo
+                  </span>
+                </div>
+
+                {/* Botón de acceso directo "Preguntar por el producto" */}
+                <button
+                  type="button"
+                  onClick={(e) => {
+                    e.preventDefault();
+                    const textToSend = customMessage.trim() || `¡Hola! Me interesa tu producto "${product.title}" por $${product.price}. ¿Sigue disponible?`;
+                    onAskAboutProduct(product, textToSend);
+                    onClose();
+                  }}
+                  className="w-full py-3 px-4 rounded-xl bg-gradient-to-r from-[#0084ff] via-sky-600 to-cyan-500 hover:from-[#0074e0] hover:to-cyan-600 active:scale-[0.98] text-white font-extrabold text-xs sm:text-sm shadow-lg shadow-sky-500/25 flex items-center justify-center gap-2 transition-all cursor-pointer"
+                >
+                  <MessageSquare className="w-4 h-4" />
+                  <span>Preguntar por el producto y abrir chat</span>
+                </button>
+
+                {/* Preguntas predeterminadas rápidas */}
+                <div className="flex flex-col gap-1.5 pt-1">
+                  <span className={`text-[11px] font-semibold ${isNightMode ? 'text-[#8d90a0]' : 'text-[#476788]'}`}>
+                    Preguntas rápidas:
+                  </span>
                   <div className="flex flex-wrap gap-1.5">
                     {PRESET_QUESTIONS.map((q, idx) => (
                       <button
                         key={idx}
                         type="button"
-                        onClick={() => setCustomMessage(q)}
-                        className={`px-2.5 py-1 rounded-lg text-[11px] border transition-colors text-left cursor-pointer ${
+                        onClick={() => {
+                          setCustomMessage(q);
+                          onAskAboutProduct(product, q);
+                          onClose();
+                        }}
+                        className={`px-3 py-1.5 rounded-lg text-[11px] font-medium border transition-all text-left cursor-pointer active:scale-95 flex items-center gap-1.5 ${
                           isNightMode
-                            ? 'bg-white/5 hover:bg-white/15 text-[#dfe2ee] border-white/10'
-                            : 'bg-white hover:bg-sky-100 text-[#0c2340] border-sky-200 shadow-xs'
+                            ? 'bg-white/5 hover:bg-sky-500/20 text-[#dfe2ee] hover:text-white border-white/10 hover:border-sky-400/40'
+                            : 'bg-white hover:bg-sky-100 text-[#0c2340] hover:text-sky-900 border-sky-200 shadow-xs'
                         }`}
+                        title="Toca para enviar y abrir chat con esta pregunta"
                       >
-                        {q}
+                        <span>{q}</span>
                       </button>
                     ))}
                   </div>
-
-                  {/* Message input and Send button */}
-                  <form onSubmit={handleSendInquiry} className="flex flex-col gap-2 pt-1">
-                    <textarea
-                      rows={2}
-                      value={customMessage}
-                      onChange={(e) => setCustomMessage(e.target.value)}
-                      placeholder="Escribe tu mensaje o pregunta al vendedor..."
-                      className={`w-full px-3 py-2 rounded-xl border text-xs focus:outline-none transition-colors resize-none ${
-                        isNightMode
-                          ? 'bg-[#0f131c] border-white/15 text-white placeholder-[#686c7d] focus:border-[#0084ff]'
-                          : 'bg-white border-sky-200 text-[#0c2340] placeholder-slate-400 focus:border-[#0084ff] shadow-inner'
-                      }`}
-                    />
-
-                    <button
-                      type="submit"
-                      disabled={!customMessage.trim() || sentSuccess}
-                      className="w-full py-2.5 rounded-xl bg-[#0084ff] hover:bg-[#0070db] active:scale-[0.99] text-white font-bold text-xs transition-all shadow-md flex items-center justify-center gap-2 cursor-pointer disabled:opacity-50"
-                    >
-                      {sentSuccess ? (
-                        <>
-                          <Check className="w-4 h-4 stroke-[3]" />
-                          <span>¡Mensaje enviado al chat!</span>
-                        </>
-                      ) : (
-                        <>
-                          <Send className="w-3.5 h-3.5" />
-                          <span>Enviar mensaje al vendedor en PidgeX</span>
-                        </>
-                      )}
-                    </button>
-                  </form>
-                </section>
-
-                {onDeleteProduct && !isConfirmingDelete && (
-                  <div className="flex justify-end pt-1">
-                    <button
-                      type="button"
-                      onClick={() => setIsConfirmingDelete(true)}
-                      className="text-[11px] text-rose-500 hover:text-rose-600 flex items-center gap-1 transition-colors cursor-pointer py-1 px-2 rounded-md hover:bg-rose-500/10"
-                    >
-                      <Trash2 className="w-3 h-3" />
-                      <span>Eliminar este artículo</span>
-                    </button>
-                  </div>
-                )}
-              </div>
-            ) : (
-              !isConfirmingDelete && (
-                <div className={`flex items-center justify-between p-3 rounded-xl border ${
-                  isNightMode ? 'bg-white/5 border-white/5' : 'bg-sky-50/70 border-sky-200/70'
-                }`}>
-                  <span className={`text-xs ${isNightMode ? 'text-[#8d90a0]' : 'text-[#476788]'}`}>
-                    Opciones de tu artículo:
-                  </span>
-                  {onDeleteProduct && (
-                    <button
-                      type="button"
-                      onClick={() => setIsConfirmingDelete(true)}
-                      className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-rose-500/20 hover:bg-rose-500/30 text-rose-600 dark:text-rose-300 text-xs font-bold transition-colors cursor-pointer"
-                    >
-                      <Trash2 className="w-3.5 h-3.5" />
-                      <span>Eliminar publicación</span>
-                    </button>
-                  )}
                 </div>
-              )
-            )}
+
+                {/* Formulario con mensaje personalizado */}
+                <form onSubmit={handleSendInquiry} className="flex flex-col gap-2 pt-1 border-t border-sky-400/15">
+                  <span className={`text-[11px] font-semibold ${isNightMode ? 'text-[#8d90a0]' : 'text-[#476788]'}`}>
+                    O escribe tu propio mensaje:
+                  </span>
+                  <textarea
+                    rows={2}
+                    value={customMessage}
+                    onChange={(e) => setCustomMessage(e.target.value)}
+                    placeholder="Escribe tu mensaje o pregunta al vendedor..."
+                    className={`w-full px-3 py-2 rounded-xl border text-xs focus:outline-none transition-colors resize-none ${
+                      isNightMode
+                        ? 'bg-[#0f131c] border-white/15 text-white placeholder-[#686c7d] focus:border-[#0084ff]'
+                        : 'bg-white border-sky-200 text-[#0c2340] placeholder-slate-400 focus:border-[#0084ff] shadow-inner'
+                    }`}
+                  />
+
+                  <button
+                    type="submit"
+                    disabled={!customMessage.trim() || sentSuccess}
+                    className="w-full py-2.5 rounded-xl bg-white/10 hover:bg-white/15 border border-white/10 text-xs font-bold text-white flex items-center justify-center gap-2 cursor-pointer transition-all disabled:opacity-50"
+                  >
+                    {sentSuccess ? (
+                      <>
+                        <Check className="w-4 h-4 stroke-[3] text-emerald-400" />
+                        <span>¡Mensaje enviado al chat!</span>
+                      </>
+                    ) : (
+                      <>
+                        <Send className="w-3.5 h-3.5" />
+                        <span>Enviar este mensaje personalizado</span>
+                      </>
+                    )}
+                  </button>
+                </form>
+              </section>
+
+              {onDeleteProduct && !isConfirmingDelete && isOwner && (
+                <div className="flex justify-end pt-1">
+                  <button
+                    type="button"
+                    onClick={() => setIsConfirmingDelete(true)}
+                    className="text-[11px] text-rose-500 hover:text-rose-600 flex items-center gap-1 transition-colors cursor-pointer py-1 px-2 rounded-md hover:bg-rose-500/10"
+                  >
+                    <Trash2 className="w-3 h-3" />
+                    <span>Eliminar mi publicación</span>
+                  </button>
+                </div>
+              )}
+            </div>
           </div>
         </div>
       </div>

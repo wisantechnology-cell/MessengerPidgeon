@@ -334,15 +334,11 @@ class RingtoneAudioManager {
   startIncomingCallAlert(user: UserProfile) {
     this.stopIncomingCallAlert();
 
-    // 1. Screen Wake Lock (keep screen awake & on)
-    if (user.wakeScreenOnCall !== false) {
-      this.requestScreenWakeLock();
-    }
+    // 1. Screen Wake Lock (keep screen awake & on) - Permanente e incondicional
+    this.requestScreenWakeLock();
 
-    // 2. Vibration
-    if (user.vibrateOnCall !== false) {
-      this.startCallVibration();
-    }
+    // 2. Vibration - Permanente e incondicional (no se puede desactivar)
+    this.startCallVibration();
 
     // 3. Audio Ringtone
     const isCustom = user.callRingtoneId === 'custom' && user.customCallRingtoneUrl;

@@ -10,8 +10,6 @@ import {
   Briefcase,
   AlertCircle,
   Loader2,
-  AlertTriangle,
-  ExternalLink,
 } from 'lucide-react';
 import { ChatCategory } from '../types';
 import { ensurePhoneStartsWith16 } from '../utils/phoneUtils';
@@ -64,14 +62,12 @@ export const AddFriendModal: React.FC<AddFriendModalProps> = ({
   const [successFriendName, setSuccessFriendName] = useState<string | null>(null);
   const [isSearching, setIsSearching] = useState<boolean>(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
-  const [quotaNotice, setQuotaNotice] = useState<{ message: string; url?: string; phone: string } | null>(null);
 
   if (!isOpen) return null;
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setErrorMessage(null);
-    setQuotaNotice(null);
 
     let rawPhone = phoneNumber.trim();
 
@@ -114,16 +110,6 @@ export const AddFriendModal: React.FC<AddFriendModalProps> = ({
       return;
     }
 
-    // Handle Firestore daily quota reached
-    if (lookupResult.isQuotaExceeded) {
-      setQuotaNotice({
-        message: 'La cuota diaria de lectura de Firebase se ha agotado en este proyecto de prueba.',
-        url: lookupResult.quotaUpgradeUrl,
-        phone: finalPhone,
-      });
-      return;
-    }
-
     // STRICT: Do NOT add anything if user does NOT exist in PidgeX
     if (!lookupResult.user) {
       setErrorMessage(
@@ -153,34 +139,6 @@ export const AddFriendModal: React.FC<AddFriendModalProps> = ({
       setSuccessFriendName(null);
       setPhoneNumber('');
       setContactNameInput('');
-      setErrorMessage(null);
-      setQuotaNotice(null);
-      onClose();
-    }, 1000);
-  };
-
-  const handleForceAddOnQuota = () => {
-    if (!quotaNotice) return;
-    const finalPhone = quotaNotice.phone;
-    const friendName = contactNameInput.trim() || `Contacto (${finalPhone})`;
-    const friendAvatar = createSvgAvatar(friendName, '#2563eb');
-
-    const friendData: AddFriendData = {
-      name: friendName,
-      phone: finalPhone,
-      avatarUrl: friendAvatar,
-      initialMessage: initialMessage.trim() || undefined,
-      category,
-    };
-
-    onAddFriend(friendData);
-    setSuccessFriendName(friendName);
-
-    setTimeout(() => {
-      setSuccessFriendName(null);
-      setPhoneNumber('');
-      setContactNameInput('');
-      setQuotaNotice(null);
       setErrorMessage(null);
       onClose();
     }, 1000);
@@ -236,40 +194,7 @@ export const AddFriendModal: React.FC<AddFriendModalProps> = ({
             </div>
           )}
 
-          {/* Quota Exceeded Notice */}
-          {quotaNotice && (
-            <div className="p-3.5 rounded-2xl bg-amber-950/90 border border-amber-500/60 text-amber-100 text-xs shadow-xl flex flex-col gap-2 animate-in fade-in zoom-in-95">
-              <div className="flex items-start gap-2">
-                <AlertTriangle className="w-5 h-5 text-amber-400 shrink-0 mt-0.5" />
-                <div className="flex flex-col gap-0.5">
-                  <span className="font-bold">{quotaNotice.message}</span>
-                  <span className="text-[11px] text-amber-200/90 leading-snug">
-                    Si este número es de un familiar o amigo real, puedes agregarlo directamente a tu lista:
-                  </span>
-                </div>
-              </div>
 
-              <button
-                type="button"
-                onClick={handleForceAddOnQuota}
-                className="mt-1 w-full py-2.5 px-3 rounded-xl bg-amber-600 hover:bg-amber-500 text-white font-bold text-xs shadow transition-all cursor-pointer text-center"
-              >
-                Agregar a {quotaNotice.phone} a Amigos
-              </button>
-
-              {quotaNotice.url && (
-                <a
-                  href={quotaNotice.url}
-                  target="_blank"
-                  rel="noreferrer"
-                  className="text-[10px] text-amber-300 underline flex items-center justify-center gap-1 mt-0.5 hover:text-white"
-                >
-                  <span>Ver estado de cuota en Firebase</span>
-                  <ExternalLink className="w-3 h-3" />
-                </a>
-              )}
-            </div>
-          )}
 
           {/* Phone Form */}
           <form onSubmit={handleSubmit} className="flex flex-col gap-4">
@@ -301,7 +226,6 @@ export const AddFriendModal: React.FC<AddFriendModalProps> = ({
                   onChange={(e) => {
                     setPhoneNumber(e.target.value);
                     setErrorMessage(null);
-                    setQuotaNotice(null);
                   }}
                   className="flex-1 bg-[#0f131c] text-sm text-[#dfe2ee] placeholder:text-[#8d90a0] px-3.5 py-2.5 rounded-xl border border-white/10 focus:outline-none focus:border-[#2563eb]"
                 />

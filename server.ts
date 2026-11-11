@@ -11,8 +11,20 @@ dotenv.config();
 const app = express();
 const PORT = 3000;
 
-app.use(express.json({ limit: "15mb" }));
-app.use(express.urlencoded({ extended: true, limit: "15mb" }));
+app.set("trust proxy", true);
+
+app.use((_req, res, next) => {
+  res.setHeader("Access-Control-Allow-Origin", "*");
+  res.setHeader("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS");
+  res.setHeader("Access-Control-Allow-Headers", "Content-Type, Authorization, X-Requested-With");
+  if (_req.method === "OPTIONS") {
+    return res.sendStatus(200);
+  }
+  next();
+});
+
+app.use(express.json({ limit: "50mb" }));
+app.use(express.urlencoded({ extended: true, limit: "50mb" }));
 
 // Lazy-initialized Gemini AI client
 function getGenAI(): GoogleGenAI | null {
@@ -30,6 +42,12 @@ function getGenAI(): GoogleGenAI | null {
   });
 }
 
+// In-memory voice audio storage for lightweight instant cross-device streaming
+const voiceAudioStorage = new Map<string, { buffer: Buffer; mime: string }>();
+
+// In-memory photo & video storage to prevent exceeding Firestore 1MB limit
+const mediaStorage = new Map<string, { buffer: Buffer; mime: string }>();
+
 // API Health Check
 app.get("/api/health", (_req, res) => {
   res.json({
@@ -37,6 +55,122 @@ app.get("/api/health", (_req, res) => {
     appName: "MessengerPidgeon",
     hasGeminiKey: Boolean(process.env.GEMINI_API_KEY && process.env.GEMINI_API_KEY !== "MY_GEMINI_API_KEY")
   });
+});
+
+// API: Upload voice message audio to avoid exceeding Firestore 1MB document limit
+app.post("/api/audio/upload", express.json({ limit: "25mb" }), (req, res) => {
+  try {
+    const { dataUrl } = req.body;
+    if (!dataUrl || !dataUrl.startsWith("data:")) {
+      return res.status(400).json({ error: "Invalid data URL" });
+    }
+    const matches = dataUrl.match(/^data:([^;]+);base64,(.+)$/);
+    if (!matches) {
+      return res.status(400).json({ error: "Invalid base64 audio format" });
+    }
+    const mime = matches[1];
+    const buffer = Buffer.from(matches[2], "base64");
+    const audioId = `voice_${Date.now()}_${Math.random().toString(36).substring(2, 8)}`;
+    voiceAudioStorage.set(audioId, { buffer, mime });
+
+    // Rotate storage if it exceeds 200 items
+    if (voiceAudioStorage.size > 200) {
+      const oldestKeys = Array.from(voiceAudioStorage.keys()).slice(0, 40);
+      oldestKeys.forEach((k) => voiceAudioStorage.delete(k));
+    }
+
+    return res.json({
+      success: true,
+      audioUrl: `/api/audio/${audioId}`,
+      size: buffer.length,
+    });
+  } catch (err) {
+    console.error("Audio upload error:", err);
+    return res.status(500).json({ error: "Audio upload failed" });
+  }
+});
+
+// API: Stream voice message audio directly with range headers for smooth seeking & playback
+app.get("/api/audio/:audioId", (req, res) => {
+  const { audioId } = req.params;
+  const item = voiceAudioStorage.get(audioId);
+  if (!item) {
+    return res.status(404).send("Audio not found");
+  }
+  res.setHeader("Content-Type", item.mime || "audio/wav");
+  res.setHeader("Content-Length", item.buffer.length);
+  res.setHeader("Accept-Ranges", "bytes");
+  res.setHeader("Cache-Control", "public, max-age=86400");
+  return res.send(item.buffer);
+});
+
+// API: Upload photo or video to avoid Firestore 1MB document limit
+app.post("/api/media/upload", express.json({ limit: "50mb" }), (req, res) => {
+  try {
+    const { dataUrl, filename } = req.body;
+    if (!dataUrl || !dataUrl.startsWith("data:")) {
+      return res.status(400).json({ error: "Invalid data URL" });
+    }
+    const matches = dataUrl.match(/^data:([^;]+);base64,(.+)$/);
+    if (!matches) {
+      return res.status(400).json({ error: "Invalid base64 media format" });
+    }
+    const mime = matches[1];
+    const buffer = Buffer.from(matches[2], "base64");
+    const isVideo = mime.includes("video");
+    const ext = isVideo ? (mime.includes("webm") ? "webm" : "mp4") : "jpg";
+    const mediaId = `media_${Date.now()}_${Math.random().toString(36).substring(2, 8)}.${ext}`;
+    mediaStorage.set(mediaId, { buffer, mime });
+
+    // Rotate storage if it exceeds 120 items
+    if (mediaStorage.size > 120) {
+      const oldestKeys = Array.from(mediaStorage.keys()).slice(0, 30);
+      oldestKeys.forEach((k) => mediaStorage.delete(k));
+    }
+
+    return res.json({
+      success: true,
+      mediaUrl: `/api/media/${mediaId}`,
+      mediaType: isVideo ? "video" : "image",
+      size: buffer.length,
+    });
+  } catch (err) {
+    console.error("Media upload error:", err);
+    return res.status(500).json({ error: "Media upload failed" });
+  }
+});
+
+// API: Stream media (videos and photos) directly with range headers for smooth seeking & playback
+app.get("/api/media/:mediaId", (req, res) => {
+  const { mediaId } = req.params;
+  const item = mediaStorage.get(mediaId);
+  if (!item) {
+    return res.status(404).send("Media not found");
+  }
+
+  const range = req.headers.range;
+  const totalLength = item.buffer.length;
+
+  if (range) {
+    const parts = range.replace(/bytes=/, "").split("-");
+    const start = parseInt(parts[0], 10);
+    const end = parts[1] ? parseInt(parts[1], 10) : totalLength - 1;
+    const chunkSize = end - start + 1;
+    res.writeHead(206, {
+      "Content-Range": `bytes ${start}-${end}/${totalLength}`,
+      "Accept-Ranges": "bytes",
+      "Content-Length": chunkSize,
+      "Content-Type": item.mime || "application/octet-stream",
+      "Cache-Control": "public, max-age=86400",
+    });
+    return res.end(item.buffer.subarray(start, end + 1));
+  }
+
+  res.setHeader("Content-Type", item.mime || "application/octet-stream");
+  res.setHeader("Content-Length", totalLength);
+  res.setHeader("Accept-Ranges", "bytes");
+  res.setHeader("Cache-Control", "public, max-age=86400");
+  return res.send(item.buffer);
 });
 
 // Helper for contextual fallback responses for each contact persona
