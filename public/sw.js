@@ -85,7 +85,7 @@ self.addEventListener('push', (event) => {
         body: data.body || '📞 Llamada entrante en PidgeX. Toca para contestar.',
         icon: data.icon || '/pidgex-logo.svg',
         badge: '/pidgex-logo.svg',
-        vibrate: [800, 400, 800, 400, 800, 400, 1000],
+        vibrate: [1000, 400, 1000, 400, 1000, 400, 1200],
         tag: 'incoming_call',
         renotify: true,
         requireInteraction: true,
@@ -103,7 +103,7 @@ self.addEventListener('push', (event) => {
         body: data.body || 'Nuevo mensaje recibido en PidgeX',
         icon: data.icon || '/pidgex-logo.svg',
         badge: '/pidgex-logo.svg',
-        vibrate: [250, 100, 250],
+        vibrate: [300, 150, 300],
         tag: data.tag || `msg_${Date.now()}`,
         renotify: true,
         requireInteraction: false,
@@ -125,7 +125,7 @@ self.addEventListener('notificationclick', (event) => {
   event.notification.close();
   const notificationData = event.notification.data || {};
   const action = event.action;
-  const targetUrl = notificationData.url || '/';
+  let targetUrl = notificationData.url || '/';
 
   event.waitUntil(
     clients
@@ -133,6 +133,15 @@ self.addEventListener('notificationclick', (event) => {
       .then((clientList) => {
         // If user tapped "Decline"
         if (action === 'decline') {
+          if (notificationData.callId) {
+            try {
+              fetch('/api/calls/end', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ callId: notificationData.callId, status: 'declined' }),
+              }).catch(() => {});
+            } catch (e) {}
+          }
           for (const client of clientList) {
             client.postMessage({
               type: 'DECLINE_CALL',
@@ -140,6 +149,10 @@ self.addEventListener('notificationclick', (event) => {
             });
           }
           return;
+        }
+
+        if (action === 'answer' && !targetUrl.includes('answer=true')) {
+          targetUrl += (targetUrl.includes('?') ? '&' : '?') + 'answer=true';
         }
 
         // Check if an existing PidgeX tab is open
@@ -155,7 +168,7 @@ self.addEventListener('notificationclick', (event) => {
           }
         }
 
-        // If no open tab, open new window to target URL
+        // If no open tab, open new window to target URL (wakes phone browser)
         if (clients.openWindow) {
           return clients.openWindow(targetUrl);
         }

@@ -1,6 +1,7 @@
 import { soundEffects } from './soundEffects';
 import { ringtoneManager } from './ringtoneAudio';
 import { UserProfile } from '../types';
+import { registerPushSubscription } from './pushManager';
 
 /**
  * Utility for triggering OS System Tray & Lock Screen Notifications on Mobile & Desktop
@@ -13,11 +14,15 @@ export async function requestNotificationPermission(): Promise<boolean> {
 
   try {
     if (Notification.permission === 'granted') {
+      registerPushSubscription().catch(() => {});
       return true;
     }
     if (Notification.permission !== 'denied') {
       const permission = await Notification.requestPermission();
-      return permission === 'granted';
+      if (permission === 'granted') {
+        registerPushSubscription().catch(() => {});
+        return true;
+      }
     }
   } catch (e) {
     console.warn('Error requesting notification permission:', e);

@@ -39,10 +39,9 @@ import {
   BarChart2,
   Share2,
   MoreVertical,
+  Maximize2,
 } from 'lucide-react';
-import { Chat, Message, Wallpaper, StickerItem, UserProfile, GroupMember, PollData } from '../types';
-import { PollModal } from './PollModal';
-import { PollMessageView } from './PollMessageView';
+import { Chat, Message, Wallpaper, StickerItem, UserProfile, GroupMember } from '../types';
 import { PrivateMessageModal } from './PrivateMessageModal';
 import { PrivateMessageView } from './PrivateMessageView';
 import { ForwardModal } from './ForwardModal';
@@ -50,9 +49,6 @@ import { STICKERS } from '../data/mockData';
 import { VoiceRecorder } from './VoiceRecorder';
 import { VoicePlayer } from './VoicePlayer';
 import {
-  TrophyVectorIcon,
-  PaletteVectorIcon,
-  ZapVectorIcon,
   ReactionHeartIcon,
   ReactionThumbIcon,
   ReactionFlameIcon,
@@ -97,7 +93,6 @@ import { MediaModal } from './MediaModal';
 import { CallModal } from './CallModal';
 import { GroupMembersModal } from './GroupMembersModal';
 import { ChatThemeModal } from './ChatThemeModal';
-import { WhiteboardModal } from './WhiteboardModal';
 import { applyAutoCorrect } from '../utils/autocorrectUtils';
 
 interface ChatViewProps {
@@ -124,10 +119,8 @@ interface ChatViewProps {
   onDeleteChat?: (chatId: string) => void;
   onUpdateGroupMembers?: (chatId: string, updatedMembers: GroupMember[]) => void;
   onLeaveGroup?: (chatId: string) => void;
-  onStartGroupGame?: (gameId: 'triviagrupal' | 'dibujayadivina' | 'stopgrupal') => void;
   onOpenTimeCapsule?: () => void;
   onSelectGradient?: (chatId: string, gradient: string) => void;
-  onOpenWhiteboard?: () => void;
   onStartPrivateChat?: (memberId: string, memberName: string) => void;
   onForwardMessage?: (targetChatId: string, message: Message) => void;
   onExportChat?: (chat: Chat) => void;
@@ -219,10 +212,8 @@ export const ChatView: React.FC<ChatViewProps> = ({
   onDeleteChat,
   onUpdateGroupMembers,
   onLeaveGroup,
-  onStartGroupGame,
   onOpenTimeCapsule,
   onSelectGradient,
-  onOpenWhiteboard,
   onStartPrivateChat,
   onForwardMessage,
   onExportChat,
@@ -232,62 +223,17 @@ export const ChatView: React.FC<ChatViewProps> = ({
   const [inputText, setInputText] = useState<string>('');
   const [showMobileMoreMenu, setShowMobileMoreMenu] = useState<boolean>(false);
   const [showChatThemeModal, setShowChatThemeModal] = useState<boolean>(false);
-  const [showWhiteboardModal, setShowWhiteboardModal] = useState<boolean>(false);
-  const [showPollModal, setShowPollModal] = useState<boolean>(false);
   const [showPrivateMessageModal, setShowPrivateMessageModal] = useState<boolean>(false);
   const [forwardingMessage, setForwardingMessage] = useState<Message | null>(null);
-
-  const handleVotePoll = (messageId: string, optionId: string) => {
-    const updatedMsgs = chat.messages.map((m) => {
-      if (m.id === messageId && m.pollData) {
-        const updatedOptions = m.pollData.options.map((opt) => {
-          const hasVoted = opt.voters?.includes('me');
-          if (opt.id === optionId) {
-            if (hasVoted) {
-              return { ...opt, votes: Math.max(0, opt.votes - 1), voters: opt.voters.filter(v => v !== 'me') };
-            } else {
-              return { ...opt, votes: opt.votes + 1, voters: [...(opt.voters || []), 'me'] };
-            }
-          } else {
-            return {
-              ...opt,
-              votes: hasVoted ? Math.max(0, opt.votes - 1) : opt.votes,
-              voters: (opt.voters || []).filter(v => v !== 'me'),
-            };
-          }
-        });
-        return { ...m, pollData: { ...m.pollData, options: updatedOptions } };
-      }
-      return m;
-    });
-    chat.messages = updatedMsgs;
-  };
   const [copiedRoomLink, setCopiedRoomLink] = useState<boolean>(false);
   const [showSecurityPopover, setShowSecurityPopover] = useState<boolean>(false);
   const [showBlockModal, setShowBlockModal] = useState<boolean>(false);
   const [showClearChatModal, setShowClearChatModal] = useState<boolean>(false);
   const [showGroupMembersModal, setShowGroupMembersModal] = useState<boolean>(false);
-  const [showGroupGamesDropdown, setShowGroupGamesDropdown] = useState<boolean>(false);
   const [showVideoLinkModal, setShowVideoLinkModal] = useState<boolean>(false);
   const [videoLinkInput, setVideoLinkInput] = useState<string>('');
   const [videoLinkCaption, setVideoLinkCaption] = useState<string>('');
   const [activeVideoModalUrl, setActiveVideoModalUrl] = useState<string | null>(null);
-
-  const handleStartGroupGameClick = (gameId: 'triviagrupal' | 'dibujayadivina' | 'stopgrupal', gameTitle: string) => {
-    setShowGroupGamesDropdown(false);
-    onSendMessage(chat.id, {
-      senderId: 'me',
-      senderName: user.name,
-      senderAvatar: user.avatarUrl,
-      type: 'text',
-      text: `¡${user.name} ha solicitado iniciar una partida de ${gameTitle} en este grupo!`,
-      timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
-      isRead: true,
-    });
-    if (onStartGroupGame) {
-      onStartGroupGame(gameId);
-    }
-  };
   const [showWallpaperDrawer, setShowWallpaperDrawer] = useState<boolean>(false);
   const [showAttachSheet, setShowAttachSheet] = useState<boolean>(false);
   const [showEmojiPicker, setShowEmojiPicker] = useState<boolean>(false);
@@ -582,30 +528,6 @@ export const ChatView: React.FC<ChatViewProps> = ({
                       <button
                         type="button"
                         onClick={() => {
-                          setShowWhiteboardModal(true);
-                          setShowMobileMoreMenu(false);
-                        }}
-                        className="w-full px-3 py-2 rounded-xl text-xs font-semibold text-gray-200 hover:text-white hover:bg-white/10 flex items-center gap-2.5 text-left cursor-pointer"
-                      >
-                        <Pencil className="w-4 h-4 text-purple-400" />
-                        <span>Pizarra Colaborativa</span>
-                      </button>
-
-                      <button
-                        type="button"
-                        onClick={() => {
-                          setShowPollModal(true);
-                          setShowMobileMoreMenu(false);
-                        }}
-                        className="w-full px-3 py-2 rounded-xl text-xs font-semibold text-gray-200 hover:text-white hover:bg-white/10 flex items-center gap-2.5 text-left cursor-pointer"
-                      >
-                        <BarChart2 className="w-4 h-4 text-emerald-400" />
-                        <span>Crear Encuesta</span>
-                      </button>
-
-                      <button
-                        type="button"
-                        onClick={() => {
                           onExportChat?.(chat);
                           setShowMobileMoreMenu(false);
                         }}
@@ -787,54 +709,7 @@ export const ChatView: React.FC<ChatViewProps> = ({
                   <span>{chat.groupMembers?.length || 1} Integrantes</span>
                 </button>
 
-                <div className="relative">
-                  <button
-                    onClick={() => setShowGroupGamesDropdown(!showGroupGamesDropdown)}
-                    title="Juegos en Grupo (Trivia, Dibuja, Tutti Frutti)"
-                    className="flex items-center gap-1 px-2.5 py-1.5 rounded-full bg-purple-600/30 hover:bg-purple-600/50 text-purple-200 border border-purple-500/40 text-xs font-bold active:scale-95 transition-all cursor-pointer shadow-sm"
-                  >
-                    <Gamepad2 className="w-3.5 h-3.5 text-purple-300" />
-                    <span>Juegos de Grupo</span>
-                  </button>
 
-                  {showGroupGamesDropdown && (
-                    <div className="absolute right-0 mt-2 w-56 p-2 bg-[#1c2028] border border-white/10 rounded-2xl shadow-2xl z-50 animate-in fade-in zoom-in-95 duration-150">
-                      <div className="px-2 py-1 text-[10px] font-bold text-[#8d90a0] uppercase tracking-wider">
-                        Solicitar Juego en Grupo
-                      </div>
-                      <button
-                        onClick={() => handleStartGroupGameClick('triviagrupal', 'Trivia & Quiz Grupal')}
-                        className="w-full text-left px-3 py-2 rounded-xl text-xs text-[#dfe2ee] hover:bg-purple-600/20 hover:text-white flex items-center gap-2.5 cursor-pointer transition-colors"
-                      >
-                        <TrophyVectorIcon className="w-5 h-5 shrink-0" />
-                        <div>
-                          <div className="font-bold">Trivia & Quiz</div>
-                          <div className="text-[10px] text-[#8d90a0]">Cultura general</div>
-                        </div>
-                      </button>
-                      <button
-                        onClick={() => handleStartGroupGameClick('dibujayadivina', 'Dibuja y Adivina')}
-                        className="w-full text-left px-3 py-2 rounded-xl text-xs text-[#dfe2ee] hover:bg-sky-600/20 hover:text-white flex items-center gap-2.5 cursor-pointer transition-colors"
-                      >
-                        <PaletteVectorIcon className="w-5 h-5 shrink-0" />
-                        <div>
-                          <div className="font-bold">Dibuja y Adivina</div>
-                          <div className="text-[10px] text-[#8d90a0]">Arte en lienzo</div>
-                        </div>
-                      </button>
-                      <button
-                        onClick={() => handleStartGroupGameClick('stopgrupal', 'Tutti Frutti / STOP')}
-                        className="w-full text-left px-3 py-2 rounded-xl text-xs text-[#dfe2ee] hover:bg-orange-600/20 hover:text-white flex items-center gap-2.5 cursor-pointer transition-colors"
-                      >
-                        <ZapVectorIcon className="w-5 h-5 shrink-0" />
-                        <div>
-                          <div className="font-bold">Tutti Frutti / STOP</div>
-                          <div className="text-[10px] text-[#8d90a0]">Basta de palabras</div>
-                        </div>
-                      </button>
-                    </div>
-                  )}
-                </div>
               </>
             )}
 
@@ -1450,28 +1325,7 @@ export const ChatView: React.FC<ChatViewProps> = ({
                 </div>
               )}
 
-              {msg.type === 'poll' && msg.pollData && (
-                <div
-                  className={`rounded-2xl p-3 shadow-md backdrop-blur-md ${
-                    isMe
-                      ? 'bg-[#2563eb] text-white rounded-br-sm'
-                      : 'bg-[#262a33]/90 text-[#dfe2ee] rounded-bl-sm border border-white/5'
-                  }`}
-                >
-                  <PollMessageView
-                    pollData={msg.pollData}
-                    isSender={isMe}
-                    onVote={(optionId) => handleVotePoll(msg.id, optionId)}
-                    isNightMode={isNightMode}
-                  />
-                  <div className="flex items-center justify-end gap-1 mt-1">
-                    <span className={`text-[10px] ${isMe ? 'text-white/75' : 'text-[#8d90a0]'}`}>
-                      {msg.timestamp}
-                    </span>
-                    {isMe && <CheckCheck className="w-3 h-3 text-[#38bdf8]" />}
-                  </div>
-                </div>
-              )}
+
 
               {msg.type === 'private' && msg.privateData && (
                 <div
@@ -1496,33 +1350,40 @@ export const ChatView: React.FC<ChatViewProps> = ({
               )}
 
               {msg.type === 'video' && (
-                <div className="rounded-2xl p-1.5 bg-[#262a33]/90 shadow-md backdrop-blur-md border border-white/5 overflow-hidden">
-                  <div
-                    onClick={() =>
-                      setActiveMediaModal({
-                        url: msg.mediaUrl || '',
-                        type: 'video',
-                        name: msg.mediaName,
-                      })
-                    }
-                    className="relative cursor-pointer rounded-xl overflow-hidden group/vid"
-                  >
-                    <video src={msg.mediaUrl} className="w-full max-h-56 object-cover rounded-xl" />
-                    <div className="absolute inset-0 bg-black/30 flex items-center justify-center">
-                      <div className="w-12 h-12 rounded-full bg-[#2563eb]/90 flex items-center justify-center text-white shadow-lg group-hover/vid:scale-110 transition-transform">
-                        <VideoIcon className="w-6 h-6" />
-                      </div>
-                    </div>
+                <div className="rounded-2xl p-2 bg-[#1f242e] shadow-lg border border-white/10 overflow-hidden max-w-[340px] sm:max-w-[420px]">
+                  <div className="relative rounded-xl overflow-hidden bg-black flex items-center justify-center">
+                    <video
+                      src={msg.mediaUrl}
+                      controls
+                      playsInline
+                      preload="metadata"
+                      className="w-full max-h-72 object-contain rounded-xl bg-black"
+                    />
+                    <button
+                      type="button"
+                      onClick={() =>
+                        setActiveMediaModal({
+                          url: msg.mediaUrl || '',
+                          type: 'video',
+                          name: msg.mediaName,
+                        })
+                      }
+                      title="Pantalla completa"
+                      className="absolute top-2 right-2 p-1.5 rounded-lg bg-black/60 hover:bg-black/90 text-white border border-white/20 transition-all z-10 cursor-pointer backdrop-blur-sm shadow-md"
+                    >
+                      <Maximize2 className="w-4 h-4" />
+                    </button>
                   </div>
                   {msg.text && (
-                    <p className="px-2 py-1 text-xs text-[#dfe2ee] font-medium">{msg.text}</p>
+                    <p className="px-2 pt-2 text-xs text-[#dfe2ee] font-medium leading-relaxed">{msg.text}</p>
                   )}
-                  <div className="flex items-center justify-between px-2 py-1 text-[11px] text-[#8d90a0]">
-                    <span>{msg.mediaName || 'Video clip'}</span>
-                    <div className="flex items-center gap-1">
+                  <div className="flex items-center justify-between px-2 pt-1.5 pb-0.5 text-[11px] text-[#8d90a0]">
+                    <span className="truncate max-w-[180px]">{msg.mediaName || 'Video clip'}</span>
+                    <div className="flex items-center gap-1.5 shrink-0">
                       <span>{msg.timestamp}</span>
                       {onDeleteMessage && (
                         <button
+                          type="button"
                           onClick={(e) => {
                             e.stopPropagation();
                             onDeleteMessage(chat.id, msg.id);
@@ -1530,7 +1391,7 @@ export const ChatView: React.FC<ChatViewProps> = ({
                           title="Borrar este mensaje"
                           className="ml-1 p-0.5 text-red-400 hover:text-red-200 opacity-70 hover:opacity-100 transition-all cursor-pointer"
                         >
-                          <Trash2 className="w-3 h-3" />
+                          <Trash2 className="w-3.5 h-3.5" />
                         </button>
                       )}
                     </div>
@@ -1675,35 +1536,7 @@ export const ChatView: React.FC<ChatViewProps> = ({
               </div>
             </button>
 
-            <button
-              onClick={() => {
-                setShowAttachSheet(false);
-                setShowWhiteboardModal(true);
-              }}
-              className="flex flex-col items-center gap-1.5 p-2 rounded-xl bg-[#1c2028] hover:bg-[#181c24] transition-colors cursor-pointer col-span-4 mt-1 border border-white/5"
-            >
-              <div className="flex items-center gap-2 text-blue-400 font-bold text-xs">
-                <div className="w-7 h-7 rounded-full bg-blue-500/20 flex items-center justify-center text-blue-400">
-                  <Pencil className="w-3.5 h-3.5" />
-                </div>
-                <span>Pizarra Colaborativa (Dibujar en Vivo)</span>
-              </div>
-            </button>
 
-            <button
-              onClick={() => {
-                setShowAttachSheet(false);
-                setShowPollModal(true);
-              }}
-              className="flex flex-col items-center gap-1.5 p-2 rounded-xl bg-[#1c2028] hover:bg-[#181c24] transition-colors cursor-pointer col-span-4 mt-1 border border-white/5"
-            >
-              <div className="flex items-center gap-2 text-sky-400 font-bold text-xs">
-                <div className="w-7 h-7 rounded-full bg-sky-500/20 flex items-center justify-center text-sky-400">
-                  <BarChart2 className="w-3.5 h-3.5" />
-                </div>
-                <span>Crear Encuesta (Votación en Vivo)</span>
-              </div>
-            </button>
 
             <button
               onClick={() => {
@@ -2264,44 +2097,7 @@ export const ChatView: React.FC<ChatViewProps> = ({
         onSelectGradient={onSelectGradient || (() => {})}
       />
 
-      {/* Whiteboard Modal */}
-      <WhiteboardModal
-        isOpen={showWhiteboardModal}
-        onClose={() => setShowWhiteboardModal(false)}
-        chat={chat}
-        user={user}
-        isNightMode={isNightMode}
-        onSendDrawing={(chatId, dataUrl) => {
-          onSendMessage(chatId, {
-            senderId: 'me',
-            senderName: user.name,
-            senderAvatar: user.avatarUrl,
-            type: 'image',
-            mediaUrl: dataUrl,
-            text: 'Pizarra Colaborativa en Vivo',
-            timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
-            isRead: true,
-          });
-        }}
-      />
 
-      <PollModal
-        isOpen={showPollModal}
-        onClose={() => setShowPollModal(false)}
-        isNightMode={isNightMode}
-        onCreatePoll={(pollData) => {
-          onSendMessage(chat.id, {
-            senderId: 'me',
-            senderName: user.name,
-            senderAvatar: user.avatarUrl,
-            type: 'poll',
-            pollData,
-            text: `Encuesta: ${pollData.question}`,
-            timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
-            isRead: true,
-          });
-        }}
-      />
 
       <PrivateMessageModal
         isOpen={showPrivateMessageModal}

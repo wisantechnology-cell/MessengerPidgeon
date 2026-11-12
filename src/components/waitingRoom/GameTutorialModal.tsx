@@ -17,15 +17,9 @@ import {
   Brain,
   Grid,
   Image as ImageIcon,
-  Video as VideoCam,
   Lightbulb,
 } from 'lucide-react';
 import { PikitoMascot } from '../PikitoMascot';
-import {
-  TrophyVectorIcon,
-  PaletteVectorIcon,
-  ZapVectorIcon,
-} from '../CustomVectorIcons';
 
 export interface GameTutorialInfo {
   id: string;
@@ -173,110 +167,6 @@ export const GAME_TUTORIALS: Record<string, GameTutorialInfo> = {
     proTips: [
       'Los mejores memes tienen textos cortos, directos y en mayúsculas.',
       'Combina situaciones cotidianas con las fotos divertidas de gatos o perros.',
-    ],
-  },
-  omegle: {
-    id: 'omegle',
-    title: 'PidgeCam (Modo Extraños)',
-    subtitle: 'Videollamadas Aleatorias con Gente Real',
-    icon: <VideoCam className="w-8 h-8 text-white" />,
-    gradient: 'from-rose-500 to-pink-600',
-    objective: 'Conéctate mediante videollamada y audio en directo con personas reales de cualquier parte del mundo conectadas en PidgeX.',
-    steps: [
-      'La app busca automáticamente en la cola en la nube a otro usuario disponible.',
-      'Cuando se encuentra coincidencia, se activa la conexión de video y audio en tiempo real.',
-      'Puedes charlar, enviar reacciones flotantes o pulsar "Siguiente" para conocer a alguien nuevo.',
-    ],
-    controls: [
-      { type: 'touch', label: 'Botones de Control', desc: 'Silenciar micrófono, apagar cámara o saltar' },
-      { type: 'mouse', label: 'Clic en Controles', desc: 'Manejo fácil de la videollamada' },
-    ],
-    scoring: [
-      'Conexión social en vivo sin límites.',
-    ],
-    proTips: [
-      'Asegúrate de tener buena iluminación y conexión a internet para la mejor calidad de video.',
-      'Respeta siempre a la otra persona y diviértete conociendo culturas de todo el mundo.',
-    ],
-  },
-  triviagrupal: {
-    id: 'triviagrupal',
-    title: 'Trivia Grupal',
-    subtitle: 'Cultura General, Conocimiento & Competición',
-    icon: <Brain className="w-8 h-8 text-white" />,
-    gradient: 'from-indigo-600 to-blue-700',
-    objective: 'Compite contra los miembros de tu grupo respondiendo preguntas de geografía, cine, tecnología y PidgeX antes de que expire el tiempo.',
-    steps: [
-      'Cada ronda presenta una pregunta con 4 posibles respuestas.',
-      'Tienes 15 segundos para seleccionar la opción que creas correcta.',
-      'Al terminar el tiempo o al responder, se revela la respuesta correcta y la explicación detallada.',
-    ],
-    controls: [
-      { type: 'touch', label: 'Tocar Opción', desc: 'Seleccionar tu respuesta elegida' },
-      { type: 'mouse', label: 'Clic en Opción', desc: 'Seleccionar tu respuesta elegida' },
-    ],
-    scoring: [
-      '100 puntos base por respuesta correcta.',
-      'Hasta +50 puntos de bonificación según la rapidez con la que respondas.',
-      'Tabla de clasificación en vivo con los mejores puntajes del grupo.',
-    ],
-    proTips: [
-      'Lee la pregunta con atención; responder en 2 segundos mal no da ningún punto.',
-      'Aprovecha las preguntas sobre PidgeX para obtener ventaja sobre tus compañeros.',
-    ],
-  },
-  dibujayadivina: {
-    id: 'dibujayadivina',
-    title: 'Dibuja y Adivina',
-    subtitle: 'Creatividad, Pistas & Deducción',
-    icon: <PaletteVectorIcon className="w-8 h-8 text-white" />,
-    gradient: 'from-amber-600 to-rose-600',
-    objective: 'Dibuja la palabra secreta en el lienzo para que tu grupo la adivine, o escribe en el chat para adivinar el dibujo de tus compañeros.',
-    steps: [
-      'En tu turno de dibujante, verás la palabra secreta que debes ilustrar.',
-      'Usa los diferentes colores de pincel, el borrador y el grosor de trazo en el lienzo.',
-      'Los demás jugadores escribirán intentos en el chat; el primero en acertar gana la ronda.',
-    ],
-    controls: [
-      { type: 'touch', label: 'Arrastrar en Lienzo', desc: 'Trazar líneas y dibujos con el dedo' },
-      { type: 'mouse', label: 'Arrastrar con Clic', desc: 'Dibujar con precisión de ratón' },
-      { type: 'keyboard', label: 'Escribir & Enter', desc: 'Enviar tus intentos de adivinanza' },
-    ],
-    scoring: [
-      'Puntos para el dibujante cuando los demás adivinan.',
-      'Puntos para los jugadores más veloces en escribir la palabra exacta en el chat.',
-    ],
-    proTips: [
-      'No intentes dibujar obras de arte complejas: las formas esquemáticas y sencillas se adivinan más rápido.',
-      'Utiliza colores contrastantes para destacar detalles importantes.',
-      '¡Está prohibido escribir letras o la palabra en el lienzo!',
-    ],
-  },
-  stopgrupal: {
-    id: 'stopgrupal',
-    title: 'Stop Grupal (Basta)',
-    subtitle: 'Agilidad Mental, Vocabulario & Velocidad',
-    icon: <ZapVectorIcon className="w-8 h-8 text-white" />,
-    gradient: 'from-red-600 to-rose-700',
-    objective: 'Completa las 5 categorías con palabras que inicien con la letra elegida (Nombre, Ciudad, Animal, Comida, Cosa) y pulsa STOP antes que nadie.',
-    steps: [
-      'Se elige una letra al azar para la ronda (ej. la letra "M").',
-      'Escribe rápidamente una palabra válida para cada una de las 5 categorías.',
-      'Apenas completes tus casillas, pulsa el botón gigante de "¡STOP!" para congelar a los rivales.',
-    ],
-    controls: [
-      { type: 'touch', label: 'Tocar Casillas', desc: 'Escribir con el teclado de tu móvil' },
-      { type: 'keyboard', label: 'Escribir & Tab', desc: 'Saltar rápidamente entre casillas' },
-    ],
-    scoring: [
-      '100 puntos por cada respuesta válida y única.',
-      '50 puntos si otro jugador escribió la misma palabra.',
-      '0 puntos si el campo quedó vacío o no comienza con la letra requerida.',
-    ],
-    proTips: [
-      'Aprende a navegar entre campos con la tecla Tab o toques rápidos.',
-      'Si tienes 4 campos listos y ves el tiempo avanzar, considera cantar STOP para evitar que otros sumen más.',
-      'Palabras poco comunes te garantizan los 100 puntos completos sin empates.',
     ],
   },
 };

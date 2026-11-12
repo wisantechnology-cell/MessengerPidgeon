@@ -140,20 +140,51 @@ export const PhotoFilterModal: React.FC<PhotoFilterModalProps> = ({
   };
 
   // Start recording video clip with camera
-  const handleStartRecordVideo = () => {
+  const handleStartRecordVideo = async () => {
     if (!streamRef.current) return;
     recordedChunksRef.current = [];
 
-    let mimeType = 'video/webm;codecs=vp8,opus';
-    if (!MediaRecorder.isTypeSupported(mimeType)) {
-      mimeType = 'video/webm';
-      if (!MediaRecorder.isTypeSupported(mimeType)) {
-        mimeType = 'video/mp4';
+    // Ensure camera stream has an active audio track for crystal-clear voice and sound in the video
+    if (streamRef.current.getAudioTracks().length === 0) {
+      try {
+        const micStream = await navigator.mediaDevices.getUserMedia({
+          audio: {
+            echoCancellation: true,
+            noiseSuppression: true,
+            autoGainControl: true,
+          },
+        });
+        micStream.getAudioTracks().forEach((track) => {
+          streamRef.current?.addTrack(track);
+        });
+      } catch (err) {
+        console.warn('Could not acquire separate microphone track for video recording:', err);
+      }
+    }
+
+    // Determine the highest fidelity supported format
+    const candidateTypes = [
+      'video/mp4;codecs=avc1,mp4a.40.2',
+      'video/mp4',
+      'video/webm;codecs=vp9,opus',
+      'video/webm;codecs=vp8,opus',
+      'video/webm',
+    ];
+    let selectedMime = 'video/mp4';
+    for (const cand of candidateTypes) {
+      if (typeof MediaRecorder !== 'undefined' && MediaRecorder.isTypeSupported(cand)) {
+        selectedMime = cand;
+        break;
       }
     }
 
     try {
-      const recorder = new MediaRecorder(streamRef.current, { mimeType });
+      const recorder = new MediaRecorder(streamRef.current, {
+        mimeType: selectedMime,
+        videoBitsPerSecond: 2500000,
+        audioBitsPerSecond: 128000,
+      });
+
       recorder.ondataavailable = (e) => {
         if (e.data && e.data.size > 0) {
           recordedChunksRef.current.push(e.data);
@@ -161,13 +192,18 @@ export const PhotoFilterModal: React.FC<PhotoFilterModalProps> = ({
       };
 
       recorder.onstop = () => {
-        const blob = new Blob(recordedChunksRef.current, { type: mimeType });
+        const actualMime = recorder.mimeType || selectedMime || 'video/mp4';
+        const blob = new Blob(recordedChunksRef.current, { type: actualMime });
         const reader = new FileReader();
         reader.onloadend = () => {
           if (typeof reader.result === 'string') {
-            setSelectedMedia(reader.result);
+            let dataUri = reader.result;
+            if (!dataUri.startsWith('data:video/')) {
+              dataUri = dataUri.replace(/^data:[^;]+;/, `data:${actualMime};`);
+            }
+            setSelectedMedia(dataUri);
             setMediaType('video');
-            setMediaName(`Video_${Date.now()}.${mimeType.includes('mp4') ? 'mp4' : 'webm'}`);
+            setMediaName(`Video_${Date.now()}.${actualMime.includes('webm') ? 'webm' : 'mp4'}`);
             stopCamera();
           }
         };
@@ -217,10 +253,24 @@ export const PhotoFilterModal: React.FC<PhotoFilterModalProps> = ({
         file.type.startsWith('video') ||
         /\.(mp4|mov|webm|mkv|3gp|m4v)$/i.test(file.name);
 
+      let targetMime = file.type;
+      if (!targetMime || targetMime === 'application/octet-stream') {
+        const ext = file.name.split('.').pop()?.toLowerCase();
+        if (ext === 'webm') targetMime = 'video/webm';
+        else if (ext === 'mov' || ext === 'mp4' || ext === '3gp' || ext === 'm4v' || ext === 'mkv') targetMime = 'video/mp4';
+        else if (ext === 'png') targetMime = 'image/png';
+        else if (ext === 'webp') targetMime = 'image/webp';
+        else targetMime = isVideoFile ? 'video/mp4' : 'image/jpeg';
+      }
+
       const reader = new FileReader();
       reader.onload = () => {
         if (typeof reader.result === 'string') {
-          setSelectedMedia(reader.result);
+          let res = reader.result;
+          if (isVideoFile && (!res.startsWith('data:video/') || res.startsWith('data:application/octet-stream'))) {
+            res = res.replace(/^data:[^;]+;/, `data:${targetMime};`);
+          }
+          setSelectedMedia(res);
           setMediaType(isVideoFile ? 'video' : 'image');
           setMediaName(file.name);
           stopCamera();
@@ -404,7 +454,8 @@ export const PhotoFilterModal: React.FC<PhotoFilterModalProps> = ({
                     src={selectedMedia}
                     controls
                     playsInline
-                    className="w-full h-full object-contain"
+                    preload="auto"
+                    className="w-full h-full object-contain bg-black"
                   />
                 ) : (
                   <img

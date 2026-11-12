@@ -81,8 +81,9 @@ export const MediaModal: React.FC<MediaModalProps> = ({
           <video
             src={mediaUrl}
             controls
-            autoPlay
-            className="max-h-[82vh] max-w-full rounded-xl shadow-2xl"
+            playsInline
+            preload="auto"
+            className="max-h-[82vh] max-w-full rounded-xl shadow-2xl bg-black"
           />
         )}
       </div>

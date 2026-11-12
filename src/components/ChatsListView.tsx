@@ -2,7 +2,6 @@ import React, { useState } from 'react';
 import {
   Users,
   Briefcase,
-  Star,
   Sparkles,
   Zap,
   PenSquare,
@@ -33,9 +32,7 @@ import {
   Trash2,
 } from 'lucide-react';
 import { Chat, ChatCategory, UserProfile, Wallpaper } from '../types';
-import { StatusItem } from '../types/status';
 import { BirdLogo } from './BirdLogo';
-import { StatusSection } from './StatusSection';
 import { AddFriendData } from './AddFriendModal';
 import { getActiveMonthlyTheme } from '../utils/monthlyThemes';
 
@@ -43,7 +40,6 @@ interface ChatsListViewProps {
   chats: Chat[];
   user: UserProfile;
   wallpapers?: Wallpaper[];
-  statuses: StatusItem[];
   isNightMode?: boolean;
   onToggleNightMode?: () => void;
   onSelectChat: (chat: Chat) => void;
@@ -59,12 +55,8 @@ interface ChatsListViewProps {
   onUnblockContact?: (chatId: string) => void;
   onDeleteChat?: (chatId: string) => void;
   onOpenNewGroup?: () => void;
-  onAddStatus: (mediaUrl: string, caption?: string) => void;
-  onDeleteStatus: (statusId: string) => void;
-  onReplyToStatus: (statusId: string, replyText: string) => void;
   onUpdateUser?: (updated: Partial<UserProfile>) => void;
   onOpenContactProfile?: (chat: Chat) => void;
-  onOpenStarredMessages?: () => void;
   onOpenLocalRadar?: () => void;
   onOpenInstallModal?: () => void;
   isClassicMode?: boolean;
@@ -74,7 +66,6 @@ export const ChatsListView: React.FC<ChatsListViewProps> = ({
   chats,
   user,
   wallpapers,
-  statuses,
   isNightMode = false,
   isClassicMode = false,
   onToggleNightMode,
@@ -82,7 +73,6 @@ export const ChatsListView: React.FC<ChatsListViewProps> = ({
   onSelectWallpaper,
   onToggleDoNotDisturb,
   onOpenProfile,
-  onOpenStarredMessages,
   onOpenLocalRadar,
   onNewChat,
   onOpenAddFriend,
@@ -91,9 +81,6 @@ export const ChatsListView: React.FC<ChatsListViewProps> = ({
   onUnblockContact,
   onDeleteChat,
   onOpenNewGroup,
-  onAddStatus,
-  onDeleteStatus,
-  onReplyToStatus,
   onUpdateUser,
   onOpenContactProfile,
   onOpenInstallModal,
@@ -146,16 +133,6 @@ export const ChatsListView: React.FC<ChatsListViewProps> = ({
                   <Moon className={`w-4 h-4 ${isNightMode ? 'fill-blue-300 text-blue-300' : 'text-sky-600'}`} />
                 </button>
 
-                {/* Mensajes Destacados (Starred ⭐) */}
-                <button
-                  onClick={() => onOpenStarredMessages?.()}
-                  title="Mensajes Destacados ⭐"
-                  className={`w-9 h-9 rounded-full flex items-center justify-center transition-all cursor-pointer ${
-                    isNightMode ? 'bg-amber-500/20 text-amber-300 border border-amber-500/40' : 'bg-white/90 text-amber-600 border border-amber-200 shadow-sm'
-                  }`}
-                >
-                  <Star className="w-4 h-4 fill-amber-400 text-amber-400" />
-                </button>
 
                 {/* Campanita (Modo No Molestar) */}
                 <button
@@ -507,17 +484,6 @@ export const ChatsListView: React.FC<ChatsListViewProps> = ({
         </section>
 
 
-        {/* Statuses Section */}
-        {!isClassicMode && (
-          <StatusSection
-            user={user}
-            statuses={statuses}
-            isNightMode={isNightMode}
-            onAddStatus={onAddStatus}
-            onDeleteStatus={onDeleteStatus}
-            onReplyToStatus={onReplyToStatus}
-          />
-        )}
 
         {/* Banner de Tema Mensual y Festividad con Decoraciones (Lo del mes, abajo de los estados) */}
         {(() => {

@@ -36,8 +36,8 @@ export const LocalRadarView: React.FC<LocalRadarViewProps> = ({
     setIsScanning(true);
     setPeers([]);
     try {
-      // Query Firestore for real active users in queue
-      const q = query(collection(db, 'omegle_queue'), where('status', '==', 'searching'));
+      // Query Firestore for real active users
+      const q = query(collection(db, 'users'));
       const snapshot = await getDocs(q);
       const realPeers: NearbyPeer[] = [];
 

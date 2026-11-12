@@ -1,10 +1,14 @@
 import express from "express";
 import http from "http";
 import path from "path";
+import fs from "fs";
 import { createServer as createViteServer } from "vite";
 import dotenv from "dotenv";
 import { GoogleGenAI } from "@google/genai";
 import { WebSocketServer, WebSocket } from "ws";
+import { createRequire } from "module";
+const require = createRequire(import.meta.url);
+const webpush = require("web-push");
 
 dotenv.config();
 
@@ -48,13 +52,310 @@ const voiceAudioStorage = new Map<string, { buffer: Buffer; mime: string }>();
 // In-memory photo & video storage to prevent exceeding Firestore 1MB limit
 const mediaStorage = new Map<string, { buffer: Buffer; mime: string }>();
 
+// Helper to normalize phone numbers
+function cleanPhone(phone?: string): string {
+  if (!phone) return "";
+  return phone.replace(/[^\d+]/g, "").trim();
+}
+
+// VAPID keys initialization for Web Push Notifications (works with screen off and app closed)
+const VAPID_FILE = path.join(process.cwd(), ".vapid.json");
+let vapidKeys: { publicKey: string; privateKey: string };
+
+try {
+  if (fs.existsSync(VAPID_FILE)) {
+    const raw = fs.readFileSync(VAPID_FILE, "utf-8");
+    vapidKeys = JSON.parse(raw);
+  } else {
+    vapidKeys = webpush.generateVAPIDKeys();
+    fs.writeFileSync(VAPID_FILE, JSON.stringify(vapidKeys, null, 2), "utf-8");
+  }
+} catch (e) {
+  vapidKeys = webpush.generateVAPIDKeys();
+}
+
+try {
+  webpush.setVapidDetails(
+    "mailto:soporte@pidgex.app",
+    vapidKeys.publicKey,
+    vapidKeys.privateKey
+  );
+  console.log("[Push] VAPID configured successfully. Public key ready.");
+} catch (err) {
+  console.error("VAPID setup error:", err);
+}
+
+// Push subscriptions storage for wake-up calls & alerts
+interface PushSubscriptionRecord {
+  endpoint: string;
+  keys: {
+    p256dh: string;
+    auth: string;
+  };
+  userId?: string;
+  userPhoneClean?: string;
+  updatedAt: number;
+}
+
+const PUSH_SUBS_FILE = path.join(process.cwd(), ".push_subs.json");
+const pushSubscriptions = new Map<string, PushSubscriptionRecord>();
+
+try {
+  if (fs.existsSync(PUSH_SUBS_FILE)) {
+    const rawSubs = JSON.parse(fs.readFileSync(PUSH_SUBS_FILE, "utf-8"));
+    if (Array.isArray(rawSubs)) {
+      for (const item of rawSubs) {
+        if (item.endpoint && item.keys) {
+          pushSubscriptions.set(item.endpoint, item);
+        }
+      }
+    }
+  }
+} catch (e) {}
+
+function savePushSubscriptions() {
+  try {
+    const subsArray = Array.from(pushSubscriptions.values());
+    fs.writeFileSync(PUSH_SUBS_FILE, JSON.stringify(subsArray, null, 2), "utf-8");
+  } catch (e) {}
+}
+
+// Active calls tracking on server
+interface ActiveCallServerRecord {
+  callId: string;
+  callerName: string;
+  callerPhone?: string;
+  callerAvatar?: string;
+  receiverId?: string;
+  receiverPhone?: string;
+  isVideo: boolean;
+  chatId?: string;
+  status: 'ringing' | 'connected' | 'ended' | 'declined';
+  createdAt: number;
+}
+const activeCallsServerMap = new Map<string, ActiveCallServerRecord>();
+
 // API Health Check
 app.get("/api/health", (_req, res) => {
   res.json({
     status: "ok",
     appName: "MessengerPidgeon",
-    hasGeminiKey: Boolean(process.env.GEMINI_API_KEY && process.env.GEMINI_API_KEY !== "MY_GEMINI_API_KEY")
+    hasGeminiKey: Boolean(process.env.GEMINI_API_KEY && process.env.GEMINI_API_KEY !== "MY_GEMINI_API_KEY"),
+    pushSubscriptionsCount: pushSubscriptions.size
   });
+});
+
+// API: Get VAPID public key for browser ServiceWorker registration
+app.get("/api/push/vapid-public-key", (_req, res) => {
+  res.json({ publicKey: vapidKeys.publicKey });
+});
+
+// API: Subscribe browser / phone to OS Push Notifications
+app.post("/api/push/subscribe", (req, res) => {
+  try {
+    const { subscription, userId, userPhone } = req.body;
+    if (!subscription || !subscription.endpoint || !subscription.keys) {
+      return res.status(400).json({ error: "Invalid subscription data" });
+    }
+    const cleanNum = cleanPhone(userPhone);
+    const record: PushSubscriptionRecord = {
+      endpoint: subscription.endpoint,
+      keys: {
+        p256dh: subscription.keys.p256dh,
+        auth: subscription.keys.auth,
+      },
+      userId: userId || undefined,
+      userPhoneClean: cleanNum || undefined,
+      updatedAt: Date.now(),
+    };
+    pushSubscriptions.set(subscription.endpoint, record);
+    savePushSubscriptions();
+    console.log(`[Push] Subscribed device for user ${userId || "unknown"} (phone: ${cleanNum || "none"}). Total subs: ${pushSubscriptions.size}`);
+    return res.json({ success: true, registered: true });
+  } catch (err) {
+    console.error("Error saving push subscription:", err);
+    return res.status(500).json({ error: "Failed to save push subscription" });
+  }
+});
+
+// API: Trigger Call Push Notification when app is closed / screen is off
+app.post("/api/calls/trigger", async (req, res) => {
+  try {
+    const {
+      callId,
+      callerName,
+      callerPhone,
+      callerAvatar,
+      receiverId,
+      receiverPhone,
+      isVideo,
+      chatId,
+    } = req.body;
+
+    if (!callId) {
+      return res.status(400).json({ error: "Missing callId" });
+    }
+
+    const cleanReceiver = cleanPhone(receiverPhone);
+    const cleanCaller = cleanPhone(callerPhone);
+
+    const callRecord: ActiveCallServerRecord = {
+      callId,
+      callerName: callerName || "Usuario PidgeX",
+      callerPhone: cleanCaller,
+      callerAvatar,
+      receiverId,
+      receiverPhone: cleanReceiver,
+      isVideo: Boolean(isVideo),
+      chatId,
+      status: "ringing",
+      createdAt: Date.now(),
+    };
+    activeCallsServerMap.set(callId, callRecord);
+
+    // Find all matching subscriptions for recipient
+    const targetSubs: PushSubscriptionRecord[] = [];
+    for (const sub of pushSubscriptions.values()) {
+      const matchPhone = cleanReceiver && sub.userPhoneClean && (sub.userPhoneClean.includes(cleanReceiver) || cleanReceiver.includes(sub.userPhoneClean));
+      const matchId = receiverId && sub.userId === receiverId;
+      if (matchPhone || matchId) {
+        targetSubs.push(sub);
+      }
+    }
+
+    console.log(`[Call Trigger] Call ${callId} to ${cleanReceiver || receiverId}. Found ${targetSubs.length} device subscriptions.`);
+
+    const payload = JSON.stringify({
+      type: "call",
+      callId,
+      callerName: callerName || "Usuario PidgeX",
+      callerPhone: cleanCaller,
+      callerAvatar,
+      isVideo: Boolean(isVideo),
+      chatId,
+      title: `📞 Llamada de ${callerName || "PidgeX"}`,
+      body: isVideo
+        ? `📹 Videollamada entrante de ${callerName || "un amigo"}... ¡Toca para contestar!`
+        : `📞 Llamada de voz entrante de ${callerName || "un amigo"}... ¡Toca para contestar!`,
+      url: `/?autoAnswerCall=${callId}`,
+    });
+
+    const sendPromises = targetSubs.map(async (sub) => {
+      try {
+        await webpush.sendNotification(
+          {
+            endpoint: sub.endpoint,
+            keys: sub.keys,
+          },
+          payload,
+          {
+            TTL: 60,
+            urgency: "high",
+          }
+        );
+      } catch (err: any) {
+        if (err.statusCode === 404 || err.statusCode === 410) {
+          pushSubscriptions.delete(sub.endpoint);
+          savePushSubscriptions();
+        }
+      }
+    });
+
+    await Promise.allSettled(sendPromises);
+
+    return res.json({
+      success: true,
+      notifiedDevices: targetSubs.length,
+      callId,
+    });
+  } catch (err) {
+    console.error("Error triggering call push notification:", err);
+    return res.status(500).json({ error: "Failed to trigger call push notification" });
+  }
+});
+
+// API: Check Call Status for arriving receiver tab
+app.get("/api/calls/check", (req, res) => {
+  const { callId } = req.query;
+  if (!callId || typeof callId !== "string") {
+    return res.status(400).json({ error: "Missing callId" });
+  }
+  const call = activeCallsServerMap.get(callId);
+  return res.json({ call: call || null });
+});
+
+// API: End Call on server
+app.post("/api/calls/end", (req, res) => {
+  const { callId, status } = req.body;
+  if (callId && activeCallsServerMap.has(callId)) {
+    const call = activeCallsServerMap.get(callId)!;
+    call.status = status || "ended";
+    setTimeout(() => {
+      activeCallsServerMap.delete(callId);
+    }, 300000);
+  }
+  return res.json({ success: true });
+});
+
+// API: Send Push for new chat messages when app is closed
+app.post("/api/messages/trigger", async (req, res) => {
+  try {
+    const { chatId, message, receiverPhone, receiverId } = req.body;
+    if (!message || (!receiverPhone && !receiverId)) {
+      return res.status(400).json({ error: "Missing message or receiver info" });
+    }
+
+    const cleanReceiver = cleanPhone(receiverPhone);
+    const targetSubs: PushSubscriptionRecord[] = [];
+    for (const sub of pushSubscriptions.values()) {
+      const matchPhone = cleanReceiver && sub.userPhoneClean && (sub.userPhoneClean.includes(cleanReceiver) || cleanReceiver.includes(sub.userPhoneClean));
+      const matchId = receiverId && sub.userId === receiverId;
+      if (matchPhone || matchId) {
+        targetSubs.push(sub);
+      }
+    }
+
+    let bodyText = message.text || "Nuevo mensaje";
+    if (message.type === "voice") bodyText = "🎙️ Mensaje de voz";
+    if (message.type === "image") bodyText = "📸 Foto adjunta";
+    if (message.type === "video") bodyText = "🎬 Video adjunto";
+    if (message.type === "sticker") bodyText = `🌟 Sticker: ${message.stickerTitle || ""}`;
+
+    const payload = JSON.stringify({
+      type: "message",
+      chatId,
+      title: `${message.senderName || "PidgeX 🐦"}`,
+      body: bodyText,
+      icon: message.senderAvatar || "/pidgex-logo.svg",
+      url: `/?chatId=${chatId}`,
+    });
+
+    const sendPromises = targetSubs.map(async (sub) => {
+      try {
+        await webpush.sendNotification(
+          {
+            endpoint: sub.endpoint,
+            keys: sub.keys,
+          },
+          payload,
+          {
+            TTL: 3600,
+            urgency: "high",
+          }
+        );
+      } catch (err: any) {
+        if (err.statusCode === 404 || err.statusCode === 410) {
+          pushSubscriptions.delete(sub.endpoint);
+          savePushSubscriptions();
+        }
+      }
+    });
+
+    await Promise.allSettled(sendPromises);
+    return res.json({ success: true, notifiedDevices: targetSubs.length });
+  } catch (err) {
+    return res.status(500).json({ error: "Failed to trigger message push" });
+  }
 });
 
 // API: Upload voice message audio to avoid exceeding Firestore 1MB document limit
@@ -115,15 +416,52 @@ app.post("/api/media/upload", express.json({ limit: "50mb" }), (req, res) => {
     if (!matches) {
       return res.status(400).json({ error: "Invalid base64 media format" });
     }
-    const mime = matches[1];
-    const buffer = Buffer.from(matches[2], "base64");
-    const isVideo = mime.includes("video");
-    const ext = isVideo ? (mime.includes("webm") ? "webm" : "mp4") : "jpg";
-    const mediaId = `media_${Date.now()}_${Math.random().toString(36).substring(2, 8)}.${ext}`;
-    mediaStorage.set(mediaId, { buffer, mime });
 
-    // Rotate storage if it exceeds 120 items
-    if (mediaStorage.size > 120) {
+    let detectedMime = (matches[1] || '').toLowerCase();
+    const cleanFilename = (filename || '').toLowerCase();
+
+    // Determine if this is a video
+    const isVideo =
+      detectedMime.includes("video") ||
+      cleanFilename.endsWith(".mp4") ||
+      cleanFilename.endsWith(".mov") ||
+      cleanFilename.endsWith(".webm") ||
+      cleanFilename.endsWith(".mkv") ||
+      cleanFilename.endsWith(".3gp") ||
+      cleanFilename.endsWith(".m4v");
+
+    let finalMime = detectedMime;
+    let ext = "jpg";
+
+    if (isVideo) {
+      if (cleanFilename.endsWith(".webm") || detectedMime.includes("webm")) {
+        finalMime = "video/webm";
+        ext = "webm";
+      } else {
+        // mp4, mov, mkv, 3gp, m4v all serve as video/mp4 for standard HTML5 playback
+        finalMime = "video/mp4";
+        ext = "mp4";
+      }
+    } else if (cleanFilename.endsWith(".png") || detectedMime.includes("png")) {
+      finalMime = "image/png";
+      ext = "png";
+    } else if (cleanFilename.endsWith(".webp") || detectedMime.includes("webp")) {
+      finalMime = "image/webp";
+      ext = "webp";
+    } else if (cleanFilename.endsWith(".gif") || detectedMime.includes("gif")) {
+      finalMime = "image/gif";
+      ext = "gif";
+    } else {
+      finalMime = "image/jpeg";
+      ext = "jpg";
+    }
+
+    const buffer = Buffer.from(matches[2], "base64");
+    const mediaId = `media_${Date.now()}_${Math.random().toString(36).substring(2, 8)}.${ext}`;
+    mediaStorage.set(mediaId, { buffer, mime: finalMime });
+
+    // Rotate storage if it exceeds 150 items
+    if (mediaStorage.size > 150) {
       const oldestKeys = Array.from(mediaStorage.keys()).slice(0, 30);
       oldestKeys.forEach((k) => mediaStorage.delete(k));
     }
@@ -132,6 +470,7 @@ app.post("/api/media/upload", express.json({ limit: "50mb" }), (req, res) => {
       success: true,
       mediaUrl: `/api/media/${mediaId}`,
       mediaType: isVideo ? "video" : "image",
+      mimeType: finalMime,
       size: buffer.length,
     });
   } catch (err) {
@@ -150,6 +489,7 @@ app.get("/api/media/:mediaId", (req, res) => {
 
   const range = req.headers.range;
   const totalLength = item.buffer.length;
+  const mimeType = item.mime || (mediaId.endsWith('.webm') ? 'video/webm' : mediaId.endsWith('.mp4') ? 'video/mp4' : 'application/octet-stream');
 
   if (range) {
     const parts = range.replace(/bytes=/, "").split("-");
@@ -160,13 +500,13 @@ app.get("/api/media/:mediaId", (req, res) => {
       "Content-Range": `bytes ${start}-${end}/${totalLength}`,
       "Accept-Ranges": "bytes",
       "Content-Length": chunkSize,
-      "Content-Type": item.mime || "application/octet-stream",
+      "Content-Type": mimeType,
       "Cache-Control": "public, max-age=86400",
     });
     return res.end(item.buffer.subarray(start, end + 1));
   }
 
-  res.setHeader("Content-Type", item.mime || "application/octet-stream");
+  res.setHeader("Content-Type", mimeType);
   res.setHeader("Content-Length", totalLength);
   res.setHeader("Accept-Ranges", "bytes");
   res.setHeader("Cache-Control", "public, max-age=86400");

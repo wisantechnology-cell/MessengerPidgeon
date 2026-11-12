@@ -155,6 +155,13 @@ export const IncomingCallModal: React.FC<IncomingCallModalProps> = ({
             <button
               onClick={() => {
                 ringtoneManager.stopIncomingCallAlert();
+                try {
+                  const AudioCtx = window.AudioContext || (window as any).webkitAudioContext;
+                  if (AudioCtx) {
+                    const ctx = new AudioCtx();
+                    ctx.resume().then(() => ctx.close()).catch(() => {});
+                  }
+                } catch {}
                 onAccept(call);
               }}
               className="w-16 h-16 rounded-full bg-emerald-600 hover:bg-emerald-500 active:scale-95 text-white flex items-center justify-center shadow-lg shadow-emerald-950/60 transition-all cursor-pointer animate-bounce group"

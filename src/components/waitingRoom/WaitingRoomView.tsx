@@ -22,19 +22,10 @@ import { MemoryGame } from './MemoryGame';
 import { CatchLettersGame } from './CatchLettersGame';
 import { TicTacToeGame } from './TicTacToeGame';
 import { MemeStudioGame } from '../MemeStudioGame';
-import { OmegleGame } from './OmegleGame';
-import { TriviaGrupalGame } from './TriviaGrupalGame';
-import { DibujaYAdivinaGame } from './DibujaYAdivinaGame';
-import { StopGrupalGame } from './StopGrupalGame';
 import { GameTutorialModal } from './GameTutorialModal';
 import { BirdLogo } from '../BirdLogo';
 import { Chat, UserProfile } from '../../types';
 import { PikitoMascot } from '../PikitoMascot';
-import {
-  TrophyVectorIcon,
-  PaletteVectorIcon,
-  ZapVectorIcon,
-} from '../CustomVectorIcons';
 
 export type MiniGameId =
   | 'birdflight'
@@ -42,10 +33,6 @@ export type MiniGameId =
   | 'catchletters'
   | 'tictactoe'
   | 'memestudio'
-  | 'omegle'
-  | 'triviagrupal'
-  | 'dibujayadivina'
-  | 'stopgrupal'
   | null;
 
 interface WaitingRoomViewProps {
@@ -116,39 +103,6 @@ export const WaitingRoomView: React.FC<WaitingRoomViewProps> = ({
       badgeColor: 'bg-purple-500/20 text-purple-300',
     },
     {
-      id: 'triviagrupal' as const,
-      category: 'group',
-      title: 'Trivia Grupal',
-      subtitle: 'Cultura General & Velocidad',
-      description: 'Reta tus conocimientos contra el tiempo con preguntas de geografía, cine, tecnología y PidgeX.',
-      icon: <TrophyVectorIcon className="w-6 h-6" />,
-      color: 'from-indigo-600 to-blue-700',
-      badge: 'Multijugador',
-      badgeColor: 'bg-indigo-500/20 text-indigo-300',
-    },
-    {
-      id: 'dibujayadivina' as const,
-      category: 'group',
-      title: 'Dibuja y Adivina',
-      subtitle: 'Pintura & Deducción en Vivo',
-      description: 'Ilustra la palabra secreta en el lienzo o adivina en el chat los dibujos de tus compañeros.',
-      icon: <PaletteVectorIcon className="w-6 h-6" />,
-      color: 'from-amber-600 to-rose-600',
-      badge: 'En Vivo',
-      badgeColor: 'bg-rose-500/20 text-rose-300',
-    },
-    {
-      id: 'stopgrupal' as const,
-      category: 'group',
-      title: 'Stop Grupal (Basta)',
-      subtitle: 'Agilidad Mental & Vocabulario',
-      description: 'Escribe Nombre, Ciudad, Animal, Comida y Cosa con la letra elegida y canta ¡STOP!',
-      icon: <ZapVectorIcon className="w-6 h-6" />,
-      color: 'from-red-600 to-rose-700',
-      badge: 'Multijugador',
-      badgeColor: 'bg-red-500/20 text-red-300',
-    },
-    {
       id: 'memestudio' as const,
       category: 'single',
       title: 'Meme Studio',
@@ -158,17 +112,6 @@ export const WaitingRoomView: React.FC<WaitingRoomViewProps> = ({
       color: 'from-pink-600 to-purple-600',
       badge: 'Creativo',
       badgeColor: 'bg-pink-500/20 text-pink-300',
-    },
-    {
-      id: 'omegle' as const,
-      category: 'single',
-      title: 'PidgeCam (Modo Extraños)',
-      subtitle: 'Videollamadas al Azar',
-      description: 'Conéctate mediante videollamada y chat aleatorio con usuarios reales de todo el mundo.',
-      icon: <VideoCam className="w-6 h-6 text-white" />,
-      color: 'from-rose-500 to-pink-600',
-      badge: 'En Vivo',
-      badgeColor: 'bg-rose-500/20 text-rose-300',
     },
   ];
 
@@ -210,9 +153,6 @@ export const WaitingRoomView: React.FC<WaitingRoomViewProps> = ({
         {activeGame === 'memory' && <MemoryGame onBack={() => setActiveGame(null)} />}
         {activeGame === 'catchletters' && <CatchLettersGame onBack={() => setActiveGame(null)} />}
         {activeGame === 'tictactoe' && <TicTacToeGame onBack={() => setActiveGame(null)} />}
-        {activeGame === 'triviagrupal' && <TriviaGrupalGame groupName="Sala de Espera" onBack={() => setActiveGame(null)} />}
-        {activeGame === 'dibujayadivina' && <DibujaYAdivinaGame groupName="Sala de Espera" onBack={() => setActiveGame(null)} />}
-        {activeGame === 'stopgrupal' && <StopGrupalGame groupName="Sala de Espera" onBack={() => setActiveGame(null)} />}
         {activeGame === 'memestudio' && (
           <MemeStudioGame
             onBack={() => setActiveGame(null)}
@@ -220,13 +160,6 @@ export const WaitingRoomView: React.FC<WaitingRoomViewProps> = ({
             user={user}
             isNightMode={isNightMode}
             onSendMemeToChat={onSendMemeToChat}
-          />
-        )}
-        {activeGame === 'omegle' && (
-          <OmegleGame
-            user={user}
-            onClose={() => setActiveGame(null)}
-            isNightMode={isNightMode}
           />
         )}
 

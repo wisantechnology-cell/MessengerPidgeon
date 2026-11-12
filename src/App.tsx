@@ -5,8 +5,6 @@ import {
   WALLPAPERS,
 } from './data/mockData';
 import { Chat, ChatCategory, Message, UserProfile, MarketplaceProduct, GroupMember } from './types';
-import { StatusItem } from './types/status';
-import { INITIAL_STATUSES } from './data/statusData';
 import {
   auth,
   db,
@@ -31,8 +29,6 @@ import {
   handleFirestoreError
 } from './firebase';
 import { ChatsListView } from './components/ChatsListView';
-import { StatusView } from './components/StatusView';
-import { StarredMessagesView } from './components/StarredMessagesView';
 import { LocalRadarView } from './components/LocalRadarView';
 import { TutorialModal } from './components/TutorialModal';
 import { SpotlightTour } from './components/SpotlightTour';
@@ -47,9 +43,6 @@ import { ringtoneManager } from './utils/ringtoneAudio';
 import { ChatView } from './components/ChatView';
 import { SettingsProfileView } from './components/SettingsProfileView';
 import { WaitingRoomView } from './components/waitingRoom/WaitingRoomView';
-import { TriviaGrupalGame } from './components/waitingRoom/TriviaGrupalGame';
-import { DibujaYAdivinaGame } from './components/waitingRoom/DibujaYAdivinaGame';
-import { StopGrupalGame } from './components/waitingRoom/StopGrupalGame';
 import { MarketplaceView } from './components/marketplace/MarketplaceView';
 import { NewsView } from './components/NewsView';
 import { BottomNav, NavTab } from './components/BottomNav';
@@ -80,6 +73,7 @@ import {
   initPresenceListener,
   registerChatsContacts,
 } from './utils/localUserRegistry';
+import { registerPushSubscription } from './utils/pushManager';
 
 export const getCleanPhone = (phone?: string): string => (phone || '').replace(/\D/g, '');
 
@@ -313,69 +307,7 @@ export default function App() {
     return INITIAL_CHATS;
   });
 
-  const [statuses, setStatuses] = useState<StatusItem[]>(() => {
-    try {
-      localStorage.removeItem('pidge_statuses_v1');
-      const saved = localStorage.getItem('pidge_statuses_v2');
-      if (saved) {
-        const parsed = JSON.parse(saved);
-        if (Array.isArray(parsed)) return parsed;
-      }
-    } catch {
-      // ignore
-    }
-    return INITIAL_STATUSES;
-  });
-
-  useEffect(() => {
-    try {
-      localStorage.setItem('pidge_statuses_v2', JSON.stringify(statuses));
-    } catch {
-      // ignore
-    }
-  }, [statuses]);
-
-  const handleAddStatus = (mediaUrl: string, caption?: string, title?: string, privacy?: 'contacts' | 'everyone') => {
-    const newStatus: StatusItem = {
-      id: `status_${Date.now()}`,
-      userId: user.id || 'me',
-      userName: user.name || 'Tú',
-      userAvatar: user.avatarUrl,
-      mediaUrl,
-      title,
-      caption,
-      privacy: privacy || 'everyone',
-      timestamp: 'Justo ahora',
-      expiresAt: '',
-      replies: [],
-    };
-    setStatuses((prev) => [newStatus, ...prev]);
-  };
-
-  const handleDeleteStatus = (statusId: string) => {
-    setStatuses((prev) => prev.filter((s) => s.id !== statusId));
-  };
-
-  const handleReplyToStatus = (statusId: string, replyText: string) => {
-    const newReply = {
-      id: `reply_${Date.now()}`,
-      senderId: user.id || 'me',
-      senderName: user.name || 'Tú',
-      senderAvatar: user.avatarUrl,
-      text: replyText,
-      timestamp: 'Justo ahora',
-    };
-    setStatuses((prev) =>
-      prev.map((s) =>
-        s.id === statusId
-          ? { ...s, replies: [...s.replies, newReply] }
-          : s
-      )
-    );
-  };
-
   const [activeChatId, setActiveChatId] = useState<string | null>(null);
-  const [activeGroupGame, setActiveGroupGame] = useState<'triviagrupal' | 'dibujayadivina' | 'stopgrupal' | null>(null);
   const [activeTab, setActiveTab] = useState<NavTab>('chats');
   const [lastTabDirection, setLastTabDirection] = useState<'left' | 'right'>('right');
 
@@ -405,8 +337,6 @@ export default function App() {
     news: 3,
     settings: 4,
   };
-
-  const [isStarredModalOpen, setIsStarredModalOpen] = useState<boolean>(false);
 
   const handleSelectTab = (newTab: NavTab) => {
     if (newTab !== activeTab) {
@@ -450,12 +380,13 @@ export default function App() {
     return () => clearTimeout(timer);
   }, []);
 
-  // Connect realtime WebSocket client for calls, live chat and instant streaming
+  // Connect realtime WebSocket client and register Web Push for background calls
   useEffect(() => {
     if (user && user.id) {
       realtimeClient.connect(user);
+      registerPushSubscription(user.phone, user.id);
     }
-  }, [user]);
+  }, [user.id, user.phone]);
 
   const [firebaseUser, setFirebaseUser] = useState<any>(null);
   const [isCloudSynced, setIsCloudSynced] = useState<boolean>(false);
@@ -986,6 +917,14 @@ export default function App() {
     const callerPhoneClean = getCleanPhone(user.phone);
     const receiverPhoneClean = getCleanPhone(chat.phone);
 
+    try {
+      const AudioCtx = window.AudioContext || (window as any).webkitAudioContext;
+      if (AudioCtx) {
+        const dummy = new AudioCtx();
+        dummy.resume().then(() => dummy.close()).catch(() => {});
+      }
+    } catch {}
+
     // Synchronously generate a real Firestore document reference with auto ID
     const callDocRef = doc(collection(db, 'calls'));
     const realCallId = callDocRef.id;
@@ -1057,10 +996,44 @@ export default function App() {
     } catch (e) {
       console.warn('Error broadcasting call ringing signal:', e);
     }
+
+    // Wake up receiver phone via OS Web Push notification even if app is closed or screen is off
+    try {
+      fetch('/api/calls/trigger', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          callId: realCallId,
+          callerName: user.name,
+          callerPhone: callerPhoneClean,
+          callerAvatar: user.avatarUrl,
+          receiverId: chat.id || '',
+          receiverPhone: receiverPhoneClean,
+          isVideo,
+          chatId: chat.id,
+        }),
+      }).catch((err) => console.warn('Push call trigger network err:', err));
+    } catch {}
   };
 
   const handleAcceptIncomingCall = async (call: IncomingCallData) => {
     ringtoneManager.stopIncomingCallAlert();
+    try {
+      const AudioCtx = window.AudioContext || (window as any).webkitAudioContext;
+      if (AudioCtx) {
+        const dummy = new AudioCtx();
+        dummy.resume().then(() => dummy.close()).catch(() => {});
+      }
+    } catch {}
+
+    try {
+      fetch('/api/calls/end', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ callId: call.id, status: 'accepted' }),
+      }).catch(() => {});
+    } catch {}
+
     try {
       const callDocRef = doc(db, 'calls', call.id);
       await updateDoc(callDocRef, {
@@ -1113,6 +1086,14 @@ export default function App() {
   const handleDeclineIncomingCall = async (call: IncomingCallData) => {
     ringtoneManager.stopIncomingCallAlert();
     try {
+      fetch('/api/calls/end', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ callId: call.id, status: 'declined' }),
+      }).catch(() => {});
+    } catch {}
+
+    try {
       const callDocRef = doc(db, 'calls', call.id);
       await updateDoc(callDocRef, {
         status: 'declined',
@@ -1124,7 +1105,7 @@ export default function App() {
     setIncomingCallData(null);
   };
 
-  // Service Worker background action listener (Answer/Decline directly from phone lockscreen notifications)
+  // Service Worker background action listener & URL wake-up handler (even when app was closed)
   useEffect(() => {
     if (typeof navigator === 'undefined' || !('serviceWorker' in navigator)) return;
 
@@ -1143,13 +1124,65 @@ export default function App() {
 
     navigator.serviceWorker.addEventListener('message', handleSWMessage);
 
-    // Check URL parameters when opened from notification
+    // Check URL parameters when opened from notification or when phone is locked/app was closed
     try {
       const urlParams = new URLSearchParams(window.location.search);
       const openChatId = urlParams.get('chatId');
       if (openChatId) {
         setActiveChatId(openChatId);
         setActiveTab('chats');
+      }
+
+      const autoAnswerCallId = urlParams.get('autoAnswerCall') || urlParams.get('callId');
+      const shouldAutoAnswer = urlParams.get('answer') === 'true' || urlParams.get('action') === 'answer';
+
+      if (autoAnswerCallId) {
+        try {
+          const cleanUrl = window.location.pathname;
+          window.history.replaceState({}, document.title, cleanUrl);
+        } catch {}
+
+        const wakeUpAndShowCall = async () => {
+          let callInfo: any = null;
+          try {
+            const resp = await fetch(`/api/calls/check?callId=${autoAnswerCallId}`);
+            if (resp.ok) {
+              const resJson = await resp.json();
+              if (resJson.call) callInfo = resJson.call;
+            }
+          } catch {}
+
+          if (!callInfo) {
+            try {
+              const snap = await getDoc(doc(db, 'calls', autoAnswerCallId));
+              if (snap.exists()) {
+                callInfo = { id: snap.id, ...snap.data() };
+              }
+            } catch {}
+          }
+
+          if (callInfo && (callInfo.status === 'ringing' || callInfo.status === 'calling')) {
+            const incoming: IncomingCallData = {
+              id: autoAnswerCallId,
+              callerId: callInfo.callerId || '',
+              callerName: callInfo.callerName || 'Contacto PidgeX',
+              callerAvatar: callInfo.callerAvatar,
+              callerPhone: callInfo.callerPhone,
+              isVideo: Boolean(callInfo.isVideo),
+              isGroup: Boolean(callInfo.isGroup),
+              chatId: callInfo.chatId || '',
+            };
+
+            if (shouldAutoAnswer) {
+              handleAcceptIncomingCall(incoming);
+            } else {
+              setIncomingCallData(incoming);
+              ringtoneManager.startIncomingCallAlert(user);
+            }
+          }
+        };
+
+        wakeUpAndShowCall();
       }
     } catch {}
 
@@ -1474,6 +1507,24 @@ export default function App() {
     } catch (e) {
       console.warn('Firestore message sync error:', e);
     }
+
+    // Push notification to recipient's phone when their app is closed
+    try {
+      const targetChat = chats.find((c) => c.id === chatId);
+      const recipientPhone = getCleanPhone(targetChat?.phone);
+      if (recipientPhone || targetChat?.id) {
+        fetch('/api/messages/trigger', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            chatId,
+            message: newMessage,
+            receiverPhone: recipientPhone,
+            receiverId: targetChat?.id,
+          }),
+        }).catch(() => {});
+      }
+    } catch {}
   };
 
   const handleSendVoiceMessageFromModal = (
@@ -2324,19 +2375,7 @@ export default function App() {
 
       {/* Main App Content Container */}
       <div className="relative z-10 min-h-screen w-full flex flex-col">
-        {activeGroupGame === 'triviagrupal' ? (
-          <div key="triviagrupal" className="w-full h-full animate-in fade-in zoom-in-80 duration-1000 ease-out">
-            <TriviaGrupalGame groupName={activeChat?.name} onBack={() => setActiveGroupGame(null)} />
-          </div>
-        ) : activeGroupGame === 'dibujayadivina' ? (
-          <div key="dibujayadivina" className="w-full h-full animate-in slide-in-from-bottom-12 duration-1000 ease-out">
-            <DibujaYAdivinaGame groupName={activeChat?.name} onBack={() => setActiveGroupGame(null)} />
-          </div>
-        ) : activeGroupGame === 'stopgrupal' ? (
-          <div key="stopgrupal" className="w-full h-full animate-in zoom-in-75 duration-1000 ease-out">
-            <StopGrupalGame groupName={activeChat?.name} onBack={() => setActiveGroupGame(null)} />
-          </div>
-        ) : activeChat ? (
+        {activeChat ? (
           <div key={`chat_${activeChat.id}`} className="w-full h-full animate-in slide-in-from-right-12 duration-1000 ease-out">
             <ChatView
               chat={activeChat}
@@ -2348,7 +2387,6 @@ export default function App() {
               onToggleNightMode={handleToggleNightMode}
               onBack={() => {
                 setActiveChatId(null);
-                setActiveGroupGame(null);
               }}
               onSendMessage={handleSendMessage}
               onAddReaction={handleAddReaction}
@@ -2368,7 +2406,6 @@ export default function App() {
               onOpenAddFriend={() => setIsAddFriendModalOpen(true)}
               onUpdateGroupMembers={handleUpdateGroupMembers}
               onLeaveGroup={handleLeaveGroup}
-              onStartGroupGame={(gameId) => setActiveGroupGame(gameId)}
               onOpenTimeCapsule={() => setIsTimeCapsuleModalOpen(true)}
               onExportChat={(c) => exportChatAsText(c)}
               onSelectGradient={(chatId, gradient) => {
@@ -2427,35 +2464,30 @@ export default function App() {
                 <div className="flex-1 min-h-0 overflow-hidden">
                   <ChatsListView
                     chats={chats}
-                  user={user}
-                  wallpapers={WALLPAPERS}
-                  statuses={statuses}
-                  isNightMode={isNightMode}
-                  onToggleNightMode={handleToggleNightMode}
-                  onSelectChat={(c) => {
-                    setChats((prev) =>
-                      prev.map((item) => (item.id === c.id ? { ...item, unreadCount: 0 } : item))
-                    );
-                    setActiveChatId(c.id);
-                  }}
-                  onSelectWallpaper={(wpId, customUrl) => handleSelectWallpaper(wpId, customUrl)}
-                  onToggleDoNotDisturb={handleToggleDoNotDisturb}
-                  onOpenProfile={() => handleSelectTab('settings')}
-                  onNewChat={() => setIsNewChatModalOpen(true)}
-                  onOpenNewGroup={() => setIsNewGroupModalOpen(true)}
-                  onAddFriend={handleAddFriend}
-                  onUnblockContact={handleUnblockContact}
-                  onDeleteChat={handleDeleteChat}
-                  onAddStatus={handleAddStatus}
-                  onDeleteStatus={handleDeleteStatus}
-                  onReplyToStatus={handleReplyToStatus}
-                  onOpenContactProfile={(c) => setSelectedContactForProfile(c)}
-                  onOpenStarredMessages={() => setIsStarredModalOpen(true)}
-                  onOpenLocalRadar={() => setIsLocalRadarOpen(true)}
-                  onOpenInstallModal={() => setIsInstallModalOpen(true)}
-                  onOpenAddFriend={() => setIsAddFriendModalOpen(true)}
-                  isClassicMode={isClassicMode}
-                />
+                    user={user}
+                    wallpapers={WALLPAPERS}
+                    isNightMode={isNightMode}
+                    onToggleNightMode={handleToggleNightMode}
+                    onSelectChat={(c) => {
+                      setChats((prev) =>
+                        prev.map((item) => (item.id === c.id ? { ...item, unreadCount: 0 } : item))
+                      );
+                      setActiveChatId(c.id);
+                    }}
+                    onSelectWallpaper={(wpId, customUrl) => handleSelectWallpaper(wpId, customUrl)}
+                    onToggleDoNotDisturb={handleToggleDoNotDisturb}
+                    onOpenProfile={() => handleSelectTab('settings')}
+                    onNewChat={() => setIsNewChatModalOpen(true)}
+                    onOpenNewGroup={() => setIsNewGroupModalOpen(true)}
+                    onAddFriend={handleAddFriend}
+                    onUnblockContact={handleUnblockContact}
+                    onDeleteChat={handleDeleteChat}
+                    onOpenContactProfile={(c) => setSelectedContactForProfile(c)}
+                    onOpenLocalRadar={() => setIsLocalRadarOpen(true)}
+                    onOpenInstallModal={() => setIsInstallModalOpen(true)}
+                    onOpenAddFriend={() => setIsAddFriendModalOpen(true)}
+                    isClassicMode={isClassicMode}
+                  />
                 </div>
               </div>
             )}
@@ -2683,29 +2715,6 @@ export default function App() {
           }}
         />
 
-        <StarredMessagesView
-          isOpen={isStarredModalOpen}
-          onClose={() => setIsStarredModalOpen(false)}
-          chats={chats}
-          isNightMode={isNightMode}
-          onJumpToChat={(chatId) => {
-            setActiveChatId(chatId);
-            setActiveTab('chats');
-          }}
-          onUnstarMessage={(chatId, messageId) => {
-            setChats((prev) =>
-              prev.map((c) => {
-                if (c.id === chatId) {
-                  return {
-                    ...c,
-                    messages: c.messages.map((m) => (m.id === messageId ? { ...m, isStarred: false } : m)),
-                  };
-                }
-                return c;
-              })
-            );
-          }}
-        />
 
         {/* Virtual Pet Pikito */}
         <VirtualPetWidget user={user} isNightMode={isNightMode} />
