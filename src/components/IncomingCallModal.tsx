@@ -1,7 +1,7 @@
-import React, { useEffect } from 'react';
+import React, { useEffect, useRef } from 'react';
 import { Phone, PhoneOff, Video, Volume2, Vibrate, Sun } from 'lucide-react';
 import { UserProfile } from '../types';
-import { ringtoneManager } from '../utils/ringtoneAudio';
+import { CALL_RINGTONE_OPTIONS, ringtoneManager } from '../utils/ringtoneAudio';
 
 export interface IncomingCallData {
   id: string;
@@ -29,30 +29,42 @@ export const IncomingCallModal: React.FC<IncomingCallModalProps> = ({
   onDecline,
   isNightMode = true,
 }) => {
-  // Start custom/preset ringtone, device vibration, and screen wake lock
-  useEffect(() => {
-    if (!call) return;
+  const userRef = useRef<UserProfile | undefined>(user);
+  userRef.current = user;
 
-    if (user) {
-      ringtoneManager.startIncomingCallAlert(user);
+  const activeCallId = call?.id;
+  const activeRingtoneId = user?.callRingtoneId || 'pidgex_melody';
+  const activeCustomUrl = user?.customCallRingtoneUrl || '';
+
+  // Start custom/preset ringtone, device vibration, and screen wake lock keyed strictly by call.id
+  useEffect(() => {
+    if (!activeCallId) return;
+
+    if (userRef.current) {
+      ringtoneManager.startIncomingCallAlert(userRef.current);
     }
 
     return () => {
       ringtoneManager.stopIncomingCallAlert();
     };
-  }, [call, user]);
+  }, [activeCallId, activeRingtoneId, activeCustomUrl]);
 
   if (!call) return null;
 
   const shouldWakeScreen = !user || user.wakeScreenOnCall !== false;
   const isVibrating = !user || user.vibrateOnCall !== false;
+  const presetOption = CALL_RINGTONE_OPTIONS.find((opt) => opt.id === user?.callRingtoneId);
   const ringtoneName =
     user?.callRingtoneId === 'custom'
-      ? (user.customCallRingtoneName || 'Audio de galería')
-      : (user?.callRingtoneId || 'Melodía PidgeX');
+      ? (user.customCallRingtoneName || 'Audio personalizado')
+      : (presetOption?.name || 'Melodía PidgeX');
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/85 backdrop-blur-xl animate-in fade-in duration-200">
+    <div
+      onPointerDown={() => ringtoneManager.unlockAudioOnGesture()}
+      onClick={() => ringtoneManager.unlockAudioOnGesture()}
+      className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/85 backdrop-blur-xl animate-in fade-in duration-200"
+    >
       {/* Visual Screen Wake & Flash Pulse: lights up the screen so device is visibly lit in dark */}
       {shouldWakeScreen && (
         <div className="fixed inset-0 pointer-events-none z-0">

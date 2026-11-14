@@ -2,6 +2,73 @@ export type ChatCategory = 'all' | 'friends' | 'unread' | 'groups' | 'work' | 'f
 
 export type UserStatus = 'online' | 'busy' | 'offline';
 
+export type EmotionalMode = 'neutral' | 'romantico' | 'divertido' | 'misterioso' | 'relajante' | 'futurista';
+
+export interface DigitalAvatarConfig {
+  skinTone: string;
+  hairStyle: 'short' | 'long' | 'curly' | 'bob' | 'spiky' | 'bun' | 'mohawk' | 'none';
+  hairColor: string;
+  eyeColor: string;
+  outfit: 'hoodie' | 'suit' | 'cyber' | 'casual' | 'astronaut';
+  outfitColor: string;
+  accessory: 'none' | 'glasses' | 'sunglasses' | 'headphones' | 'crown' | 'halo';
+  auraColor: string;
+  expression: 'happy' | 'love' | 'surprised' | 'cool' | 'wink';
+  photoSnapshotUrl?: string;
+}
+
+export interface CustomStickerPack {
+  id: string;
+  name: string;
+  stickers: StickerItem[];
+}
+
+export interface ChatPersonalityTheme {
+  id: string;
+  name: string;
+  headerGradient: string;
+  bubbleMeBg: string;
+  bubbleMeText: string;
+  bubbleThemBg: string;
+  bubbleThemText: string;
+  accentColor: string;
+  sendEffect?: 'none' | 'confetti' | 'hearts' | 'sparks' | 'bubbles';
+  soundPack?: 'default' | 'cyber' | 'soft' | 'retro' | 'mute';
+  animatedBg?: 'none' | 'aurora' | 'stars' | 'particles';
+}
+
+export interface VirtualRoomFurniture {
+  id: string;
+  kind: 'sofa' | 'table' | 'lamp' | 'plant' | 'screen' | 'disco';
+  x: number;
+  z: number;
+  rotation: number;
+  color: string;
+}
+
+export interface VirtualRoomConfig {
+  theme: 'futuristic_lounge' | 'cozy_cabin' | 'neon_terrace' | 'space_studio';
+  ambientLight: string;
+  musicMode: 'ambient' | 'lofi' | 'synth' | 'off';
+  furniture: VirtualRoomFurniture[];
+}
+
+export interface TimeCapsuleAttachment {
+  type: 'image' | 'video' | 'voice';
+  url: string;
+  name?: string;
+  duration?: string;
+}
+
+export interface TimeCapsuleData {
+  id: string;
+  unlockTime: number;
+  occasion: string;
+  isSurprise?: boolean;
+  unlocked?: boolean;
+  attachments?: TimeCapsuleAttachment[];
+}
+
 export interface UserProfile {
   id: string;
   name: string;
@@ -10,6 +77,7 @@ export interface UserProfile {
   bio: string;
   phone: string;
   email: string;
+  accountCreated?: boolean;
   status: UserStatus;
   wallpaperId: string;
   customWallpaperUrl?: string;
@@ -42,6 +110,11 @@ export interface UserProfile {
   messageToneId?: string; // 'pidgex_chirp' | 'soft_chime' | 'bubble_pop' | 'digital_pulse' | 'happy_whistle' | 'custom'
   customMessageToneUrl?: string;
   customMessageToneName?: string;
+  digitalAvatar?: DigitalAvatarConfig;
+  customStickers?: StickerItem[];
+  customStickerPacks?: CustomStickerPack[];
+  achievements?: string[];
+  gamePoints?: number;
   pendingFriendRequests?: {
     id: string;
     name: string;
@@ -54,7 +127,28 @@ export interface UserProfile {
   }[];
 }
 
-export type MessageType = 'text' | 'image' | 'sticker' | 'voice' | 'video' | 'poll' | 'private' | 'location';
+export type MessageType =
+  | 'text'
+  | 'image'
+  | 'sticker'
+  | 'gif'
+  | 'voice'
+  | 'video'
+  | 'poll'
+  | 'private'
+  | 'location'
+  | 'avatar_msg'
+  | 'capsule'
+  | 'game_invite'
+  | 'memory_reel';
+
+export interface GifItem {
+  id: string;
+  title: string;
+  category: string;
+  url: string;
+  tags?: string[];
+}
 
 export interface MessageReaction {
   emoji: string;
@@ -72,6 +166,7 @@ export interface Message {
   type: MessageType;
   text?: string;
   mediaUrl?: string;
+  thumbnailUrl?: string;
   mediaName?: string;
   mediaSize?: string;
   mediaDuration?: string;
@@ -92,6 +187,18 @@ export interface Message {
   privateData?: PrivateMessageData;
   isStarred?: boolean;
   locationData?: { lat: number; lng: number; address: string };
+  avatarPayload?: {
+    config: DigitalAvatarConfig;
+    expression: DigitalAvatarConfig['expression'];
+    audioUrl?: string;
+  };
+  capsuleData?: TimeCapsuleData;
+  gameData?: {
+    gameType: 'trivia' | 'draw' | 'memory' | 'room3d';
+    title: string;
+    scoreSummary?: string;
+  };
+  emotionTag?: EmotionalMode;
 }
 
 export interface GroupMember {
@@ -132,6 +239,10 @@ export interface Chat {
   onlineCount?: number;
   activeUsers?: { id: string; name: string; avatarUrl?: string }[];
   headerGradient?: string;
+  personalityTheme?: ChatPersonalityTheme;
+  emotionalMode?: EmotionalMode;
+  virtualRoomConfig?: VirtualRoomConfig;
+  aiAssistantEnabled?: boolean;
   messages: Message[];
   // Group Specific Properties
   creatorId?: string;

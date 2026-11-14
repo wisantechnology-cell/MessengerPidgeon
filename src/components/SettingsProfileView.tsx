@@ -10,12 +10,10 @@ import {
   AlertTriangle,
   Activity,
   QrCode,
-  Sparkles,
   Compass,
   Smartphone,
   Laptop,
   Tablet,
-  Monitor,
   RefreshCw,
   Wallpaper as WallpaperIcon,
   Upload,
@@ -29,14 +27,20 @@ import {
   PhoneCall,
   MessageSquare,
   FileAudio,
+  Calendar,
+  BookOpen,
+  Sparkles,
+  Wand2,
 } from 'lucide-react';
 import { UserProfile, Wallpaper } from '../types';
 import { ensurePhoneStartsWith16 } from '../utils/phoneUtils';
-import { DEFAULT_PIDGEON_AVATAR, PRESET_AVATARS } from '../utils/avatarUtils';
+import { DEFAULT_PIDGEON_AVATAR } from '../utils/avatarUtils';
 import { isPhoneTakenByAnotherUser } from '../utils/phoneValidation';
 import { PidgeXFullLogo } from './BirdLogo';
 import { ProfileQrCardModal } from './ProfileQrCardModal';
 import { AvatarCaptureModal } from './AvatarCaptureModal';
+import { DigitalAvatarStudioModal } from './DigitalAvatarStudioModal';
+import { AiStickerFactoryModal } from './AiStickerFactoryModal';
 import { MONTHLY_THEMES } from '../utils/monthlyThemes';
 import {
   CALL_RINGTONE_OPTIONS,
@@ -96,6 +100,8 @@ export const SettingsProfileView: React.FC<SettingsProfileViewProps> = ({
   const [savedFeedback, setSavedFeedback] = useState<boolean>(false);
   const [phoneError, setPhoneError] = useState<string | null>(null);
   const [showQrCardModal, setShowQrCardModal] = useState<boolean>(false);
+  const [showAvatarStudio, setShowAvatarStudio] = useState<boolean>(false);
+  const [showStickerFactory, setShowStickerFactory] = useState<boolean>(false);
 
   // Wallpaper custom upload
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -132,43 +138,72 @@ export const SettingsProfileView: React.FC<SettingsProfileViewProps> = ({
     }
   };
 
-  const handleCallAudioUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (file) {
+  const uploadAudioFileToMedia = async (file: File): Promise<string> => {
+    try {
+      const response = await fetch(
+        `/api/media/upload-raw?filename=${encodeURIComponent(file.name || 'ringtone.mp3')}`,
+        {
+          method: 'POST',
+          headers: {
+            'Content-Type': file.type || 'audio/mpeg',
+          },
+          body: file,
+        }
+      );
+      if (response.ok) {
+        const data = await response.json();
+        if (data?.mediaUrl) {
+          return data.mediaUrl as string;
+        }
+      }
+    } catch (err) {
+      console.warn('Audio raw upload fallback to DataURL:', err);
+    }
+
+    return await new Promise<string>((resolve, reject) => {
       const reader = new FileReader();
       reader.onload = (event) => {
-        if (event.target?.result) {
-          const dataUrl = event.target.result as string;
-          onUpdateUser({
-            callRingtoneId: 'custom',
-            customCallRingtoneUrl: dataUrl,
-            customCallRingtoneName: file.name,
-          });
-          ringtoneManager.playTonePreview('call', 'custom', dataUrl);
-          setPlayingPreviewId('call_custom');
-        }
+        if (event.target?.result) resolve(event.target.result as string);
+        else reject(new Error('No file data'));
       };
+      reader.onerror = () => reject(new Error('File read error'));
       reader.readAsDataURL(file);
+    });
+  };
+
+  const handleCallAudioUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    e.target.value = '';
+    if (!file) return;
+    try {
+      const audioUrl = await uploadAudioFileToMedia(file);
+      onUpdateUser({
+        callRingtoneId: 'custom',
+        customCallRingtoneUrl: audioUrl,
+        customCallRingtoneName: file.name,
+      });
+      ringtoneManager.playTonePreview('call', 'custom', audioUrl);
+      setPlayingPreviewId('call_custom');
+    } catch (err) {
+      console.warn('Call audio upload failed:', err);
     }
   };
 
-  const handleMessageAudioUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+  const handleMessageAudioUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
-    if (file) {
-      const reader = new FileReader();
-      reader.onload = (event) => {
-        if (event.target?.result) {
-          const dataUrl = event.target.result as string;
-          onUpdateUser({
-            messageToneId: 'custom',
-            customMessageToneUrl: dataUrl,
-            customMessageToneName: file.name,
-          });
-          ringtoneManager.playTonePreview('message', 'custom', dataUrl);
-          setPlayingPreviewId('msg_custom');
-        }
-      };
-      reader.readAsDataURL(file);
+    e.target.value = '';
+    if (!file) return;
+    try {
+      const audioUrl = await uploadAudioFileToMedia(file);
+      onUpdateUser({
+        messageToneId: 'custom',
+        customMessageToneUrl: audioUrl,
+        customMessageToneName: file.name,
+      });
+      ringtoneManager.playTonePreview('message', 'custom', audioUrl);
+      setPlayingPreviewId('msg_custom');
+    } catch (err) {
+      console.warn('Message audio upload failed:', err);
     }
   };
 
@@ -245,50 +280,64 @@ export const SettingsProfileView: React.FC<SettingsProfileViewProps> = ({
     }, 2500);
   };
 
+  const cardCls = isNightMode
+    ? 'bg-[#161b24] border-white/10 text-white'
+    : 'bg-white border-slate-200 text-slate-900 shadow-sm';
+  const inputCls = isNightMode
+    ? 'bg-[#0f131c] border-white/10 text-white placeholder-slate-500'
+    : 'bg-slate-50 border-slate-200 text-slate-900 placeholder-slate-400';
+  const mutedTextCls = isNightMode ? 'text-slate-400' : 'text-slate-500';
+
   return (
     <div
-      className={`flex flex-col w-full h-full min-h-screen ${
-        isNightMode ? 'bg-[#0f131c]/75 text-[#dfe2ee]' : 'bg-[#e0f2fe]/75 text-[#0c2340]'
-      } backdrop-blur-md relative`}
+      className={`flex flex-col w-full h-full min-h-screen relative ${
+        isNightMode ? 'bg-[#0f131c] text-[#dfe2ee]' : 'bg-[#f4f7fb] text-[#0c2340]'
+      }`}
     >
       {/* Test Screen Wake Flash Overlay */}
       {isTestingWakeScreen && (
         <div className="fixed inset-0 z-50 pointer-events-none flex items-center justify-center">
-          <div className="absolute inset-0 bg-emerald-400/30 animate-pulse duration-500" />
-          <div className="relative z-10 px-5 py-3 rounded-2xl bg-black/85 text-emerald-300 font-bold text-xs border border-emerald-400/40 shadow-2xl animate-bounce">
-            ☀️ Pantalla despierta y destello luminoso activo
+          <div className="absolute inset-0 bg-emerald-400/20" />
+          <div className="relative z-10 px-5 py-3 rounded-xl bg-slate-900 text-emerald-300 font-semibold text-xs border border-emerald-400/30 shadow-xl">
+            Pantalla encendida para prueba de llamada
           </div>
         </div>
       )}
 
       {/* Header */}
       <header
-        className={`sticky top-0 z-40 backdrop-blur-xl border-b px-4 h-16 flex items-center justify-between ${
-          isNightMode ? 'bg-[#0f131c]/90 border-white/5' : 'bg-white/90 border-sky-200/80'
+        className={`sticky top-0 z-40 border-b px-4 py-2.5 flex flex-wrap items-center justify-between gap-2 ${
+          isNightMode ? 'bg-[#141923] border-white/10' : 'bg-white border-slate-200'
         }`}
       >
-        <div className="flex items-center gap-2">
-          <div className="w-9 h-9 rounded-2xl bg-gradient-to-tr from-blue-600 to-[#38bdf8] flex items-center justify-center text-white shadow-lg">
-            <User className="w-5 h-5" />
+        <div className="flex items-center gap-2.5">
+          <div className="w-9 h-9 rounded-xl bg-[#0284c7] flex items-center justify-center text-white shrink-0">
+            <User className="w-4 h-4" />
           </div>
           <div>
-            <h1 className="font-bold text-sm">Ajustes & Configuración</h1>
-            <span className="text-[11px] text-[#8d90a0]">Panel de control PidgeX</span>
+            <h1 className="font-bold text-sm leading-tight">Ajustes</h1>
+            <span className={`text-[11px] ${mutedTextCls}`}>{username}</span>
           </div>
         </div>
 
         {/* 4 Tab Switcher */}
-        <div className="flex items-center gap-1 bg-black/20 dark:bg-white/5 p-1 rounded-xl border border-white/10 overflow-x-auto no-scrollbar">
+        <div
+          className={`flex items-center gap-1 p-1 rounded-xl border overflow-x-auto no-scrollbar ${
+            isNightMode ? 'bg-[#0f131c] border-white/10' : 'bg-slate-100 border-slate-200'
+          }`}
+        >
           <button
             onClick={() => {
               ringtoneManager.stopPreview();
               setPlayingPreviewId(null);
               setActiveTab('profile');
             }}
-            className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer whitespace-nowrap ${
+            className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition-colors cursor-pointer whitespace-nowrap ${
               activeTab === 'profile'
-                ? 'bg-gradient-to-r from-blue-600 to-cyan-500 text-white shadow-md'
-                : 'text-[#8d90a0] hover:text-white'
+                ? 'bg-[#0284c7] text-white'
+                : isNightMode
+                ? 'text-slate-400 hover:text-white'
+                : 'text-slate-600 hover:text-slate-900'
             }`}
           >
             Perfil
@@ -299,27 +348,31 @@ export const SettingsProfileView: React.FC<SettingsProfileViewProps> = ({
               setPlayingPreviewId(null);
               setActiveTab('device');
             }}
-            className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer flex items-center gap-1.5 whitespace-nowrap ${
+            className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition-colors cursor-pointer flex items-center gap-1.5 whitespace-nowrap ${
               activeTab === 'device'
-                ? 'bg-gradient-to-r from-blue-600 to-cyan-500 text-white shadow-md'
-                : 'text-[#8d90a0] hover:text-white'
+                ? 'bg-[#0284c7] text-white'
+                : isNightMode
+                ? 'text-slate-400 hover:text-white'
+                : 'text-slate-600 hover:text-slate-900'
             }`}
           >
-            <Smartphone className="w-3.5 h-3.5 text-cyan-300" />
+            <Smartphone className="w-3.5 h-3.5" />
             <span>Dispositivo</span>
           </button>
           <button
             onClick={() => {
               setActiveTab('sounds');
             }}
-            className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer flex items-center gap-1.5 whitespace-nowrap ${
+            className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition-colors cursor-pointer flex items-center gap-1.5 whitespace-nowrap ${
               activeTab === 'sounds'
-                ? 'bg-gradient-to-r from-blue-600 to-cyan-500 text-white shadow-md'
-                : 'text-[#8d90a0] hover:text-white'
+                ? 'bg-[#0284c7] text-white'
+                : isNightMode
+                ? 'text-slate-400 hover:text-white'
+                : 'text-slate-600 hover:text-slate-900'
             }`}
           >
-            <Volume2 className="w-3.5 h-3.5 text-cyan-300" />
-            <span>Tonos & Alertas</span>
+            <Volume2 className="w-3.5 h-3.5" />
+            <span>Tonos</span>
           </button>
           <button
             onClick={() => {
@@ -327,10 +380,12 @@ export const SettingsProfileView: React.FC<SettingsProfileViewProps> = ({
               setPlayingPreviewId(null);
               setActiveTab('account');
             }}
-            className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer whitespace-nowrap ${
+            className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition-colors cursor-pointer whitespace-nowrap ${
               activeTab === 'account'
-                ? 'bg-gradient-to-r from-blue-600 to-cyan-500 text-white shadow-md'
-                : 'text-[#8d90a0] hover:text-white'
+                ? 'bg-[#0284c7] text-white'
+                : isNightMode
+                ? 'text-slate-400 hover:text-white'
+                : 'text-slate-600 hover:text-slate-900'
             }`}
           >
             Cuenta
@@ -339,100 +394,127 @@ export const SettingsProfileView: React.FC<SettingsProfileViewProps> = ({
       </header>
 
       {/* Main Content */}
-      <main className="flex-1 max-w-[620px] w-full mx-auto px-4 py-6 pb-28 flex flex-col gap-6 overflow-y-auto">
-        <PidgeXFullLogo />
+      <main className="flex-1 max-w-[620px] w-full mx-auto px-4 py-5 pb-28 flex flex-col gap-5 overflow-y-auto">
+        <PidgeXFullLogo showSlogan />
 
         {/* TAB 1: PERFIL */}
         {activeTab === 'profile' && (
-          <div className="flex flex-col gap-5 animate-in fade-in duration-200">
+          <div className="flex flex-col gap-4 animate-in fade-in duration-150">
             {/* Profile Card */}
-            <section className="relative rounded-3xl bg-[#181c24] border border-white/10 p-6 shadow-2xl flex flex-col items-center text-center text-white">
+            <section className={`relative rounded-2xl border p-5 flex flex-col items-center text-center ${cardCls}`}>
               <div className="relative mb-3">
                 <img
                   src={avatarUrl}
                   alt={name}
-                  className="w-24 h-24 rounded-full object-cover ring-4 ring-blue-500/40 shadow-2xl"
+                  className="w-24 h-24 rounded-full object-cover ring-2 ring-slate-200 dark:ring-white/15"
                 />
                 <button
                   onClick={() => setShowAvatarPicker(true)}
-                  title="Cambiar foto de perfil (Galería o Cámara)"
-                  className="absolute bottom-0 right-0 w-8 h-8 rounded-full bg-gradient-to-tr from-cyan-500 to-blue-600 text-white flex items-center justify-center shadow-lg hover:scale-110 active:scale-95 transition-all cursor-pointer ring-2 ring-[#181c24]"
+                  title="Cambiar foto de perfil"
+                  className="absolute bottom-0 right-0 w-8 h-8 rounded-full bg-[#0284c7] hover:bg-[#0369a1] text-white flex items-center justify-center shadow-sm transition-colors cursor-pointer ring-2 ring-white dark:ring-[#161b24]"
                 >
                   <Camera className="w-4 h-4" />
                 </button>
               </div>
 
-              <h2 className="text-xl font-black">{name}</h2>
-              <span className="text-xs text-blue-400 font-mono mt-0.5">{username}</span>
-              <p className="text-xs text-gray-300 mt-2 italic">"{bio}"</p>
+              <h2 className="text-lg font-bold">{name}</h2>
+              <span className="text-xs text-[#0284c7] dark:text-[#38bdf8] font-medium mt-0.5">{username}</span>
+              <p className={`text-xs mt-1.5 ${mutedTextCls}`}>{bio}</p>
 
-              {/* Action button to change profile picture */}
-              <div className="flex items-center gap-2 mt-3">
+              <div className="flex flex-wrap items-center justify-center gap-2 mt-4">
                 <button
                   type="button"
                   onClick={() => setShowAvatarPicker(true)}
-                  className="px-3.5 py-2 rounded-xl bg-gradient-to-r from-cyan-600 to-blue-600 hover:from-cyan-500 hover:to-blue-500 text-white text-xs font-bold flex items-center gap-1.5 shadow-md shadow-cyan-500/20 active:scale-95 transition-all cursor-pointer"
+                  className={`px-3.5 py-2 rounded-xl border text-xs font-semibold flex items-center gap-1.5 transition-colors cursor-pointer ${
+                    isNightMode
+                      ? 'bg-[#0f131c] border-white/10 hover:bg-white/5 text-white'
+                      : 'bg-slate-50 border-slate-200 hover:bg-slate-100 text-slate-800'
+                  }`}
                 >
-                  <Camera className="w-3.5 h-3.5" />
-                  <span>Cambiar Foto (Galería o Cámara)</span>
+                  <Camera className="w-3.5 h-3.5 text-[#0284c7]" />
+                  <span>Cambiar foto</span>
+                </button>
+
+                <button
+                  onClick={() => setShowQrCardModal(true)}
+                  className="px-3.5 py-2 rounded-xl bg-[#0284c7] hover:bg-[#0369a1] text-white text-xs font-semibold flex items-center gap-1.5 transition-colors cursor-pointer"
+                >
+                  <QrCode className="w-3.5 h-3.5" />
+                  <span>Tarjeta QR</span>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => setShowAvatarStudio(true)}
+                  className="px-3.5 py-2 rounded-xl bg-purple-600 hover:bg-purple-700 text-white text-xs font-semibold flex items-center gap-1.5 transition-colors cursor-pointer"
+                >
+                  <Sparkles className="w-3.5 h-3.5" />
+                  <span>Mi Avatar Digital IA</span>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => setShowStickerFactory(true)}
+                  className="px-3.5 py-2 rounded-xl bg-pink-600 hover:bg-pink-700 text-white text-xs font-semibold flex items-center gap-1.5 transition-colors cursor-pointer"
+                >
+                  <Wand2 className="w-3.5 h-3.5" />
+                  <span>Fábrica de Stickers IA</span>
                 </button>
               </div>
 
-              <button
-                onClick={() => setShowQrCardModal(true)}
-                className="mt-4 px-4 py-2 rounded-xl bg-gradient-to-r from-blue-600 to-cyan-500 text-white text-xs font-bold flex items-center gap-2 shadow-lg hover:scale-105 active:scale-95 transition-all cursor-pointer"
-              >
-                <QrCode className="w-4 h-4" />
-                <span>Ver Tarjeta QR y Escáner</span>
-              </button>
+              <div className={`mt-4 pt-3 border-t w-full flex items-center justify-center gap-4 text-xs ${isNightMode ? 'border-white/10 text-slate-300' : 'border-slate-200 text-slate-600'}`}>
+                <span className="font-semibold">
+                  {(user.customStickerPacks || []).length} paquetes de stickers IA
+                </span>
+              </div>
             </section>
 
             {/* Edit Profile Form */}
-            <section className="rounded-3xl bg-[#181c24] border border-white/10 p-5 shadow-xl flex flex-col gap-4 text-white">
-              <div className="flex items-center justify-between pb-2 border-b border-white/10">
-                <span className="text-xs font-bold uppercase tracking-wider text-[#38bdf8] flex items-center gap-1.5">
-                  <Edit3 className="w-4 h-4" />
-                  <span>Editar Datos</span>
+            <section className={`rounded-2xl border p-5 flex flex-col gap-4 ${cardCls}`}>
+              <div className="flex items-center justify-between pb-2 border-b border-slate-200 dark:border-white/10">
+                <span className="text-xs font-bold uppercase tracking-wider text-[#0284c7] dark:text-[#38bdf8] flex items-center gap-1.5">
+                  <Edit3 className="w-3.5 h-3.5" />
+                  <span>Editar perfil</span>
                 </span>
                 {savedFeedback && (
-                  <span className="text-xs font-bold text-emerald-400 flex items-center gap-1">
+                  <span className="text-xs font-semibold text-emerald-500 flex items-center gap-1">
                     <Check className="w-3.5 h-3.5" /> Guardado
                   </span>
                 )}
               </div>
 
               <div className="flex flex-col gap-1.5">
-                <label className="text-xs text-[#8d90a0] font-semibold">Nombre</label>
+                <label className={`text-xs font-semibold ${mutedTextCls}`}>Nombre</label>
                 <input
                   type="text"
                   value={name}
                   onChange={(e) => setName(e.target.value)}
-                  className="bg-[#121620] text-xs text-white px-3 py-2.5 rounded-xl border border-white/10 focus:outline-none focus:border-blue-500"
+                  className={`text-sm px-3 py-2.5 rounded-xl border focus:outline-none focus:border-[#0284c7] ${inputCls}`}
                 />
               </div>
 
               <div className="flex flex-col gap-1.5">
-                <label className="text-xs text-[#8d90a0] font-semibold">Descripción / Estado</label>
+                <label className={`text-xs font-semibold ${mutedTextCls}`}>Descripción</label>
                 <textarea
                   rows={2}
                   value={bio}
                   onChange={(e) => setBio(e.target.value)}
-                  className="bg-[#121620] text-xs text-white px-3 py-2.5 rounded-xl border border-white/10 focus:outline-none focus:border-blue-500 resize-none"
+                  className={`text-sm px-3 py-2.5 rounded-xl border focus:outline-none focus:border-[#0284c7] resize-none ${inputCls}`}
                 />
               </div>
 
-              <div className="grid grid-cols-2 gap-3">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                 <div className="flex flex-col gap-1.5">
-                  <label className="text-xs text-[#8d90a0] font-semibold">Usuario</label>
+                  <label className={`text-xs font-semibold ${mutedTextCls}`}>Usuario</label>
                   <input
                     type="text"
                     value={username}
                     onChange={(e) => setUsername(e.target.value)}
-                    className="bg-[#121620] text-xs text-white px-3 py-2.5 rounded-xl border border-white/10 focus:outline-none focus:border-blue-500"
+                    className={`text-sm px-3 py-2.5 rounded-xl border focus:outline-none focus:border-[#0284c7] ${inputCls}`}
                   />
                 </div>
                 <div className="flex flex-col gap-1.5">
-                  <label className="text-xs text-[#8d90a0] font-semibold">Teléfono</label>
+                  <label className={`text-xs font-semibold ${mutedTextCls}`}>Teléfono</label>
                   <input
                     type="text"
                     value={phone}
@@ -440,30 +522,30 @@ export const SettingsProfileView: React.FC<SettingsProfileViewProps> = ({
                       setPhone(e.target.value);
                       setPhoneError(null);
                     }}
-                    className="bg-[#121620] text-xs text-white px-3 py-2.5 rounded-xl border border-white/10 focus:outline-none focus:border-blue-500"
+                    className={`text-sm px-3 py-2.5 rounded-xl border focus:outline-none focus:border-[#0284c7] ${inputCls}`}
                   />
-                  {phoneError && <span className="text-[10px] text-red-400 font-bold">{phoneError}</span>}
+                  {phoneError && <span className="text-[11px] text-red-500 font-medium">{phoneError}</span>}
                 </div>
               </div>
 
               <button
                 onClick={handleSaveProfile}
-                className="w-full py-3 rounded-xl bg-gradient-to-r from-blue-600 to-cyan-500 text-white text-xs font-bold flex items-center justify-center gap-2 shadow-lg hover:scale-[1.01] active:scale-95 transition-all cursor-pointer mt-1"
+                className="w-full py-2.5 rounded-xl bg-[#0284c7] hover:bg-[#0369a1] text-white text-xs font-semibold flex items-center justify-center gap-2 transition-colors cursor-pointer mt-1"
               >
                 <Check className="w-4 h-4" />
-                <span>Guardar Cambios</span>
+                <span>Guardar cambios</span>
               </button>
             </section>
 
             {/* Selector de Fondo de Pantalla Global */}
-            <section className="rounded-3xl bg-[#141822] border border-white/10 p-5 shadow-xl flex flex-col gap-3">
-              <div className="flex items-center gap-2.5 pb-2 border-b border-white/10">
-                <div className="w-8 h-8 rounded-xl bg-sky-500/20 text-sky-400 flex items-center justify-center">
+            <section className={`rounded-2xl border p-5 flex flex-col gap-3 ${cardCls}`}>
+              <div className="flex items-center gap-2.5 pb-2 border-b border-slate-200 dark:border-white/10">
+                <div className="w-8 h-8 rounded-xl bg-[#0284c7]/15 text-[#0284c7] dark:text-[#38bdf8] flex items-center justify-center">
                   <WallpaperIcon className="w-4 h-4" />
                 </div>
                 <div>
-                  <h4 className="text-xs font-bold text-white">Fondo de Pantalla Global</h4>
-                  <span className="text-[10px] text-[#8d90a0]">Cambia el fondo de pantalla en todas tus conversaciones</span>
+                  <h4 className="text-xs font-bold">Fondo de pantalla global</h4>
+                  <span className={`text-[11px] ${mutedTextCls}`}>Se aplica en todas tus conversaciones</span>
                 </div>
               </div>
 
@@ -479,16 +561,16 @@ export const SettingsProfileView: React.FC<SettingsProfileViewProps> = ({
                         }
                         onUpdateUser({ wallpaperId: wp.id, customWallpaperUrl: '' });
                       }}
-                      className={`group relative rounded-2xl overflow-hidden aspect-video border-2 cursor-pointer transition-all ${
-                        isSelected ? 'border-blue-500 ring-2 ring-blue-500/40 shadow-lg scale-98' : 'border-white/10 hover:border-white/30'
+                      className={`group relative rounded-xl overflow-hidden aspect-video border-2 cursor-pointer transition-all ${
+                        isSelected ? 'border-[#0284c7]' : 'border-transparent hover:border-slate-300 dark:hover:border-white/25'
                       }`}
                     >
-                      <img src={wp.url} alt={wp.name} className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300" />
-                      <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-black/20 to-transparent flex items-end p-2">
-                        <span className="text-[11px] font-bold text-white truncate">{wp.name}</span>
+                      <img src={wp.url} alt={wp.name} className="w-full h-full object-cover" />
+                      <div className="absolute inset-0 bg-black/35 flex items-end p-2">
+                        <span className="text-[11px] font-semibold text-white truncate">{wp.name}</span>
                       </div>
                       {isSelected && (
-                        <div className="absolute top-2 right-2 w-5 h-5 rounded-full bg-blue-600 text-white flex items-center justify-center shadow">
+                        <div className="absolute top-2 right-2 w-5 h-5 rounded-full bg-[#0284c7] text-white flex items-center justify-center">
                           <Check className="w-3 h-3 stroke-[3]" />
                         </div>
                       )}
@@ -498,7 +580,7 @@ export const SettingsProfileView: React.FC<SettingsProfileViewProps> = ({
               </div>
 
               {/* Custom Image Upload */}
-              <div className="mt-2 pt-3 border-t border-white/15 flex flex-col gap-2.5">
+              <div className="mt-1 pt-3 border-t border-slate-200 dark:border-white/10 flex flex-col gap-2">
                 <input
                   type="file"
                   ref={fileInputRef}
@@ -507,15 +589,13 @@ export const SettingsProfileView: React.FC<SettingsProfileViewProps> = ({
                   className="hidden"
                 />
 
-                <div className="flex items-center gap-2">
-                  <button
-                    onClick={() => fileInputRef.current?.click()}
-                    className="flex-1 py-2.5 px-3 rounded-xl bg-gradient-to-r from-sky-600 to-blue-600 hover:from-sky-500 hover:to-blue-500 text-white text-xs font-bold shadow flex items-center justify-center gap-1.5 cursor-pointer transition-all"
-                  >
-                    <Upload className="w-3.5 h-3.5" />
-                    <span>Subir imagen guardada de mi celular</span>
-                  </button>
-                </div>
+                <button
+                  onClick={() => fileInputRef.current?.click()}
+                  className="w-full py-2.5 px-3 rounded-xl bg-[#0284c7] hover:bg-[#0369a1] text-white text-xs font-semibold flex items-center justify-center gap-1.5 cursor-pointer transition-colors"
+                >
+                  <Upload className="w-3.5 h-3.5" />
+                  <span>Subir imagen desde mi dispositivo</span>
+                </button>
               </div>
             </section>
           </div>
@@ -523,50 +603,49 @@ export const SettingsProfileView: React.FC<SettingsProfileViewProps> = ({
 
         {/* TAB 2: DISPOSITIVO & PANTALLA */}
         {activeTab === 'device' && (
-          <div className="flex flex-col gap-6 animate-in fade-in duration-200">
-            <section className="rounded-3xl bg-[#181c24] border border-white/10 p-6 shadow-2xl flex flex-col gap-4 text-white">
-              <div className="flex items-center gap-3 pb-3 border-b border-white/10">
-                <div className="w-10 h-10 rounded-2xl bg-gradient-to-tr from-cyan-600 to-blue-500 flex items-center justify-center text-white shadow-lg">
-                  <Smartphone className="w-5 h-5" />
+          <div className="flex flex-col gap-4 animate-in fade-in duration-150">
+            <section className={`rounded-2xl border p-5 flex flex-col gap-4 ${cardCls}`}>
+              <div className="flex items-center gap-3 pb-3 border-b border-slate-200 dark:border-white/10">
+                <div className="w-9 h-9 rounded-xl bg-[#0284c7] flex items-center justify-center text-white shrink-0">
+                  <Smartphone className="w-4 h-4" />
                 </div>
                 <div>
-                  <h3 className="font-bold text-base">¿Qué dispositivo estás usando?</h3>
-                  <p className="text-xs text-[#8d90a0]">
-                    Elige tu versión preferida. La versión para celular reduce el desorden visual y optimiza stickers para pantalla táctil.
+                  <h3 className="font-bold text-sm">Diseño según dispositivo</h3>
+                  <p className={`text-xs ${mutedTextCls}`}>
+                    Adapta botones y paneles al tamaño de tu pantalla.
                   </p>
                 </div>
               </div>
 
-              {/* Device Mode Selector Cards */}
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3.5 pt-1">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                 {[
                   {
                     id: 'mobile',
-                    title: 'Celular / Móvil',
-                    tag: 'Menos desorden visual',
-                    icon: <Smartphone className="w-6 h-6 text-cyan-400" />,
-                    desc: 'Versión ultra limpia para celulares: cabecera despejada, menú de 3 puntos, panel táctil de stickers en hoja deslizable y botones adaptados a una sola mano.',
+                    title: 'Celular',
+                    tag: 'Compacto',
+                    icon: <Smartphone className="w-5 h-5 text-[#0284c7]" />,
+                    desc: 'Controles cómodos para usar con una mano y menús simples.',
                   },
                   {
                     id: 'desktop',
-                    title: 'Computadora / Laptop',
-                    tag: 'Modo Completo',
-                    icon: <Laptop className="w-6 h-6 text-blue-400" />,
-                    desc: 'Diseño para pantallas grandes con teclado y ratón, barra lateral amplia y acceso directo a todas las herramientas sin menús anidados.',
+                    title: 'Computadora',
+                    tag: 'Amplio',
+                    icon: <Laptop className="w-5 h-5 text-[#0284c7]" />,
+                    desc: 'Vista pensada para pantallas grandes con teclado y ratón.',
                   },
                   {
                     id: 'tablet',
-                    title: 'Tablet / iPad',
-                    tag: 'Modo Híbrido',
-                    icon: <Tablet className="w-6 h-6 text-purple-400" />,
-                    desc: 'Diseño balanceado para tablets en horizontal o vertical, con cómodas áreas de toque táctil y excelente legibilidad.',
+                    title: 'Tablet',
+                    tag: 'Híbrido',
+                    icon: <Tablet className="w-5 h-5 text-[#0284c7]" />,
+                    desc: 'Balanceado para formato horizontal o vertical.',
                   },
                   {
                     id: 'auto',
                     title: 'Automático',
                     tag: 'Recomendado',
-                    icon: <RefreshCw className="w-6 h-6 text-emerald-400" />,
-                    desc: 'PidgeX detecta automáticamente el ancho de tu pantalla y ajusta la versión ideal en tiempo real sin que tengas que cambiar nada.',
+                    icon: <RefreshCw className="w-5 h-5 text-emerald-500" />,
+                    desc: 'Se ajusta automáticamente al tamaño actual de tu ventana.',
                   },
                 ].map((item) => {
                   const currentMode = user.deviceMode || 'auto';
@@ -580,30 +659,38 @@ export const SettingsProfileView: React.FC<SettingsProfileViewProps> = ({
                         setSavedFeedback(true);
                         setTimeout(() => setSavedFeedback(false), 2000);
                       }}
-                      className={`relative flex flex-col p-4 rounded-2xl border text-left transition-all cursor-pointer ${
+                      className={`relative flex flex-col p-4 rounded-xl border text-left transition-colors cursor-pointer ${
                         isSelected
-                          ? 'bg-gradient-to-br from-blue-900/40 via-cyan-900/20 to-[#181c24] border-cyan-400/80 shadow-lg shadow-cyan-500/10 ring-2 ring-cyan-500/40'
-                          : 'bg-[#12161f] border-white/5 hover:border-white/20 hover:bg-[#1a1f2b]'
+                          ? isNightMode
+                            ? 'bg-[#0284c7]/15 border-[#0284c7]'
+                            : 'bg-sky-50 border-[#0284c7]'
+                          : isNightMode
+                          ? 'bg-[#0f131c] border-white/10 hover:border-white/20'
+                          : 'bg-slate-50 border-slate-200 hover:border-slate-300'
                       }`}
                     >
                       <div className="flex items-center justify-between w-full mb-2">
-                        <div className="w-10 h-10 rounded-xl bg-white/5 flex items-center justify-center">
+                        <div className={`w-9 h-9 rounded-lg flex items-center justify-center ${isNightMode ? 'bg-white/5' : 'bg-white border border-slate-200'}`}>
                           {item.icon}
                         </div>
-                        <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${
-                          isSelected
-                            ? 'bg-cyan-500 text-black font-extrabold'
-                            : 'bg-white/10 text-gray-400'
-                        }`}>
+                        <span
+                          className={`text-[10px] font-semibold px-2 py-0.5 rounded-md ${
+                            isSelected
+                              ? 'bg-[#0284c7] text-white'
+                              : isNightMode
+                              ? 'bg-white/10 text-slate-300'
+                              : 'bg-slate-200 text-slate-700'
+                          }`}
+                        >
                           {item.tag}
                         </span>
                       </div>
 
-                      <h4 className="font-bold text-sm text-white flex items-center gap-2">
+                      <h4 className="font-bold text-sm flex items-center gap-1.5">
                         <span>{item.title}</span>
-                        {isSelected && <Check className="w-4 h-4 text-cyan-400" />}
+                        {isSelected && <Check className="w-4 h-4 text-[#0284c7]" />}
                       </h4>
-                      <p className="text-xs text-[#8d90a0] mt-1 leading-relaxed">
+                      <p className={`text-xs mt-1 leading-relaxed ${mutedTextCls}`}>
                         {item.desc}
                       </p>
                     </button>
@@ -611,27 +698,27 @@ export const SettingsProfileView: React.FC<SettingsProfileViewProps> = ({
                 })}
               </div>
 
-              {/* Status info box */}
-              <div className="mt-2 p-3.5 rounded-2xl bg-cyan-950/30 border border-cyan-500/20 flex items-center justify-between">
-                <div className="flex items-center gap-2.5">
-                  <div className="w-2.5 h-2.5 rounded-full bg-cyan-400 animate-pulse" />
-                  <span className="text-xs text-cyan-200">
-                    Modo configurado:{' '}
-                    <strong className="text-white capitalize">
-                      {user.deviceMode === 'mobile'
-                        ? 'Celular (Menos desorden visual)'
-                        : user.deviceMode === 'desktop'
-                        ? 'Computadora / Laptop'
-                        : user.deviceMode === 'tablet'
-                        ? 'Tablet'
-                        : 'Automático (Detección por pantalla)'}
-                    </strong>
-                  </span>
-                </div>
+              <div
+                className={`p-3 rounded-xl border flex items-center justify-between ${
+                  isNightMode ? 'bg-[#0f131c] border-white/10' : 'bg-slate-50 border-slate-200'
+                }`}
+              >
+                <span className={`text-xs ${mutedTextCls}`}>
+                  Modo actual:{' '}
+                  <strong className={isNightMode ? 'text-white' : 'text-slate-900'}>
+                    {user.deviceMode === 'mobile'
+                      ? 'Celular'
+                      : user.deviceMode === 'desktop'
+                      ? 'Computadora'
+                      : user.deviceMode === 'tablet'
+                      ? 'Tablet'
+                      : 'Automático'}
+                  </strong>
+                </span>
                 {savedFeedback && (
-                  <span className="text-xs font-bold text-emerald-400 animate-in fade-in duration-150 flex items-center gap-1">
+                  <span className="text-xs font-semibold text-emerald-500 flex items-center gap-1">
                     <Check className="w-3.5 h-3.5" />
-                    ¡Guardado!
+                    Guardado
                   </span>
                 )}
               </div>
@@ -659,71 +746,80 @@ export const SettingsProfileView: React.FC<SettingsProfileViewProps> = ({
             />
 
             {/* 1. SECCIÓN DE LLAMADAS ENTRANTES */}
-            <section className="rounded-3xl bg-[#141822] border border-emerald-500/30 p-5 shadow-2xl flex flex-col gap-5 text-white">
-              <div className="flex items-center justify-between pb-3 border-b border-white/10">
+            <section className={`rounded-2xl border p-5 flex flex-col gap-5 ${cardCls}`}>
+              <div className="flex items-center justify-between pb-3 border-b border-slate-200 dark:border-white/10">
                 <div className="flex items-center gap-2.5">
-                  <div className="w-9 h-9 rounded-2xl bg-emerald-500/20 text-emerald-400 flex items-center justify-center shadow-lg">
-                    <PhoneCall className="w-5 h-5" />
+                  <div className="w-9 h-9 rounded-xl bg-emerald-500/15 text-emerald-500 flex items-center justify-center">
+                    <PhoneCall className="w-4 h-4" />
                   </div>
                   <div>
-                    <h3 className="text-sm font-black text-white">Llamadas Entrantes</h3>
-                    <p className="text-[11px] text-[#8d90a0]">Vibración, iluminación de pantalla y tono preferido</p>
+                    <h3 className="text-sm font-bold">Llamadas entrantes</h3>
+                    <p className={`text-[11px] ${mutedTextCls}`}>Vibración, encendido de pantalla y tono</p>
                   </div>
                 </div>
-                <span className="px-2.5 py-0.5 rounded-full bg-emerald-500/20 text-emerald-300 text-[10px] font-bold border border-emerald-500/30">
-                  Llamadas PidgeX
-                </span>
               </div>
 
               {/* Toggles: Vibrar y Prender Celular */}
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                {/* Indicador Vibrar al llamar - Permanente */}
-                <div className="p-3.5 rounded-2xl bg-[#1a202c] border border-emerald-500/30 flex flex-col justify-between gap-3 shadow-sm">
+                <div
+                  className={`p-3.5 rounded-xl border flex flex-col justify-between gap-3 ${
+                    isNightMode ? 'bg-[#0f131c] border-white/10' : 'bg-slate-50 border-slate-200'
+                  }`}
+                >
                   <div className="flex items-center justify-between">
                     <div className="flex items-center gap-2">
-                      <Vibrate className="w-4 h-4 text-emerald-400" />
-                      <span className="text-xs font-bold text-white">Vibrar mi Celular</span>
+                      <Vibrate className="w-4 h-4 text-emerald-500" />
+                      <span className="text-xs font-bold">Vibración de llamada</span>
                     </div>
-                    <div className="flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-emerald-500/20 border border-emerald-500/40 text-emerald-300 text-[10px] font-bold">
-                      <Shield className="w-3 h-3 text-emerald-400" />
-                      <span>Permanente</span>
-                    </div>
+                    <span className="text-[11px] font-medium text-emerald-500 flex items-center gap-1">
+                      <Shield className="w-3 h-3" /> Activa
+                    </span>
                   </div>
-                  <p className="text-[10px] text-[#8d90a0]">
-                    Vibración continua obligatoria en llamadas entrantes. No se puede desactivar para que nunca pierdas una llamada.
+                  <p className={`text-[11px] ${mutedTextCls}`}>
+                    Mantiene vibración activa en llamadas entrantes para que no pierdas ninguna.
                   </p>
                   <button
                     onClick={handleTestCallVibration}
                     disabled={isTestingCallVibration}
-                    className="py-1.5 px-2.5 rounded-xl bg-white/5 hover:bg-white/10 text-[10px] font-bold text-emerald-300 border border-emerald-500/20 flex items-center justify-center gap-1.5 transition-all cursor-pointer"
+                    className={`py-1.5 px-2.5 rounded-lg border text-[11px] font-semibold flex items-center justify-center gap-1.5 transition-colors cursor-pointer ${
+                      isNightMode
+                        ? 'bg-white/5 hover:bg-white/10 text-emerald-400 border-white/10'
+                        : 'bg-white hover:bg-slate-100 text-emerald-600 border-slate-200'
+                    }`}
                   >
-                    <Vibrate className={`w-3 h-3 ${isTestingCallVibration ? 'animate-bounce' : ''}`} />
-                    <span>{isTestingCallVibration ? 'Vibrando prueba...' : 'Probar vibración de llamada'}</span>
+                    <Vibrate className="w-3 h-3" />
+                    <span>{isTestingCallVibration ? 'Vibrando...' : 'Probar vibración'}</span>
                   </button>
                 </div>
 
-                {/* Indicador Prender Celular / Pantalla - Permanente */}
-                <div className="p-3.5 rounded-2xl bg-[#1a202c] border border-amber-500/30 flex flex-col justify-between gap-3 shadow-sm">
+                <div
+                  className={`p-3.5 rounded-xl border flex flex-col justify-between gap-3 ${
+                    isNightMode ? 'bg-[#0f131c] border-white/10' : 'bg-slate-50 border-slate-200'
+                  }`}
+                >
                   <div className="flex items-center justify-between">
                     <div className="flex items-center gap-2">
-                      <Sun className="w-4 h-4 text-amber-400" />
-                      <span className="text-xs font-bold text-white">Prender Pantalla / Wake</span>
+                      <Sun className="w-4 h-4 text-amber-500" />
+                      <span className="text-xs font-bold">Encender pantalla</span>
                     </div>
-                    <div className="flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-amber-500/20 border border-amber-500/40 text-amber-300 text-[10px] font-bold">
-                      <Shield className="w-3 h-3 text-amber-400" />
-                      <span>Permanente</span>
-                    </div>
+                    <span className="text-[11px] font-medium text-amber-500 flex items-center gap-1">
+                      <Shield className="w-3 h-3" /> Activo
+                    </span>
                   </div>
-                  <p className="text-[10px] text-[#8d90a0]">
-                    Enciende la pantalla automáticamente al recibir una llamada. No se puede desactivar para garantizar que veas quién te llama.
+                  <p className={`text-[11px] ${mutedTextCls}`}>
+                    Despierta la pantalla automáticamente cuando entra una llamada.
                   </p>
                   <button
                     onClick={handleTestScreenWake}
                     disabled={isTestingWakeScreen}
-                    className="py-1.5 px-2.5 rounded-xl bg-white/5 hover:bg-white/10 text-[10px] font-bold text-amber-300 border border-amber-500/20 flex items-center justify-center gap-1.5 transition-all cursor-pointer"
+                    className={`py-1.5 px-2.5 rounded-lg border text-[11px] font-semibold flex items-center justify-center gap-1.5 transition-colors cursor-pointer ${
+                      isNightMode
+                        ? 'bg-white/5 hover:bg-white/10 text-amber-400 border-white/10'
+                        : 'bg-white hover:bg-slate-100 text-amber-600 border-slate-200'
+                    }`}
                   >
                     <Sun className="w-3 h-3" />
-                    <span>{isTestingWakeScreen ? 'Destellando...' : 'Probar encendido de pantalla'}</span>
+                    <span>{isTestingWakeScreen ? 'Probando...' : 'Probar pantalla'}</span>
                   </button>
                 </div>
               </div>
@@ -737,29 +833,29 @@ export const SettingsProfileView: React.FC<SettingsProfileViewProps> = ({
                   </span>
                   <button
                     onClick={() => callAudioInputRef.current?.click()}
-                    className="py-1 px-3 rounded-xl bg-gradient-to-r from-emerald-600 to-teal-600 hover:brightness-110 text-white text-[11px] font-bold shadow flex items-center gap-1.5 cursor-pointer active:scale-95 transition-all"
+                    className="py-1.5 px-3 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white text-[11px] font-semibold flex items-center gap-1.5 cursor-pointer transition-colors"
                   >
                     <Upload className="w-3 h-3" />
-                    <span>Subir audio de mi galería</span>
+                    <span>Subir audio</span>
                   </button>
                 </div>
 
                 {/* Custom Audio Banner if active */}
                 {user.callRingtoneId === 'custom' && user.customCallRingtoneUrl && (
-                  <div className="p-3 rounded-2xl bg-emerald-950/70 border border-emerald-400/40 flex items-center justify-between gap-2 shadow-lg">
+                  <div className="p-3 rounded-xl bg-emerald-950/60 border border-emerald-500/30 flex items-center justify-between gap-2">
                     <div className="flex items-center gap-2 min-w-0">
                       <FileAudio className="w-5 h-5 text-emerald-400 shrink-0" />
                       <div className="flex flex-col min-w-0">
                         <span className="text-xs font-bold text-white truncate">
-                          {user.customCallRingtoneName || 'Audio personalizado cargado'}
+                          {user.customCallRingtoneName || 'Audio personalizado'}
                         </span>
-                        <span className="text-[10px] text-emerald-300">Tono activo desde tus archivos</span>
+                        <span className="text-[10px] text-emerald-300">Tono de llamada activo</span>
                       </div>
                     </div>
                     <div className="flex items-center gap-2 shrink-0">
                       <button
                         onClick={() => handleTogglePreview('call', 'custom', user.customCallRingtoneUrl)}
-                        className="p-2 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white shadow transition-all cursor-pointer"
+                        className="p-2 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white transition-colors cursor-pointer"
                       >
                         {playingPreviewId === 'call_custom' ? (
                           <Square className="w-3.5 h-3.5" />
@@ -769,7 +865,7 @@ export const SettingsProfileView: React.FC<SettingsProfileViewProps> = ({
                       </button>
                       <button
                         onClick={() => callAudioInputRef.current?.click()}
-                        className="px-2.5 py-1.5 rounded-xl bg-white/10 hover:bg-white/20 text-[10px] font-bold text-white transition-all cursor-pointer"
+                        className="px-2.5 py-1.5 rounded-lg bg-white/10 hover:bg-white/20 text-[10px] font-semibold text-white transition-colors cursor-pointer"
                       >
                         Cambiar
                       </button>
@@ -798,10 +894,10 @@ export const SettingsProfileView: React.FC<SettingsProfileViewProps> = ({
                             onUpdateUser({ callRingtoneId: opt.id });
                           }
                         }}
-                        className={`p-3 rounded-2xl border transition-all cursor-pointer flex items-center justify-between gap-2 ${
+                        className={`p-3 rounded-xl border transition-colors cursor-pointer flex items-center justify-between gap-2 ${
                           isSelected
-                            ? 'bg-emerald-600/20 border-emerald-400 text-white shadow-md'
-                            : 'bg-[#181d28] border-white/5 text-[#8d90a0] hover:text-white hover:border-white/20'
+                            ? 'bg-emerald-600/20 border-emerald-500 text-white'
+                            : 'bg-[#181d28] border-white/5 text-[#8d90a0] hover:text-white hover:border-white/15'
                         }`}
                       >
                         <div className="flex items-center gap-2.5 min-w-0">
@@ -826,9 +922,9 @@ export const SettingsProfileView: React.FC<SettingsProfileViewProps> = ({
                               }
                             }}
                             title={isPlaying ? 'Detener prueba' : 'Escuchar tono'}
-                            className={`p-1.5 rounded-xl border transition-colors cursor-pointer ${
+                            className={`p-1.5 rounded-lg border transition-colors cursor-pointer ${
                               isPlaying
-                                ? 'bg-emerald-600 text-white border-emerald-400 animate-pulse'
+                                ? 'bg-emerald-600 text-white border-emerald-400'
                                 : 'bg-white/5 hover:bg-white/10 text-emerald-400 border-white/10'
                             }`}
                           >
@@ -848,35 +944,31 @@ export const SettingsProfileView: React.FC<SettingsProfileViewProps> = ({
             </section>
 
             {/* 2. SECCIÓN DE MENSAJES Y NOTIFICACIONES */}
-            <section className="rounded-3xl bg-[#141822] border border-blue-500/30 p-5 shadow-2xl flex flex-col gap-5 text-white">
+            <section className="rounded-2xl bg-[#141822] border border-white/10 p-5 flex flex-col gap-5 text-white">
               <div className="flex items-center justify-between pb-3 border-b border-white/10">
                 <div className="flex items-center gap-2.5">
-                  <div className="w-9 h-9 rounded-2xl bg-blue-500/20 text-blue-400 flex items-center justify-center shadow-lg">
-                    <MessageSquare className="w-5 h-5" />
+                  <div className="w-9 h-9 rounded-xl bg-blue-500/20 text-blue-400 flex items-center justify-center">
+                    <MessageSquare className="w-4 h-4" />
                   </div>
                   <div>
-                    <h3 className="text-sm font-black text-white">Mensajes y Notificaciones</h3>
-                    <p className="text-[11px] text-[#8d90a0]">Vibración al recibir mensaje, pulso de luz y tono de alerta</p>
+                    <h3 className="text-sm font-bold text-white">Mensajes y notificaciones</h3>
+                    <p className="text-[11px] text-[#8d90a0]">Vibración, pantalla y tono de alerta</p>
                   </div>
                 </div>
-                <span className="px-2.5 py-0.5 rounded-full bg-blue-500/20 text-blue-300 text-[10px] font-bold border border-blue-500/30">
-                  Mensajería PidgeX
-                </span>
               </div>
 
-              {/* Toggles: Vibrar y Despertar pantalla con mensajes */}
+              {/* Toggles */}
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                {/* Toggle Vibrar al recibir mensaje */}
-                <div className="p-3.5 rounded-2xl bg-[#1a202c] border border-white/10 flex flex-col justify-between gap-3">
+                <div className="p-3.5 rounded-xl bg-[#1a202c] border border-white/10 flex flex-col justify-between gap-3">
                   <div className="flex items-center justify-between">
                     <div className="flex items-center gap-2">
                       <Vibrate className="w-4 h-4 text-blue-400" />
-                      <span className="text-xs font-bold text-white">Vibrar al recibir mensaje</span>
+                      <span className="text-xs font-bold text-white">Vibrar con mensajes</span>
                     </div>
                     <button
                       onClick={() => onUpdateUser({ vibrateOnMessage: user.vibrateOnMessage === false ? true : false })}
-                      className={`w-12 h-6 rounded-full transition-colors relative cursor-pointer ${
-                        user.vibrateOnMessage !== false ? 'bg-blue-600' : 'bg-white/10'
+                      className={`w-11 h-6 rounded-full transition-colors relative cursor-pointer ${
+                        user.vibrateOnMessage !== false ? 'bg-[#0284c7]' : 'bg-white/15'
                       }`}
                     >
                       <span
@@ -886,30 +978,29 @@ export const SettingsProfileView: React.FC<SettingsProfileViewProps> = ({
                       />
                     </button>
                   </div>
-                  <p className="text-[10px] text-[#8d90a0]">
-                    Emite una doble vibración táctil cuando entra un mensaje de texto, foto o audio.
+                  <p className="text-[11px] text-[#8d90a0]">
+                    Vibra brevemente al recibir un mensaje nuevo.
                   </p>
                   <button
                     onClick={handleTestMsgVibration}
                     disabled={isTestingMsgVibration}
-                    className="py-1.5 px-2.5 rounded-xl bg-white/5 hover:bg-white/10 text-[10px] font-bold text-blue-300 border border-blue-500/20 flex items-center justify-center gap-1.5 transition-all cursor-pointer"
+                    className="py-1.5 px-2.5 rounded-lg bg-white/5 hover:bg-white/10 text-[11px] font-semibold text-blue-300 border border-white/10 flex items-center justify-center gap-1.5 transition-colors cursor-pointer"
                   >
-                    <Vibrate className={`w-3 h-3 ${isTestingMsgVibration ? 'animate-bounce' : ''}`} />
-                    <span>{isTestingMsgVibration ? 'Vibrando...' : 'Probar vibración de mensaje'}</span>
+                    <Vibrate className="w-3 h-3" />
+                    <span>{isTestingMsgVibration ? 'Vibrando...' : 'Probar vibración'}</span>
                   </button>
                 </div>
 
-                {/* Toggle Despertar pantalla al recibir mensaje */}
-                <div className="p-3.5 rounded-2xl bg-[#1a202c] border border-white/10 flex flex-col justify-between gap-3">
+                <div className="p-3.5 rounded-xl bg-[#1a202c] border border-white/10 flex flex-col justify-between gap-3">
                   <div className="flex items-center justify-between">
                     <div className="flex items-center gap-2">
                       <Sun className="w-4 h-4 text-sky-400" />
-                      <span className="text-xs font-bold text-white">Prender Pantalla con Mensaje</span>
+                      <span className="text-xs font-bold text-white">Encender pantalla</span>
                     </div>
                     <button
                       onClick={() => onUpdateUser({ wakeScreenOnMessage: user.wakeScreenOnMessage === false ? true : false })}
-                      className={`w-12 h-6 rounded-full transition-colors relative cursor-pointer ${
-                        user.wakeScreenOnMessage !== false ? 'bg-blue-600' : 'bg-white/10'
+                      className={`w-11 h-6 rounded-full transition-colors relative cursor-pointer ${
+                        user.wakeScreenOnMessage !== false ? 'bg-[#0284c7]' : 'bg-white/15'
                       }`}
                     >
                       <span
@@ -919,16 +1010,16 @@ export const SettingsProfileView: React.FC<SettingsProfileViewProps> = ({
                       />
                     </button>
                   </div>
-                  <p className="text-[10px] text-[#8d90a0]">
-                    Despierta la pantalla momentáneamente con un pulso de luz al entrar un nuevo mensaje.
+                  <p className="text-[11px] text-[#8d90a0]">
+                    Activa la pantalla cuando llega un mensaje importante.
                   </p>
                   <button
                     onClick={handleTestScreenWake}
                     disabled={isTestingWakeScreen}
-                    className="py-1.5 px-2.5 rounded-xl bg-white/5 hover:bg-white/10 text-[10px] font-bold text-sky-300 border border-sky-500/20 flex items-center justify-center gap-1.5 transition-all cursor-pointer"
+                    className="py-1.5 px-2.5 rounded-lg bg-white/5 hover:bg-white/10 text-[11px] font-semibold text-sky-300 border border-white/10 flex items-center justify-center gap-1.5 transition-colors cursor-pointer"
                   >
                     <Sun className="w-3 h-3" />
-                    <span>Probar pulso en pantalla</span>
+                    <span>Probar encendido</span>
                   </button>
                 </div>
               </div>
@@ -938,33 +1029,32 @@ export const SettingsProfileView: React.FC<SettingsProfileViewProps> = ({
                 <div className="flex items-center justify-between">
                   <span className="text-xs font-bold text-white flex items-center gap-1.5">
                     <Bell className="w-4 h-4 text-blue-400" />
-                    <span>Tono de Notificación de Mensaje:</span>
+                    <span>Tono de mensaje:</span>
                   </span>
                   <button
                     onClick={() => messageAudioInputRef.current?.click()}
-                    className="py-1 px-3 rounded-xl bg-gradient-to-r from-blue-600 to-cyan-500 hover:brightness-110 text-white text-[11px] font-bold shadow flex items-center gap-1.5 cursor-pointer active:scale-95 transition-all"
+                    className="py-1.5 px-3 rounded-xl bg-[#0284c7] hover:bg-[#0369a1] text-white text-[11px] font-semibold flex items-center gap-1.5 cursor-pointer transition-colors"
                   >
                     <Upload className="w-3 h-3" />
-                    <span>Subir audio de mi galería</span>
+                    <span>Subir audio</span>
                   </button>
                 </div>
 
-                {/* Custom Audio Banner if active for message */}
                 {user.messageToneId === 'custom' && user.customMessageToneUrl && (
-                  <div className="p-3 rounded-2xl bg-blue-950/70 border border-blue-400/40 flex items-center justify-between gap-2 shadow-lg">
+                  <div className="p-3 rounded-xl bg-blue-950/60 border border-blue-400/30 flex items-center justify-between gap-2">
                     <div className="flex items-center gap-2 min-w-0">
                       <FileAudio className="w-5 h-5 text-blue-400 shrink-0" />
                       <div className="flex flex-col min-w-0">
                         <span className="text-xs font-bold text-white truncate">
-                          {user.customMessageToneName || 'Audio de mensaje cargado'}
+                          {user.customMessageToneName || 'Audio personalizado'}
                         </span>
-                        <span className="text-[10px] text-blue-300">Tono activo para mensajes entrantes</span>
+                        <span className="text-[10px] text-blue-300">Tono de mensaje activo</span>
                       </div>
                     </div>
                     <div className="flex items-center gap-2 shrink-0">
                       <button
                         onClick={() => handleTogglePreview('message', 'custom', user.customMessageToneUrl)}
-                        className="p-2 rounded-xl bg-blue-600 hover:bg-blue-500 text-white shadow transition-all cursor-pointer"
+                        className="p-2 rounded-lg bg-[#0284c7] hover:bg-[#0369a1] text-white transition-colors cursor-pointer"
                       >
                         {playingPreviewId === 'msg_custom' ? (
                           <Square className="w-3.5 h-3.5" />
@@ -974,7 +1064,7 @@ export const SettingsProfileView: React.FC<SettingsProfileViewProps> = ({
                       </button>
                       <button
                         onClick={() => messageAudioInputRef.current?.click()}
-                        className="px-2.5 py-1.5 rounded-xl bg-white/10 hover:bg-white/20 text-[10px] font-bold text-white transition-all cursor-pointer"
+                        className="px-2.5 py-1.5 rounded-lg bg-white/10 hover:bg-white/20 text-[10px] font-semibold text-white transition-colors cursor-pointer"
                       >
                         Cambiar
                       </button>
@@ -982,7 +1072,6 @@ export const SettingsProfileView: React.FC<SettingsProfileViewProps> = ({
                   </div>
                 )}
 
-                {/* Grid of Message Tone Options */}
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
                   {MESSAGE_TONE_OPTIONS.map((opt) => {
                     const isSelected =
@@ -1003,10 +1092,10 @@ export const SettingsProfileView: React.FC<SettingsProfileViewProps> = ({
                             onUpdateUser({ messageToneId: opt.id });
                           }
                         }}
-                        className={`p-3 rounded-2xl border transition-all cursor-pointer flex items-center justify-between gap-2 ${
+                        className={`p-3 rounded-xl border transition-colors cursor-pointer flex items-center justify-between gap-2 ${
                           isSelected
-                            ? 'bg-blue-600/20 border-blue-400 text-white shadow-md'
-                            : 'bg-[#181d28] border-white/5 text-[#8d90a0] hover:text-white hover:border-white/20'
+                            ? 'bg-blue-600/20 border-blue-500 text-white'
+                            : 'bg-[#181d28] border-white/5 text-[#8d90a0] hover:text-white hover:border-white/15'
                         }`}
                       >
                         <div className="flex items-center gap-2.5 min-w-0">
@@ -1031,16 +1120,16 @@ export const SettingsProfileView: React.FC<SettingsProfileViewProps> = ({
                               }
                             }}
                             title={isPlaying ? 'Detener prueba' : 'Escuchar tono'}
-                            className={`p-1.5 rounded-xl border transition-colors cursor-pointer ${
+                            className={`p-1.5 rounded-lg border transition-colors cursor-pointer ${
                               isPlaying
-                                ? 'bg-blue-600 text-white border-blue-400 animate-pulse'
+                                ? 'bg-[#0284c7] text-white border-blue-400'
                                 : 'bg-white/5 hover:bg-white/10 text-blue-400 border-white/10'
                             }`}
                           >
                             {isPlaying ? <Square className="w-3.5 h-3.5" /> : <Play className="w-3.5 h-3.5" />}
                           </button>
                           {isSelected && (
-                            <div className="w-5 h-5 rounded-full bg-blue-500 text-white flex items-center justify-center font-bold">
+                            <div className="w-5 h-5 rounded-full bg-[#0284c7] text-white flex items-center justify-center font-bold">
                               <Check className="w-3.5 h-3.5 stroke-[3]" />
                             </div>
                           )}
@@ -1056,26 +1145,28 @@ export const SettingsProfileView: React.FC<SettingsProfileViewProps> = ({
 
         {/* TAB 3: CUENTA & NUBE */}
         {activeTab === 'account' && (
-          <div className="flex flex-col gap-5 animate-in fade-in duration-200">
+          <div className="flex flex-col gap-4 animate-in fade-in duration-150">
             {/* Status Selector */}
-            <section className="rounded-3xl bg-[#181c24] border border-white/10 p-5 shadow-xl flex flex-col gap-3 text-white">
-              <span className="text-xs font-bold uppercase tracking-wider text-[#38bdf8] flex items-center gap-1.5 pb-2 border-b border-white/10">
-                <Activity className="w-4 h-4" />
-                <span>Estado de Conexión</span>
+            <section className={`rounded-2xl border p-5 flex flex-col gap-3 ${cardCls}`}>
+              <span className="text-xs font-bold uppercase tracking-wider text-[#0284c7] dark:text-[#38bdf8] flex items-center gap-1.5 pb-2 border-b border-slate-200 dark:border-white/10">
+                <Activity className="w-3.5 h-3.5" />
+                <span>Disponibilidad</span>
               </span>
               <div className="grid grid-cols-3 gap-2">
                 {[
-                  { id: 'online', label: '🟢 En línea' },
-                  { id: 'busy', label: '🟡 Ocupado' },
-                  { id: 'offline', label: '⚪ Offline' },
+                  { id: 'online', label: 'En línea' },
+                  { id: 'busy', label: 'Ocupado' },
+                  { id: 'offline', label: 'Desconectado' },
                 ].map((s) => (
                   <button
                     key={s.id}
                     onClick={() => onUpdateUser({ status: s.id as any })}
-                    className={`py-2.5 rounded-xl text-xs font-bold border transition-all cursor-pointer ${
+                    className={`py-2.5 rounded-xl text-xs font-semibold border transition-colors cursor-pointer ${
                       user.status === s.id
-                        ? 'bg-blue-600 border-blue-500 text-white shadow-md'
-                        : 'bg-[#121620] border-white/10 text-[#8d90a0] hover:text-white'
+                        ? 'bg-[#0284c7] border-[#0284c7] text-white'
+                        : isNightMode
+                        ? 'bg-[#0f131c] border-white/10 text-slate-300 hover:text-white'
+                        : 'bg-slate-50 border-slate-200 text-slate-700 hover:bg-slate-100'
                     }`}
                   >
                     {s.label}
@@ -1085,31 +1176,33 @@ export const SettingsProfileView: React.FC<SettingsProfileViewProps> = ({
             </section>
 
             {/* Selector de Tema Festivo Mensual */}
-            <section className="rounded-3xl bg-[#141822] border border-white/10 p-5 shadow-xl flex flex-col gap-3">
-              <div className="flex items-center gap-2.5 pb-2 border-b border-white/10">
-                <div className="w-8 h-8 rounded-xl bg-amber-500/20 text-amber-400 flex items-center justify-center">
-                  <Sparkles className="w-4 h-4" />
+            <section className={`rounded-2xl border p-5 flex flex-col gap-3 ${cardCls}`}>
+              <div className="flex items-center gap-2.5 pb-2 border-b border-slate-200 dark:border-white/10">
+                <div className="w-8 h-8 rounded-xl bg-amber-500/15 text-amber-500 flex items-center justify-center">
+                  <Calendar className="w-4 h-4" />
                 </div>
                 <div>
-                  <h4 className="text-xs font-bold text-white">Tema Festivo Mensual</h4>
-                  <span className="text-[10px] text-[#8d90a0]">Elige la festividad activa de tus chats y banners</span>
+                  <h4 className="text-xs font-bold">Tema de temporada</h4>
+                  <span className={`text-[11px] ${mutedTextCls}`}>Ambientación opcional según la época</span>
                 </div>
               </div>
 
               <div className="grid grid-cols-2 sm:grid-cols-3 gap-2 max-h-56 overflow-y-auto pr-1">
                 <button
                   onClick={() => onUpdateUser({ monthlyTheme: 'auto' })}
-                  className={`p-2.5 rounded-xl border text-left transition-all cursor-pointer ${
+                  className={`p-2.5 rounded-xl border text-left transition-colors cursor-pointer ${
                     !user.monthlyTheme || user.monthlyTheme === 'auto'
-                      ? 'bg-blue-600 border-blue-500 text-white shadow-md'
-                      : 'bg-[#1c2028] border-white/5 text-[#8d90a0] hover:text-white'
+                      ? 'bg-[#0284c7] border-[#0284c7] text-white'
+                      : isNightMode
+                      ? 'bg-[#0f131c] border-white/10 text-slate-300 hover:text-white'
+                      : 'bg-slate-50 border-slate-200 text-slate-700 hover:bg-slate-100'
                   }`}
                 >
-                  <div className="text-xs font-bold flex items-center gap-1.5">
+                  <div className="text-xs font-semibold flex items-center gap-1.5">
                     <span>📅</span>
                     <span>Automático</span>
                   </div>
-                  <span className="text-[10px] opacity-80 mt-0.5 block">Sigue el calendario real</span>
+                  <span className="text-[10px] opacity-80 mt-0.5 block">Calendario actual</span>
                 </button>
 
                 {MONTHLY_THEMES.map((theme) => {
@@ -1118,13 +1211,15 @@ export const SettingsProfileView: React.FC<SettingsProfileViewProps> = ({
                     <button
                       key={theme.id}
                       onClick={() => onUpdateUser({ monthlyTheme: theme.id })}
-                      className={`p-2.5 rounded-xl border text-left transition-all cursor-pointer ${
+                      className={`p-2.5 rounded-xl border text-left transition-colors cursor-pointer ${
                         isSelected
-                          ? 'bg-amber-600 border-amber-500 text-white shadow-md'
-                          : 'bg-[#1c2028] border-white/5 text-[#8d90a0] hover:text-white'
+                          ? 'bg-amber-600 border-amber-500 text-white'
+                          : isNightMode
+                          ? 'bg-[#0f131c] border-white/10 text-slate-300 hover:text-white'
+                          : 'bg-slate-50 border-slate-200 text-slate-700 hover:bg-slate-100'
                       }`}
                     >
-                      <div className="text-xs font-bold flex items-center gap-1.5 truncate">
+                      <div className="text-xs font-semibold flex items-center gap-1.5 truncate">
                         <span>{theme.icon}</span>
                         <span className="truncate">{theme.name}</span>
                       </div>
@@ -1136,43 +1231,43 @@ export const SettingsProfileView: React.FC<SettingsProfileViewProps> = ({
             </section>
 
             {/* Cloud Sync */}
-            <section className="rounded-3xl bg-gradient-to-br from-[#122033] via-[#151c28] to-[#0d1420] border border-cyan-500/30 p-5 shadow-xl flex flex-col gap-3 text-white">
-              <div className="flex items-center justify-between pb-2 border-b border-cyan-500/20">
-                <div className="flex items-center gap-2">
-                  <div className="w-8 h-8 rounded-xl bg-cyan-500/20 text-cyan-400 flex items-center justify-center">
+            <section className={`rounded-2xl border p-5 flex flex-col gap-3 ${cardCls}`}>
+              <div className="flex items-center justify-between pb-2 border-b border-slate-200 dark:border-white/10">
+                <div className="flex items-center gap-2.5">
+                  <div className="w-8 h-8 rounded-xl bg-[#0284c7]/15 text-[#0284c7] dark:text-[#38bdf8] flex items-center justify-center">
                     <Shield className="w-4 h-4" />
                   </div>
                   <div>
-                    <h4 className="text-xs font-bold">Firebase Cloud Sync</h4>
-                    <span className="text-[10px] text-cyan-300">
-                      {firebaseUser ? '🟢 Sincronizado en la nube' : '⚪ Modo local'}
+                    <h4 className="text-xs font-bold">Respaldo en la nube</h4>
+                    <span className={`text-[11px] ${mutedTextCls}`}>
+                      {firebaseUser ? 'Cuenta vinculada' : 'Solo en este dispositivo'}
                     </span>
                   </div>
                 </div>
                 {firebaseUser ? (
                   <button
                     onClick={onGoogleLogout}
-                    className="px-3 py-1.5 rounded-xl bg-red-500/20 hover:bg-red-500/30 text-red-300 text-xs font-bold border border-red-500/30 cursor-pointer"
+                    className="px-3 py-1.5 rounded-xl bg-red-500/15 hover:bg-red-500/25 text-red-500 text-xs font-semibold border border-red-500/30 cursor-pointer"
                   >
-                    Cerrar sesión
+                    Desvincular
                   </button>
                 ) : (
                   <button
                     onClick={onGoogleLogin}
-                    className="px-3 py-1.5 rounded-xl bg-gradient-to-r from-cyan-500 to-blue-600 text-white text-xs font-bold shadow cursor-pointer flex items-center gap-1.5"
+                    className="px-3 py-1.5 rounded-xl bg-[#0284c7] hover:bg-[#0369a1] text-white text-xs font-semibold cursor-pointer flex items-center gap-1.5"
                   >
                     <LogIn className="w-3.5 h-3.5" />
                     <span>Conectar Google</span>
                   </button>
                 )}
               </div>
-              <p className="text-[11px] text-[#94a3b8] leading-relaxed">
-                Tus conversaciones, contactos, juegos y estado se guardan de forma segura para acceder desde cualquier dispositivo.
+              <p className={`text-xs leading-relaxed ${mutedTextCls}`}>
+                Guarda tus conversaciones, contactos y perfil para recuperarlos si cambias de equipo.
               </p>
             </section>
 
-            {/* Volver a modo clásico */}
-            <div className="mt-2">
+            {/* App Actions */}
+            <div className="flex flex-col gap-2.5">
               <button
                 onClick={() => {
                   if (onToggleClassicMode) {
@@ -1182,57 +1277,60 @@ export const SettingsProfileView: React.FC<SettingsProfileViewProps> = ({
                     window.location.reload();
                   }
                 }}
-                className="w-full py-3.5 rounded-2xl bg-gradient-to-r from-amber-500 to-orange-600 hover:from-amber-600 hover:to-orange-700 text-white font-bold text-xs flex items-center justify-center gap-2 shadow-xl transition-all cursor-pointer"
+                className={`w-full py-3 px-4 rounded-xl border text-xs font-semibold flex items-center justify-center gap-2 transition-colors cursor-pointer ${
+                  isNightMode
+                    ? 'bg-[#161b24] hover:bg-[#1e2430] border-white/10 text-white'
+                    : 'bg-white hover:bg-slate-50 border-slate-200 text-slate-800'
+                }`}
               >
-                <Sparkles className="w-4 h-4" />
-                <span>{isClassicMode ? 'Volver a Modo Completo (PidgeX Pro)' : 'Volver a Modo Clásico (Versión Inicial)'}</span>
+                <RefreshCw className="w-4 h-4 text-amber-500" />
+                <span>{isClassicMode ? 'Usar vista completa' : 'Cambiar a modo clásico'}</span>
               </button>
-            </div>
 
-            {/* Ver Tutorial Interactivo */}
-            <div className="mt-2">
               <button
                 onClick={() => onOpenTutorial?.()}
-                className="w-full py-3.5 rounded-2xl bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 text-white font-bold text-xs flex items-center justify-center gap-2 shadow-xl transition-all cursor-pointer"
+                className={`w-full py-3 px-4 rounded-xl border text-xs font-semibold flex items-center justify-center gap-2 transition-colors cursor-pointer ${
+                  isNightMode
+                    ? 'bg-[#161b24] hover:bg-[#1e2430] border-white/10 text-white'
+                    : 'bg-white hover:bg-slate-50 border-slate-200 text-slate-800'
+                }`}
               >
-                <Sparkles className="w-4 h-4" />
-                <span>Ver Tutorial Interactivo de PidgeX</span>
+                <BookOpen className="w-4 h-4 text-emerald-500" />
+                <span>Ver guía rápida</span>
               </button>
-            </div>
 
-            {/* Guía Interactiva en Pantalla (Tour) */}
-            <div className="mt-2">
               <button
                 onClick={() => onOpenTour?.()}
-                className="w-full py-3.5 rounded-2xl bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-500 hover:to-indigo-500 text-white font-bold text-xs flex items-center justify-center gap-2 shadow-xl transition-all cursor-pointer"
+                className={`w-full py-3 px-4 rounded-xl border text-xs font-semibold flex items-center justify-center gap-2 transition-colors cursor-pointer ${
+                  isNightMode
+                    ? 'bg-[#161b24] hover:bg-[#1e2430] border-white/10 text-white'
+                    : 'bg-white hover:bg-slate-50 border-slate-200 text-slate-800'
+                }`}
               >
-                <Compass className="w-4 h-4" />
-                <span>Iniciar Guía Interactiva con Flechitas</span>
+                <Compass className="w-4 h-4 text-[#0284c7]" />
+                <span>Recorrido por las funciones</span>
               </button>
-            </div>
 
-            {/* Instalar PWA */}
-            {onOpenInstallModal && (
-              <div className="mt-2">
+              {onOpenInstallModal && (
                 <button
                   onClick={onOpenInstallModal}
-                  className="w-full py-3.5 rounded-2xl bg-gradient-to-r from-sky-500 to-blue-600 hover:from-sky-600 hover:to-blue-700 text-white font-bold text-xs flex items-center justify-center gap-2 shadow-xl transition-all cursor-pointer"
+                  className="w-full py-3 px-4 rounded-xl bg-[#0284c7] hover:bg-[#0369a1] text-white font-semibold text-xs flex items-center justify-center gap-2 transition-colors cursor-pointer"
                 >
                   <Smartphone className="w-4 h-4" />
-                  <span>Instalar PidgeX en Celular y Tablet 📱</span>
+                  <span>Instalar en celular o tablet</span>
                 </button>
-              </div>
-            )}
+              )}
+            </div>
 
             {/* Danger Zone: Delete Account */}
-            <section className="rounded-3xl bg-red-950/20 border border-red-500/30 p-5 shadow-xl flex items-center justify-between mt-2">
+            <section className="rounded-2xl bg-red-500/10 border border-red-500/25 p-4 flex items-center justify-between mt-1">
               <div className="flex flex-col gap-0.5">
-                <span className="text-xs font-bold text-red-400">Eliminar Cuenta</span>
-                <span className="text-[10px] text-[#8d90a0]">Borrar todos los datos y perfil permanentemente</span>
+                <span className="text-xs font-bold text-red-500">Eliminar cuenta</span>
+                <span className={`text-[11px] ${mutedTextCls}`}>Borra todos tus datos y perfil</span>
               </div>
               <button
                 onClick={() => setShowDeleteModal(true)}
-                className="px-3.5 py-2 rounded-xl bg-red-600 hover:bg-red-700 text-white text-xs font-bold shadow cursor-pointer flex items-center gap-1.5"
+                className="px-3.5 py-2 rounded-xl bg-red-600 hover:bg-red-700 text-white text-xs font-semibold cursor-pointer flex items-center gap-1.5"
               >
                 <Trash2 className="w-3.5 h-3.5" />
                 <span>Eliminar</span>
@@ -1319,6 +1417,32 @@ export const SettingsProfileView: React.FC<SettingsProfileViewProps> = ({
           setSavedFeedback(true);
           setTimeout(() => setSavedFeedback(false), 2500);
         }}
+      />
+
+      {/* Digital AI Avatar Studio */}
+      <DigitalAvatarStudioModal
+        isOpen={showAvatarStudio}
+        onClose={() => setShowAvatarStudio(false)}
+        user={user}
+        isNightMode={isNightMode}
+        onSaveAvatarConfig={(cfg) => {
+          onUpdateUser({ digitalAvatar: cfg });
+          setSavedFeedback(true);
+          setTimeout(() => setSavedFeedback(false), 2500);
+        }}
+      />
+
+      {/* AI Sticker Factory */}
+      <AiStickerFactoryModal
+        isOpen={showStickerFactory}
+        onClose={() => setShowStickerFactory(false)}
+        customPacks={user.customStickerPacks || []}
+        onSavePacks={(packs) => {
+          onUpdateUser({ customStickerPacks: packs });
+          setSavedFeedback(true);
+          setTimeout(() => setSavedFeedback(false), 2500);
+        }}
+        isNightMode={isNightMode}
       />
     </div>
   );

@@ -300,9 +300,7 @@ export const VoiceRecorder: React.FC<VoiceRecorderProps> = ({
             <div
               key={idx}
               className={`w-1 rounded-full transition-all duration-100 ${
-                isPaused
-                  ? 'bg-gray-400/40'
-                  : 'bg-gradient-to-t from-sky-500 to-cyan-300'
+                isPaused ? 'bg-gray-400/40' : 'bg-[#38bdf8]'
               }`}
               style={{
                 height: isPaused ? '20%' : `${height}%`,
@@ -345,7 +343,7 @@ export const VoiceRecorder: React.FC<VoiceRecorderProps> = ({
           ) : (
             <button
               onClick={handleTogglePreviewPlay}
-              className="w-8 h-8 rounded-full bg-sky-500 text-white flex items-center justify-center hover:bg-sky-400 transition-colors cursor-pointer"
+              className="w-8 h-8 rounded-full bg-[#0284c7] text-white flex items-center justify-center hover:bg-[#0369a1] transition-colors cursor-pointer"
               title={isPlayingPreview ? 'Pausar reproducción' : 'Escuchar mensaje grabado'}
             >
               {isPlayingPreview ? <Pause className="w-3.5 h-3.5" /> : <Play className="w-3.5 h-3.5 ml-0.5" />}
@@ -354,7 +352,7 @@ export const VoiceRecorder: React.FC<VoiceRecorderProps> = ({
 
           <button
             onClick={handleSend}
-            className="w-9 h-9 rounded-full bg-gradient-to-r from-[#0284c7] to-[#38bdf8] text-white flex items-center justify-center shadow-md shadow-sky-500/30 hover:scale-105 active:scale-95 transition-all cursor-pointer"
+            className="w-9 h-9 rounded-full bg-[#0284c7] hover:bg-[#0369a1] text-white flex items-center justify-center active:scale-95 transition-colors cursor-pointer"
             title="Mandar mensaje de voz"
           >
             <Send className="w-4 h-4 ml-0.5" />

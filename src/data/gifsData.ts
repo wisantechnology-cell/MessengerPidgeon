@@ -1,0 +1,186 @@
+import { GifItem } from '../types';
+
+export const CURATED_GIFS: GifItem[] = [
+  // 🔥 Virales & Escuadrón Verde Bailando
+  {
+    id: 'gif_green_squad_dance',
+    title: 'Escuadrón Verde Bailando',
+    category: 'Virales y Baile',
+    url: 'https://media1.tenor.com/m/R7wWPCzS9PgAAAAC/shrek-green-lantern.gif',
+    tags: ['shrek', 'mike wazowski', 'rana rene', 'kermit', 'alien', 'linterna verde', 'tortuga ninja', 'bailando', 'verde', 'fiesta'],
+  },
+  {
+    id: 'gif_shrek_friends_dance',
+    title: 'Shrek y Amigos Bailando',
+    category: 'Virales y Baile',
+    url: 'https://media1.tenor.com/m/VvwLWUMCBGoAAAAC/shrek-green-lantern.gif',
+    tags: ['shrek', 'mike wazowski', 'rana rene', 'tortuga ninja', 'linterna verde', 'baile', 'meme'],
+  },
+  {
+    id: 'gif_pedro_raccoon',
+    title: 'Pedro Pedro Mapache',
+    category: 'Virales y Baile',
+    url: 'https://media1.tenor.com/m/dTA1KJh8sksAAAAC/h2di-raccoon-spinning-dance.gif',
+    tags: ['pedro', 'mapache', 'raccoon', 'bailando', 'girando', 'fiesta'],
+  },
+  {
+    id: 'gif_cat_vibing',
+    title: 'Gato Con Ritmo',
+    category: 'Virales y Baile',
+    url: 'https://media1.tenor.com/m/ZO_njPyGQXQAAAAC/chill-cat.gif',
+    tags: ['gato', 'cat', 'vibing', 'musica', 'bailando', 'ritmo'],
+  },
+  {
+    id: 'gif_shrek_dance',
+    title: 'Shrek Bailando',
+    category: 'Virales y Baile',
+    url: 'https://media1.tenor.com/m/qcv-b7FwOSkAAAAC/shrek-dancing.gif',
+    tags: ['shrek', 'baile', 'fiesta', 'alegria'],
+  },
+  {
+    id: 'gif_baby_groot',
+    title: 'Baby Groot Bailando',
+    category: 'Virales y Baile',
+    url: 'https://media1.tenor.com/m/2qreTe3Z4HgAAAAC/espo-groot.gif',
+    tags: ['groot', 'marvel', 'baile', 'tierno'],
+  },
+  {
+    id: 'gif_minions_cheer',
+    title: 'Minions Celebrando',
+    category: 'Virales y Baile',
+    url: 'https://media1.tenor.com/m/CEfNKY-zkyQAAAAC/cheering-minions.gif',
+    tags: ['minions', 'celebracion', 'fiesta', 'ganamos'],
+  },
+  {
+    id: 'gif_happy_dance',
+    title: 'Baile Súper Feliz',
+    category: 'Virales y Baile',
+    url: 'https://media1.tenor.com/m/RdYowW9KtNMAAAAC/dancing-happy-dance.gif',
+    tags: ['feliz', 'baile', 'happy', 'celebrar'],
+  },
+
+  // 😂 Memes Clásicos
+  {
+    id: 'gif_risitas',
+    title: 'Risitas Risa Legendaria',
+    category: 'Memes y Risa',
+    url: 'https://media1.tenor.com/m/JjMqITnyquwAAAAC/issou-risitas.gif',
+    tags: ['risa', 'jajaja', 'risitas', 'lol', 'meme'],
+  },
+  {
+    id: 'gif_elmo_fire',
+    title: 'Elmo en Llamas',
+    category: 'Memes y Risa',
+    url: 'https://media1.tenor.com/m/lcehRTIw1_8AAAAC/excited-fuego.gif',
+    tags: ['elmo', 'fuego', 'caos', 'epico', 'meme'],
+  },
+  {
+    id: 'gif_spiderman_point',
+    title: 'Spider-Man Señalando',
+    category: 'Memes y Risa',
+    url: 'https://media1.tenor.com/m/QXVs4QWLlzkAAAAC/spider-man.gif',
+    tags: ['spiderman', 'tu', 'igual', 'meme'],
+  },
+  {
+    id: 'gif_homer_bush',
+    title: 'Homero Desapareciendo',
+    category: 'Memes y Risa',
+    url: 'https://media1.tenor.com/m/pXe-GokoyA0AAAAC/the-s-impsons-bush.gif',
+    tags: ['homero', 'simpsons', 'arbusto', 'esconderse', 'pena'],
+  },
+  {
+    id: 'gif_kermit_tea',
+    title: 'Rana René Tomando Té',
+    category: 'Memes y Risa',
+    url: 'https://media1.tenor.com/m/2uTwRzAQ7kUAAAAC/kermit-kermit-the-frog.gif',
+    tags: ['rana rene', 'kermit', 'te', 'chisme', 'tranquilo'],
+  },
+  {
+    id: 'gif_spongebob_rainbow',
+    title: 'Bob Esponja Imaginación',
+    category: 'Memes y Risa',
+    url: 'https://media1.tenor.com/m/S-TQKsUL38YAAAAC/rainbow-spongebob.gif',
+    tags: ['bob esponja', 'arcoiris', 'imaginacion', 'magia'],
+  },
+  {
+    id: 'gif_doge_bonk',
+    title: 'Doge Bonk',
+    category: 'Memes y Risa',
+    url: 'https://media1.tenor.com/m/zdcbh9URQCsAAAAC/bonk-doge.gif',
+    tags: ['doge', 'perro', 'bonk', 'cheems', 'meme'],
+  },
+
+  // 🤯 Reacciones
+  {
+    id: 'gif_dicaprio_cheers',
+    title: 'Brindis Épico',
+    category: 'Reacciones',
+    url: 'https://media1.tenor.com/m/IErQHBRt6GIAAAAC/leonardo-dicaprio.gif',
+    tags: ['salud', 'brindis', 'dicaprio', 'aprobado', 'crack'],
+  },
+  {
+    id: 'gif_mind_blown',
+    title: 'Mente Explotada',
+    category: 'Reacciones',
+    url: 'https://media1.tenor.com/m/3eIvVsG3yPYAAAAC/the-universe-tim-and-eric-mind-blown.gif',
+    tags: ['wow', 'mente', 'explota', 'increible', 'sorpresa'],
+  },
+  {
+    id: 'gif_pikachu_shocked',
+    title: 'Pikachu Sorprendido',
+    category: 'Reacciones',
+    url: 'https://media1.tenor.com/m/ihqN6a3iiYEAAAAC/pikachu-shocked-face-stunned.gif',
+    tags: ['pikachu', 'sorprendido', 'impactado', 'pokemon'],
+  },
+  {
+    id: 'gif_cat_shocked',
+    title: 'Gato Impactado',
+    category: 'Reacciones',
+    url: 'https://media1.tenor.com/m/CNI1fSM1XSoAAAAC/shocked-surprised.gif',
+    tags: ['gato', 'sorpresa', 'impactado', 'que'],
+  },
+  {
+    id: 'gif_cat_thumbs_up',
+    title: 'Gato Pulgar Arriba',
+    category: 'Reacciones',
+    url: 'https://media1.tenor.com/m/TsVXIAMBZXoAAAAC/cat-thumbs-up-thumbs-up.gif',
+    tags: ['ok', 'bien', 'gato', 'like', 'aprobado'],
+  },
+  {
+    id: 'gif_applause',
+    title: 'Aplausos',
+    category: 'Reacciones',
+    url: 'https://media1.tenor.com/m/Gkgt9gPyBXIAAAAC/applause-clapping.gif',
+    tags: ['aplauso', 'bravo', 'genial', 'felicidades'],
+  },
+  {
+    id: 'gif_sad_pepe',
+    title: 'Pepe Triste',
+    category: 'Reacciones',
+    url: 'https://media1.tenor.com/m/USVKtXwWCfsAAAAC/why-cry-why-pepe-why.gif',
+    tags: ['triste', 'llorando', 'pepe', 'sad', 'f'],
+  },
+  {
+    id: 'gif_cat_typing',
+    title: 'Gato Escribiendo',
+    category: 'Reacciones',
+    url: 'https://media1.tenor.com/m/iCqG_iT-h48AAAAC/bills-ugh.gif',
+    tags: ['gato', 'escribiendo', 'ocupado', 'teclado'],
+  },
+
+  // ❤️ Saludos y Amor
+  {
+    id: 'gif_hello_wave',
+    title: '¡Hola!',
+    category: 'Saludos y Amor',
+    url: 'https://media1.tenor.com/m/CYg-d1p9KwoAAAAC/hi-m-hi.gif',
+    tags: ['hola', 'saludo', 'hi', 'hey'],
+  },
+  {
+    id: 'gif_love_card',
+    title: 'Te Quiero Mucho',
+    category: 'Saludos y Amor',
+    url: 'https://media1.tenor.com/m/w3CPvyOruwsAAAAC/love-card-wink.gif',
+    tags: ['amor', 'corazon', 'te quiero', 'lindo', 'beso'],
+  },
+];

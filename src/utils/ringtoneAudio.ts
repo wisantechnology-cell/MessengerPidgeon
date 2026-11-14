@@ -29,16 +29,71 @@ export const MESSAGE_TONE_OPTIONS: RingtoneOption[] = [
 
 class RingtoneAudioManager {
   private activeCallAudio: HTMLAudioElement | null = null;
-  private activeMessageAudio: HTMLAudioElement | null = null;
   private previewAudio: HTMLAudioElement | null = null;
   private callRingInterval: any = null;
   private callVibrateInterval: any = null;
   private wakeLockSentinel: any = null;
   private audioCtx: AudioContext | null = null;
+  private isCallRinging: boolean = false;
+  private pendingCallAudioRetry: boolean = false;
+  private pendingSynthTone: string | null = null;
+  private gestureListenersBound: boolean = false;
+
+  constructor() {
+    this.bindGestureUnlock();
+  }
+
+  private bindGestureUnlock() {
+    if (typeof window === 'undefined' || this.gestureListenersBound) return;
+    this.gestureListenersBound = true;
+
+    const handleGesture = () => {
+      this.unlockAudioOnGesture();
+    };
+
+    window.addEventListener('pointerdown', handleGesture, { passive: true, capture: true });
+    window.addEventListener('touchstart', handleGesture, { passive: true, capture: true });
+    window.addEventListener('click', handleGesture, { passive: true, capture: true });
+    window.addEventListener('keydown', handleGesture, { passive: true, capture: true });
+  }
+
+  public unlockAudioOnGesture() {
+    if (typeof window === 'undefined') return;
+    try {
+      const AudioCtxClass = window.AudioContext || (window as any).webkitAudioContext;
+      if (AudioCtxClass) {
+        if (!this.audioCtx || this.audioCtx.state === 'closed') {
+          this.audioCtx = new AudioCtxClass();
+        }
+        if (this.audioCtx.state === 'suspended') {
+          this.audioCtx.resume().then(() => {
+            if (this.isCallRinging && this.pendingSynthTone) {
+              const tone = this.pendingSynthTone;
+              this.pendingSynthTone = null;
+              this.playSynthesizedCallTone(tone);
+            }
+          }).catch(() => {});
+        }
+      }
+    } catch {}
+
+    if (this.isCallRinging && this.activeCallAudio && this.pendingCallAudioRetry) {
+      this.activeCallAudio.volume = 1.0;
+      this.activeCallAudio.play()
+        .then(() => {
+          this.pendingCallAudioRetry = false;
+          if (this.callRingInterval) {
+            clearInterval(this.callRingInterval);
+            this.callRingInterval = null;
+          }
+        })
+        .catch(() => {});
+    }
+  }
 
   private getAudioContext(): AudioContext | null {
     if (typeof window === 'undefined') return null;
-    if (!this.audioCtx) {
+    if (!this.audioCtx || this.audioCtx.state === 'closed') {
       const AudioCtxClass = window.AudioContext || (window as any).webkitAudioContext;
       if (AudioCtxClass) {
         this.audioCtx = new AudioCtxClass();
@@ -333,38 +388,92 @@ class RingtoneAudioManager {
   // --- START INCOMING CALL ALERT (Ringtone + Vibration + Screen Wake Lock) ---
   startIncomingCallAlert(user: UserProfile) {
     this.stopIncomingCallAlert();
+    this.stopPreview();
+    this.isCallRinging = true;
 
-    // 1. Screen Wake Lock (keep screen awake & on) - Permanente e incondicional
+    // 1. Screen Wake Lock (keep screen awake & on)
     this.requestScreenWakeLock();
 
-    // 2. Vibration - Permanente e incondicional (no se puede desactivar)
+    // 2. Vibration
     this.startCallVibration();
 
     // 3. Audio Ringtone
-    const isCustom = user.callRingtoneId === 'custom' && user.customCallRingtoneUrl;
-    if (isCustom && user.customCallRingtoneUrl) {
+    const selectedTone = user?.callRingtoneId || 'pidgex_melody';
+    const customUrl = user?.customCallRingtoneUrl?.trim();
+    const isCustom = selectedTone === 'custom' && Boolean(customUrl);
+
+    const startSynthLoop = (toneId: string) => {
+      if (this.callRingInterval) {
+        clearInterval(this.callRingInterval);
+      }
+      const ctx = this.getAudioContext();
+      if (ctx && ctx.state === 'suspended') {
+        this.pendingSynthTone = toneId;
+        ctx.resume()
+          .then(() => {
+            if (this.isCallRinging) {
+              this.pendingSynthTone = null;
+              this.playSynthesizedCallTone(toneId);
+            }
+          })
+          .catch(() => {});
+      } else {
+        this.playSynthesizedCallTone(toneId);
+      }
+      this.callRingInterval = setInterval(() => {
+        if (!this.isCallRinging) return;
+        this.playSynthesizedCallTone(toneId);
+      }, 2500);
+    };
+
+    if (isCustom && customUrl) {
       try {
-        const audio = new Audio(user.customCallRingtoneUrl);
+        const audio = new Audio(customUrl);
         audio.loop = true;
-        audio.play().catch((err) => {
-          console.warn('Custom ringtone play blocked by browser, falling back to synth:', err);
-          this.playSynthesizedCallTone('pidgex_melody');
-        });
+        audio.volume = 1.0;
+        audio.preload = 'auto';
         this.activeCallAudio = audio;
+        this.pendingCallAudioRetry = false;
+
+        audio.onplay = () => {
+          this.pendingCallAudioRetry = false;
+          if (this.callRingInterval) {
+            clearInterval(this.callRingInterval);
+            this.callRingInterval = null;
+          }
+        };
+
+        audio.onerror = () => {
+          console.warn('Custom call ringtone audio failed to load, switching to fallback melody.');
+          if (this.isCallRinging && !this.callRingInterval) {
+            startSynthLoop('pidgex_melody');
+          }
+        };
+
+        const playPromise = audio.play();
+        if (playPromise && typeof playPromise.catch === 'function') {
+          playPromise.catch((err) => {
+            console.warn('Custom ringtone play blocked by browser, queuing retry & fallback loop:', err);
+            this.pendingCallAudioRetry = true;
+            if (this.isCallRinging && !this.callRingInterval) {
+              startSynthLoop('pidgex_melody');
+            }
+          });
+        }
       } catch (err) {
         console.warn('Error playing custom audio:', err);
-        this.playSynthesizedCallTone('pidgex_melody');
+        startSynthLoop('pidgex_melody');
       }
     } else {
-      const tone = user.callRingtoneId || 'pidgex_melody';
-      this.playSynthesizedCallTone(tone);
-      this.callRingInterval = setInterval(() => {
-        this.playSynthesizedCallTone(tone);
-      }, 2600);
+      const toneToPlay = selectedTone === 'custom' ? 'pidgex_melody' : selectedTone;
+      startSynthLoop(toneToPlay);
     }
   }
 
   stopIncomingCallAlert() {
+    this.isCallRinging = false;
+    this.pendingCallAudioRetry = false;
+    this.pendingSynthTone = null;
     this.stopCallVibration();
     this.releaseScreenWakeLock();
 
@@ -375,6 +484,8 @@ class RingtoneAudioManager {
 
     if (this.activeCallAudio) {
       try {
+        this.activeCallAudio.onplay = null;
+        this.activeCallAudio.onerror = null;
         this.activeCallAudio.pause();
         this.activeCallAudio.currentTime = 0;
       } catch {}
@@ -396,10 +507,12 @@ class RingtoneAudioManager {
     }
 
     // 3. Audio Tone
-    const isCustom = user.messageToneId === 'custom' && user.customMessageToneUrl;
+    const isCustom = user.messageToneId === 'custom' && Boolean(user.customMessageToneUrl);
     if (isCustom && user.customMessageToneUrl) {
       try {
         const audio = new Audio(user.customMessageToneUrl);
+        audio.volume = 1.0;
+        audio.preload = 'auto';
         audio.play().catch(() => {
           this.playSynthesizedMessageTone('pidgex_chirp');
         });
@@ -407,7 +520,7 @@ class RingtoneAudioManager {
         this.playSynthesizedMessageTone('pidgex_chirp');
       }
     } else {
-      const tone = user.messageToneId || 'pidgex_chirp';
+      const tone = user.messageToneId === 'custom' ? 'pidgex_chirp' : (user.messageToneId || 'pidgex_chirp');
       this.playSynthesizedMessageTone(tone);
     }
   }

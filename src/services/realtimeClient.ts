@@ -16,6 +16,8 @@ export type RealtimeCallback = {
   onCallSignal?: (callId: string, signal: any, senderId: string) => void;
   onCallFrame?: (callId: string, frame: string, role: string, senderId: string) => void;
   onCallAudio?: (callId: string, audio: string, role: string, senderId: string) => void;
+  onRoom3dState?: (roomId: string, config: any, avatars: Record<string, any>) => void;
+  onGameEvent?: (roomId: string, event: { gameType: string; action: string; payload?: any; gameState?: any; senderId: string; senderName: string }) => void;
 };
 
 class RealtimeClient {
@@ -23,12 +25,29 @@ class RealtimeClient {
   private currentRoomId: string = 'real_community';
   private currentUser: UserProfile | null = null;
   private callbacks: RealtimeCallback = {};
+  private room3dListeners = new Set<(roomId: string, config: any, avatars: Record<string, any>) => void>();
+  private gameListeners = new Set<(roomId: string, event: any) => void>();
   private reconnectTimer: any = null;
   private activeCallRooms: Set<string> = new Set<string>();
+  private pendingCallSignals: { callId: string; signal: any }[] = [];
   private isExplicitlyClosed: boolean = false;
 
   public setCallbacks(cbs: RealtimeCallback) {
     this.callbacks = { ...this.callbacks, ...cbs };
+  }
+
+  public subscribeRoom3d(fn: (roomId: string, config: any, avatars: Record<string, any>) => void): () => void {
+    this.room3dListeners.add(fn);
+    return () => {
+      this.room3dListeners.delete(fn);
+    };
+  }
+
+  public subscribeGame(fn: (roomId: string, event: any) => void): () => void {
+    this.gameListeners.add(fn);
+    return () => {
+      this.gameListeners.delete(fn);
+    };
   }
 
   public ensureConnected(user?: UserProfile) {
@@ -79,6 +98,12 @@ class RealtimeClient {
         this.callbacks.onStatusChange?.(true);
         this.joinRoom(this.currentRoomId);
         this.activeCallRooms.forEach((cId) => this.sendJoinRoomPayload(`call_${cId}`));
+        while (this.pendingCallSignals.length > 0) {
+          const item = this.pendingCallSignals.shift();
+          if (item && this.activeCallRooms.has(item.callId)) {
+            this.sendCallSignal(item.callId, item.signal);
+          }
+        }
       };
 
       this.ws.onmessage = (event) => {
@@ -91,6 +116,21 @@ class RealtimeClient {
             if (data.users) {
               this.callbacks.onPresence?.(data.roomId, data.users.length, data.users);
             }
+            if (data.room3dState) {
+              this.callbacks.onRoom3dState?.(data.roomId, data.room3dState.config, data.room3dState.avatars || {});
+              this.room3dListeners.forEach((fn) => fn(data.roomId, data.room3dState.config, data.room3dState.avatars || {}));
+            }
+            if (data.gameState) {
+              const evt = {
+                gameType: data.gameState.gameType,
+                action: 'sync',
+                gameState: data.gameState,
+                senderId: 'server',
+                senderName: 'Sistema',
+              };
+              this.callbacks.onGameEvent?.(data.roomId, evt);
+              this.gameListeners.forEach((fn) => fn(data.roomId, evt));
+            }
           } else if (data.type === 'message') {
             this.callbacks.onMessage?.(data.roomId, data.message);
           } else if (data.type === 'presence') {
@@ -99,6 +139,12 @@ class RealtimeClient {
             this.callbacks.onTyping?.(data.roomId, data.userId, data.userName, data.isTyping);
           } else if (data.type === 'reaction') {
             this.callbacks.onReaction?.(data.roomId, data.messageId, data.reactions);
+          } else if (data.type === 'room_3d_state') {
+            this.callbacks.onRoom3dState?.(data.roomId, data.config, data.avatars || {});
+            this.room3dListeners.forEach((fn) => fn(data.roomId, data.config, data.avatars || {}));
+          } else if (data.type === 'game_event') {
+            this.callbacks.onGameEvent?.(data.roomId, data);
+            this.gameListeners.forEach((fn) => fn(data.roomId, data));
           } else if (data.type === 'call_signal') {
             this.callbacks.onCallSignal?.(data.callId, data.signal, data.senderId);
           } else if (data.type === 'call_frame') {
@@ -298,6 +344,11 @@ class RealtimeClient {
       } catch (e) {
         console.warn('Failed to send call signal:', e);
       }
+    } else {
+      if (this.pendingCallSignals.length > 40) {
+        this.pendingCallSignals.shift();
+      }
+      this.pendingCallSignals.push({ callId, signal });
     }
   }
 
@@ -337,6 +388,40 @@ class RealtimeClient {
         );
       } catch (e) {
         // audio drop
+      }
+    }
+  }
+
+  public sendRoom3dUpdate(roomId: string, data: { avatarState?: any; roomConfig?: any }) {
+    this.ensureConnected();
+    if (this.ws && this.ws.readyState === WebSocket.OPEN) {
+      try {
+        this.ws.send(
+          JSON.stringify({
+            type: 'room_3d_update',
+            roomId,
+            ...data,
+          })
+        );
+      } catch (e) {
+        // silent
+      }
+    }
+  }
+
+  public sendGameEvent(roomId: string, event: { gameType: string; action: string; payload?: any; gameState?: any }) {
+    this.ensureConnected();
+    if (this.ws && this.ws.readyState === WebSocket.OPEN) {
+      try {
+        this.ws.send(
+          JSON.stringify({
+            type: 'game_event',
+            roomId,
+            ...event,
+          })
+        );
+      } catch (e) {
+        // silent
       }
     }
   }

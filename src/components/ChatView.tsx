@@ -8,7 +8,6 @@ import {
   Mic,
   Plus,
   Smile,
-  Sparkles,
   Lock,
   Timer,
   Ban,
@@ -40,8 +39,24 @@ import {
   Share2,
   MoreVertical,
   Maximize2,
+  Sparkles,
+  Box,
+  Image as ImageIcon,
+  Wand2,
+  Trophy,
 } from 'lucide-react';
-import { Chat, Message, Wallpaper, StickerItem, UserProfile, GroupMember } from '../types';
+import {
+  Chat,
+  Message,
+  Wallpaper,
+  StickerItem,
+  GifItem,
+  UserProfile,
+  GroupMember,
+  ChatPersonalityTheme,
+  EmotionalMode,
+  VirtualRoomConfig,
+} from '../types';
 import { PrivateMessageModal } from './PrivateMessageModal';
 import { PrivateMessageView } from './PrivateMessageView';
 import { ForwardModal } from './ForwardModal';
@@ -93,6 +108,14 @@ import { MediaModal } from './MediaModal';
 import { CallModal } from './CallModal';
 import { GroupMembersModal } from './GroupMembersModal';
 import { ChatThemeModal } from './ChatThemeModal';
+import { DigitalAvatarStudioModal } from './DigitalAvatarStudioModal';
+import { AiStickerFactoryModal } from './AiStickerFactoryModal';
+import { AnimatedAvatarMessageCard } from './AnimatedAvatarMessageCard';
+import { CapsuleMessageCard } from './CapsuleMessageCard';
+import { EmotionalAmbienceOverlay } from './EmotionalAmbienceOverlay';
+import { ChatMediaGalleryModal } from './ChatMediaGalleryModal';
+import { VirtualRoom3DModal } from './VirtualRoom3DModal';
+import { EMOTIONAL_MODES, playThemeSoundEffect } from '../utils/chatThemes';
 import { applyAutoCorrect } from '../utils/autocorrectUtils';
 
 interface ChatViewProps {
@@ -121,6 +144,10 @@ interface ChatViewProps {
   onLeaveGroup?: (chatId: string) => void;
   onOpenTimeCapsule?: () => void;
   onSelectGradient?: (chatId: string, gradient: string) => void;
+  onUpdatePersonalityTheme?: (chatId: string, theme: ChatPersonalityTheme) => void;
+  onUpdateEmotionalMode?: (chatId: string, mode: EmotionalMode) => void;
+  onSaveVirtualRoomConfig?: (chatId: string, config: VirtualRoomConfig) => void;
+  onUnlockCapsuleMessage?: (chatId: string, messageId: string) => void;
   onStartPrivateChat?: (memberId: string, memberName: string) => void;
   onForwardMessage?: (targetChatId: string, message: Message) => void;
   onExportChat?: (chat: Chat) => void;
@@ -214,6 +241,10 @@ export const ChatView: React.FC<ChatViewProps> = ({
   onLeaveGroup,
   onOpenTimeCapsule,
   onSelectGradient,
+  onUpdatePersonalityTheme,
+  onUpdateEmotionalMode,
+  onSaveVirtualRoomConfig,
+  onUnlockCapsuleMessage,
   onStartPrivateChat,
   onForwardMessage,
   onExportChat,
@@ -223,6 +254,14 @@ export const ChatView: React.FC<ChatViewProps> = ({
   const [inputText, setInputText] = useState<string>('');
   const [showMobileMoreMenu, setShowMobileMoreMenu] = useState<boolean>(false);
   const [showChatThemeModal, setShowChatThemeModal] = useState<boolean>(false);
+  const [showAvatarStudio, setShowAvatarStudio] = useState<boolean>(false);
+  const [showStickerFactory, setShowStickerFactory] = useState<boolean>(false);
+  const [showMediaGallery, setShowMediaGallery] = useState<boolean>(false);
+  const [showVirtualRoom3D, setShowVirtualRoom3D] = useState<boolean>(false);
+  const [burstTrigger, setBurstTrigger] = useState<{
+    id: number;
+    effect: NonNullable<ChatPersonalityTheme['sendEffect']>;
+  } | null>(null);
   const [showPrivateMessageModal, setShowPrivateMessageModal] = useState<boolean>(false);
   const [forwardingMessage, setForwardingMessage] = useState<Message | null>(null);
   const [copiedRoomLink, setCopiedRoomLink] = useState<boolean>(false);
@@ -238,6 +277,8 @@ export const ChatView: React.FC<ChatViewProps> = ({
   const [showAttachSheet, setShowAttachSheet] = useState<boolean>(false);
   const [showEmojiPicker, setShowEmojiPicker] = useState<boolean>(false);
   const [showPhotoModal, setShowPhotoModal] = useState<boolean>(false);
+  const [showCameraChoice, setShowCameraChoice] = useState<boolean>(false);
+  const [cameraFilterMode, setCameraFilterMode] = useState<'with_filter' | 'no_filter'>('with_filter');
   const [isRecordingVoice, setIsRecordingVoice] = useState<boolean>(false);
   const [activeMediaModal, setActiveMediaModal] = useState<{
     url: string;
@@ -253,6 +294,27 @@ export const ChatView: React.FC<ChatViewProps> = ({
 
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
+
+  const triggerChatEffects = () => {
+    const snd = chat.personalityTheme?.soundPack;
+    if (snd && snd !== 'default') {
+      playThemeSoundEffect(snd, 'send');
+    }
+    const eff = chat.personalityTheme?.sendEffect;
+    if (eff && eff !== 'none') {
+      setBurstTrigger({ id: Date.now(), effect: eff });
+    }
+  };
+
+  const activeEmotionSpec = EMOTIONAL_MODES.find((m) => m.id === (chat.emotionalMode || 'neutral'));
+  const dynamicReactions =
+    chat.emotionalMode && chat.emotionalMode !== 'neutral' && activeEmotionSpec
+      ? activeEmotionSpec.reactions.map((r) => ({
+          key: r.emoji,
+          label: r.label,
+          icon: <span className="text-sm leading-none">{r.emoji}</span>,
+        }))
+      : REACTION_OPTIONS;
 
   const handleCopyRoomLink = () => {
     const roomCode = chat.roomId || chat.id;
@@ -294,9 +356,11 @@ export const ChatView: React.FC<ChatViewProps> = ({
       senderAvatar: user.avatarUrl,
       type: 'text',
       text: text.trim(),
+      emotionTag: chat.emotionalMode && chat.emotionalMode !== 'neutral' ? chat.emotionalMode : undefined,
       timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
       isRead: true,
     });
+    triggerChatEffects();
 
     setInputText('');
     setShowAttachSheet(false);
@@ -308,15 +372,18 @@ export const ChatView: React.FC<ChatViewProps> = ({
     caption: string,
     _filter: string,
     fileName: string,
-    mediaType: 'image' | 'video' = 'image'
+    mediaType: 'image' | 'video' = 'image',
+    thumbnailUrl?: string,
+    mediaSize?: string
   ) => {
     onSendMessage(chat.id, {
       senderId: 'me',
       senderName: user.name,
       type: mediaType,
       mediaUrl: photoUrl,
+      thumbnailUrl,
       mediaName: fileName,
-      mediaSize: mediaType === 'video' ? '12.4 MB' : '3.2 MB',
+      mediaSize: mediaSize || (mediaType === 'video' ? 'Video' : 'Foto'),
       text: caption || undefined,
       timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
       isRead: true,
@@ -346,6 +413,18 @@ export const ChatView: React.FC<ChatViewProps> = ({
       stickerTitle: sticker.title,
       stickerSubtitle: sticker.subtitle,
       stickerUrl: sticker.imageUrl,
+      timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+      isRead: true,
+    });
+  };
+
+  const handleSendGif = (gif: GifItem) => {
+    onSendMessage(chat.id, {
+      senderId: 'me',
+      senderName: user.name,
+      type: 'gif',
+      mediaUrl: gif.url,
+      mediaName: gif.title,
       timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
       isRead: true,
     });
@@ -415,8 +494,8 @@ export const ChatView: React.FC<ChatViewProps> = ({
     }`}>
       {/* 1. App Navigation Header: Uncluttered Mobile vs Full Desktop */}
       {deviceMode === 'mobile' ? (
-        <header className={`sticky top-0 w-full z-40 backdrop-blur-xl border-b transition-colors duration-200 ${
-          chat.headerGradient ? `bg-gradient-to-r ${chat.headerGradient} text-white border-white/10` : isNightMode ? 'bg-[#0f131c]/95 border-white/10' : 'bg-white/95 border-sky-200/90 shadow-sm'
+        <header className={`sticky top-0 w-full z-40 border-b transition-colors duration-200 ${
+          chat.headerGradient ? `bg-gradient-to-r ${chat.headerGradient} text-white border-white/10` : isNightMode ? 'bg-[#121722] border-white/10' : 'bg-white border-slate-200'
         }`}>
           <div className="h-14 px-3 flex items-center justify-between gap-2">
             {/* Back + Contact Info */}
@@ -426,7 +505,7 @@ export const ChatView: React.FC<ChatViewProps> = ({
                 onClick={onBack}
                 aria-label="Volver"
                 className={`w-9 h-9 rounded-full flex items-center justify-center transition-colors shrink-0 active:scale-95 cursor-pointer ${
-                  isNightMode ? 'text-white hover:bg-white/10' : 'text-sky-950 hover:bg-sky-100'
+                  isNightMode ? 'text-white hover:bg-white/10' : 'text-slate-800 hover:bg-slate-100'
                 }`}
               >
                 <ArrowLeft className="w-5 h-5" />
@@ -436,19 +515,19 @@ export const ChatView: React.FC<ChatViewProps> = ({
                 <img
                   src={chat.avatarUrl}
                   alt={chat.name}
-                  className="w-9 h-9 rounded-full object-cover ring-1 ring-sky-400/40"
+                  className="w-9 h-9 rounded-full object-cover"
                 />
-                <span className="absolute bottom-0 right-0 w-2.5 h-2.5 bg-emerald-500 rounded-full ring-2 ring-white dark:ring-[#0f131c]" />
+                <span className={`absolute bottom-0 right-0 w-2.5 h-2.5 bg-emerald-500 rounded-full ring-2 ${isNightMode ? 'ring-[#121722]' : 'ring-white'}`} />
               </div>
 
               <div className="flex flex-col min-w-0">
                 <div className="flex items-center gap-1">
-                  <span className={`font-bold text-sm truncate leading-tight ${isNightMode ? 'text-white' : 'text-sky-950'}`}>
+                  <span className={`font-semibold text-sm truncate leading-tight ${isNightMode ? 'text-white' : 'text-slate-900'}`}>
                     {chat.name}
                   </span>
-                  {chat.isVerified && <Check className="w-3.5 h-3.5 text-sky-400 stroke-[3] shrink-0" />}
+                  {chat.isVerified && <Check className="w-3.5 h-3.5 text-[#0284c7] stroke-[2.5] shrink-0" />}
                 </div>
-                <span className={`text-[11px] truncate leading-none ${isNightMode ? 'text-emerald-400' : 'text-emerald-600 font-semibold'}`}>
+                <span className={`text-[11px] truncate leading-none ${isNightMode ? 'text-[#94a3b8]' : 'text-slate-500'}`}>
                   {chat.phone || 'En línea'}
                 </span>
               </div>
@@ -459,8 +538,8 @@ export const ChatView: React.FC<ChatViewProps> = ({
               <button
                 type="button"
                 onClick={handleVoiceCall}
-                className={`w-8 h-8 rounded-full flex items-center justify-center transition-colors active:scale-95 cursor-pointer ${
-                  isNightMode ? 'text-[#dfe2ee] hover:bg-white/10' : 'text-sky-800 hover:bg-sky-100'
+                className={`w-9 h-9 rounded-full flex items-center justify-center transition-colors active:scale-95 cursor-pointer ${
+                  isNightMode ? 'text-[#dfe2ee] hover:bg-white/10' : 'text-slate-700 hover:bg-slate-100'
                 }`}
                 title="Llamada de voz"
               >
@@ -470,8 +549,8 @@ export const ChatView: React.FC<ChatViewProps> = ({
               <button
                 type="button"
                 onClick={handleVideoCall}
-                className={`w-8 h-8 rounded-full flex items-center justify-center transition-colors active:scale-95 cursor-pointer ${
-                  isNightMode ? 'text-[#dfe2ee] hover:bg-white/10' : 'text-sky-800 hover:bg-sky-100'
+                className={`w-9 h-9 rounded-full flex items-center justify-center transition-colors active:scale-95 cursor-pointer ${
+                  isNightMode ? 'text-[#dfe2ee] hover:bg-white/10' : 'text-slate-700 hover:bg-slate-100'
                 }`}
                 title="Videollamada"
               >
@@ -482,8 +561,8 @@ export const ChatView: React.FC<ChatViewProps> = ({
                 <button
                   type="button"
                   onClick={() => setShowMobileMoreMenu(!showMobileMoreMenu)}
-                  className={`w-8 h-8 rounded-full flex items-center justify-center transition-colors active:scale-95 cursor-pointer ${
-                    isNightMode ? 'text-[#dfe2ee] hover:bg-white/10' : 'text-sky-800 hover:bg-sky-100'
+                  className={`w-9 h-9 rounded-full flex items-center justify-center transition-colors active:scale-95 cursor-pointer ${
+                    isNightMode ? 'text-[#dfe2ee] hover:bg-white/10' : 'text-slate-700 hover:bg-slate-100'
                   }`}
                   title="Más opciones"
                 >
@@ -492,22 +571,58 @@ export const ChatView: React.FC<ChatViewProps> = ({
 
                 {showMobileMoreMenu && (
                   <div
-                    className="fixed inset-0 z-50 bg-black/40 backdrop-blur-xs"
+                    className="fixed inset-0 z-50 bg-black/40"
                     onClick={() => setShowMobileMoreMenu(false)}
                   >
                     <div
-                      className="absolute right-3 top-14 w-60 p-2 rounded-2xl bg-[#1c2028] border border-white/10 shadow-2xl z-50 flex flex-col gap-1 animate-in fade-in zoom-in-95 duration-150"
+                      className="absolute right-3 top-14 w-60 p-1.5 rounded-2xl bg-[#181e2c] border border-white/10 shadow-2xl z-50 flex flex-col gap-0.5 animate-in fade-in zoom-in-95 duration-150"
                       onClick={(e) => e.stopPropagation()}
                     >
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setShowVirtualRoom3D(true);
+                          setShowMobileMoreMenu(false);
+                        }}
+                        className="w-full px-3 py-2.5 rounded-xl text-xs font-medium text-sky-300 hover:text-white hover:bg-sky-500/20 flex items-center gap-2.5 text-left cursor-pointer"
+                      >
+                        <Box className="w-4 h-4 text-sky-400" />
+                        <span>Habitación Virtual 3D</span>
+                      </button>
+
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setShowMediaGallery(true);
+                          setShowMobileMoreMenu(false);
+                        }}
+                        className="w-full px-3 py-2.5 rounded-xl text-xs font-medium text-amber-300 hover:text-white hover:bg-amber-500/20 flex items-center gap-2.5 text-left cursor-pointer"
+                      >
+                        <ImageIcon className="w-4 h-4 text-amber-400" />
+                        <span>Álbum de Recuerdos</span>
+                      </button>
+
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setShowChatThemeModal(true);
+                          setShowMobileMoreMenu(false);
+                        }}
+                        className="w-full px-3 py-2.5 rounded-xl text-xs font-medium text-purple-300 hover:text-white hover:bg-purple-500/20 flex items-center gap-2.5 text-left cursor-pointer"
+                      >
+                        <Palette className="w-4 h-4 text-purple-400" />
+                        <span>Personalidad y Emoción</span>
+                      </button>
+
                       <button
                         type="button"
                         onClick={() => {
                           setShowWallpaperDrawer(true);
                           setShowMobileMoreMenu(false);
                         }}
-                        className="w-full px-3 py-2 rounded-xl text-xs font-semibold text-gray-200 hover:text-white hover:bg-white/10 flex items-center gap-2.5 text-left cursor-pointer"
+                        className="w-full px-3 py-2.5 rounded-xl text-xs font-medium text-gray-200 hover:text-white hover:bg-white/10 flex items-center gap-2.5 text-left cursor-pointer"
                       >
-                        <WallpaperIcon className="w-4 h-4 text-cyan-400" />
+                        <WallpaperIcon className="w-4 h-4 text-sky-400" />
                         <span>Fondo de pantalla</span>
                       </button>
 
@@ -518,10 +633,10 @@ export const ChatView: React.FC<ChatViewProps> = ({
                             onToggleNightMode();
                             setShowMobileMoreMenu(false);
                           }}
-                          className="w-full px-3 py-2 rounded-xl text-xs font-semibold text-gray-200 hover:text-white hover:bg-white/10 flex items-center gap-2.5 text-left cursor-pointer"
+                          className="w-full px-3 py-2.5 rounded-xl text-xs font-medium text-gray-200 hover:text-white hover:bg-white/10 flex items-center gap-2.5 text-left cursor-pointer"
                         >
                           <Moon className="w-4 h-4 text-amber-400" />
-                          <span>Modo {isNightMode ? 'Claro' : 'Nocturno'}</span>
+                          <span>Modo {isNightMode ? 'claro' : 'nocturno'}</span>
                         </button>
                       )}
 
@@ -531,10 +646,10 @@ export const ChatView: React.FC<ChatViewProps> = ({
                           onExportChat?.(chat);
                           setShowMobileMoreMenu(false);
                         }}
-                        className="w-full px-3 py-2 rounded-xl text-xs font-semibold text-gray-200 hover:text-white hover:bg-white/10 flex items-center gap-2.5 text-left cursor-pointer"
+                        className="w-full px-3 py-2.5 rounded-xl text-xs font-medium text-gray-200 hover:text-white hover:bg-white/10 flex items-center gap-2.5 text-left cursor-pointer"
                       >
                         <Download className="w-4 h-4 text-sky-400" />
-                        <span>Exportar Chat (TXT)</span>
+                        <span>Exportar chat</span>
                       </button>
 
                       {onOpenWaitingRoom && (
@@ -544,10 +659,10 @@ export const ChatView: React.FC<ChatViewProps> = ({
                             onOpenWaitingRoom();
                             setShowMobileMoreMenu(false);
                           }}
-                          className="w-full px-3 py-2 rounded-xl text-xs font-semibold text-emerald-400 hover:bg-emerald-500/15 flex items-center gap-2.5 text-left cursor-pointer"
+                          className="w-full px-3 py-2.5 rounded-xl text-xs font-medium text-emerald-400 hover:bg-emerald-500/15 flex items-center gap-2.5 text-left cursor-pointer"
                         >
-                          <Gamepad2 className="w-4 h-4" />
-                          <span>Sala De Espera (Juegos)</span>
+                          <Trophy className="w-4 h-4" />
+                          <span>Sala de Espera</span>
                         </button>
                       )}
 
@@ -560,7 +675,7 @@ export const ChatView: React.FC<ChatViewProps> = ({
                             setShowClearChatModal(true);
                             setShowMobileMoreMenu(false);
                           }}
-                          className="w-full px-3 py-2 rounded-xl text-xs font-semibold text-red-400 hover:text-red-300 hover:bg-red-500/10 flex items-center gap-2.5 text-left cursor-pointer"
+                          className="w-full px-3 py-2.5 rounded-xl text-xs font-medium text-red-400 hover:text-red-300 hover:bg-red-500/10 flex items-center gap-2.5 text-left cursor-pointer"
                         >
                           <Trash2 className="w-4 h-4" />
                           <span>Vaciar conversación</span>
@@ -573,7 +688,7 @@ export const ChatView: React.FC<ChatViewProps> = ({
                           setShowBlockModal(true);
                           setShowMobileMoreMenu(false);
                         }}
-                        className="w-full px-3 py-2 rounded-xl text-xs font-semibold text-red-400 hover:text-red-300 hover:bg-red-500/10 flex items-center gap-2.5 text-left cursor-pointer"
+                        className="w-full px-3 py-2.5 rounded-xl text-xs font-medium text-red-400 hover:text-red-300 hover:bg-red-500/10 flex items-center gap-2.5 text-left cursor-pointer"
                       >
                         <Ban className="w-4 h-4" />
                         <span>Bloquear contacto</span>
@@ -586,108 +701,83 @@ export const ChatView: React.FC<ChatViewProps> = ({
           </div>
         </header>
       ) : (
-        <header className={`sticky top-0 w-full z-40 backdrop-blur-xl border-b transition-colors duration-300 ${
-          chat.headerGradient ? `bg-gradient-to-r ${chat.headerGradient} text-white border-white/10` : isNightMode ? 'bg-[#0f131c]/90 border-white/5' : 'bg-white/90 border-sky-200/80'
+        <header className={`sticky top-0 w-full z-40 border-b transition-colors duration-200 ${
+          chat.headerGradient ? `bg-gradient-to-r ${chat.headerGradient} text-white border-white/10` : isNightMode ? 'bg-[#121722] border-white/10' : 'bg-white border-slate-200'
         }`}>
-          <div className="h-16 px-4 flex items-center justify-between">
-          <div className="flex items-center gap-2">
+          <div className="h-14 px-4 flex items-center justify-between">
+          <div className="flex items-center gap-2.5">
             <button
               onClick={onBack}
               aria-label="Volver a chats"
-              className={`w-10 h-10 rounded-full flex items-center justify-center transition-colors active:scale-95 ${
-                isNightMode ? 'text-[#dfe2ee] hover:bg-[#262a33]/70' : 'text-[#0c2340] hover:bg-sky-100'
+              className={`w-9 h-9 rounded-full flex items-center justify-center transition-colors cursor-pointer ${
+                isNightMode ? 'text-[#dfe2ee] hover:bg-white/10' : 'text-slate-800 hover:bg-slate-100'
               }`}
             >
               <ArrowLeft className="w-5 h-5" />
             </button>
             <BirdLogo className="w-7 h-7" />
-            <h1 className={`text-lg font-bold tracking-tight ${isNightMode ? 'text-[#dfe2ee]' : 'text-[#0c2340]'}`}>
-              Conversation Thread
+            <h1 className={`text-base font-semibold tracking-tight ${isNightMode ? 'text-[#eef2f8]' : 'text-slate-900'}`}>
+              Conversación
             </h1>
           </div>
           <div className="flex items-center gap-2">
             {onToggleNightMode && (
               <button
                 onClick={onToggleNightMode}
-                aria-label={isNightMode ? "Cambiar a Colores Claros Azules" : "Cambiar a Modo Nocturno"}
-                title={isNightMode ? "Modo Nocturno activo (clic para colores claros azules)" : "Activar Modo Nocturno"}
-                className={`w-9 h-9 rounded-full flex items-center justify-center transition-all cursor-pointer active:scale-90 shadow-sm border ${
+                aria-label={isNightMode ? "Cambiar a modo claro" : "Cambiar a modo nocturno"}
+                title={isNightMode ? "Cambiar a modo claro" : "Activar modo nocturno"}
+                className={`w-9 h-9 rounded-full flex items-center justify-center transition-colors cursor-pointer ${
                   isNightMode
-                    ? 'bg-[#1c2028] text-amber-300 hover:text-amber-200 border-white/10 hover:border-amber-400/40'
-                    : 'bg-sky-100 text-sky-800 hover:bg-sky-200 border-sky-300 hover:border-sky-400'
+                    ? 'bg-[#1d2536] text-amber-300 hover:bg-[#263147]'
+                    : 'bg-slate-100 text-slate-700 hover:bg-slate-200'
                 }`}
               >
-                <Moon className={`w-4 h-4 ${isNightMode ? 'fill-amber-300 text-amber-300' : 'text-sky-700'}`} />
+                <Moon className={`w-4 h-4 ${isNightMode ? 'fill-amber-300 text-amber-300' : 'text-slate-700'}`} />
               </button>
             )}
             <img
               src={user.avatarUrl}
               alt={user.name}
-              className="w-8 h-8 rounded-full object-cover ring-1 ring-sky-400/30"
+              className="w-8 h-8 rounded-full object-cover"
             />
           </div>
         </div>
 
-        {/* 2. Chat Contact Bar (active contact) */}
-        <div className={`px-4 py-2 backdrop-blur-xl flex items-center justify-between border-t transition-colors ${
-          isNightMode ? 'bg-[#181c24]/90 border-white/5' : 'bg-sky-50/90 border-sky-200/80'
+        {/* 2. Chat Contact Bar */}
+        <div className={`px-4 py-2 flex items-center justify-between border-t transition-colors ${
+          isNightMode ? 'bg-[#161c29] border-white/5' : 'bg-slate-50 border-slate-200/80'
         }`}>
           <div className="flex items-center gap-2.5 min-w-0">
             <div className="relative shrink-0">
               <img
                 src={chat.avatarUrl}
                 alt={chat.name}
-                className="w-10 h-10 rounded-full object-cover shadow-sm"
+                className="w-10 h-10 rounded-full object-cover"
               />
-              {chat.isRealTime ? (
-                <span className="absolute bottom-0 right-0 w-3 h-3 bg-[#10b981] rounded-full ring-2 ring-white dark:ring-[#181c24] shadow-[0_0_8px_#10b981]" />
-              ) : (
-                <span className="absolute bottom-0 right-0 w-2.5 h-2.5 bg-[#0284c7] rounded-full ring-2 ring-white dark:ring-[#181c24] shadow-[0_0_8px_#0284c7]" />
-              )}
+              <span className={`absolute bottom-0 right-0 w-2.5 h-2.5 bg-emerald-500 rounded-full ring-2 ${isNightMode ? 'ring-[#161c29]' : 'ring-slate-50'}`} />
             </div>
             <div className="flex flex-col min-w-0">
               <div className="flex items-center gap-1.5">
-                <span className={`font-semibold text-sm truncate ${isNightMode ? 'text-[#dfe2ee]' : 'text-[#0c2340]'}`}>
+                <span className={`font-semibold text-sm truncate ${isNightMode ? 'text-[#eef2f8]' : 'text-slate-900'}`}>
                   {chat.name}
                 </span>
-                {chat.isBlocked ? (
-                  <span className="text-[10px] font-bold px-1.5 py-0.2 rounded-full bg-red-500/20 text-red-600 dark:text-red-300 border border-red-500/30 shrink-0">
-                    Bloqueado
-                  </span>
-                ) : chat.isFriend ? (
-                  <span className="text-[10px] font-bold px-1.5 py-0.2 rounded-full bg-sky-500/20 text-sky-700 dark:text-[#7bd0ff] border border-sky-500/30 shrink-0">
-                    Amigo
-                  </span>
-                ) : (
-                  <span className="text-[10px] font-medium px-1.5 py-0.2 rounded-full bg-black/10 dark:bg-white/10 text-slate-600 dark:text-[#8d90a0] shrink-0">
-                    No es amigo
-                  </span>
-                )}
                 {chat.isVerified && (
-                  <span className="text-[#0284c7] dark:text-[#38bdf8] text-xs" title="Verificado">
-                    <Check className="w-3.5 h-3.5 stroke-[3] inline" />
-                  </span>
+                  <Check className="w-3.5 h-3.5 text-[#0284c7] stroke-[2.5] shrink-0" />
                 )}
               </div>
               <div className="flex items-center gap-1.5">
                 {chat.isBlocked ? (
-                  <span className="text-[11px] font-medium text-red-500 dark:text-red-400">
-                    Contacto bloqueado (no es tu amigo)
+                  <span className="text-[11px] font-medium text-red-500">
+                    Contacto bloqueado
                   </span>
                 ) : (
                   <>
-                    <span className="inline-block w-1.5 h-1.5 rounded-full bg-[#0284c7] animate-pulse" />
-                    <span className="text-[11px] font-medium text-[#0284c7] dark:text-[#38bdf8]">
+                    <span className={`text-[11px] ${isNightMode ? 'text-[#94a3b8]' : 'text-slate-500'}`}>
                       {chat.phone ? chat.phone : 'En línea'}
                     </span>
-                    {user.doNotDisturb ? (
-                      <span className="flex items-center gap-1 text-[10px] text-amber-600 dark:text-amber-400 font-semibold bg-amber-500/10 px-1.5 py-0.5 rounded-full border border-amber-500/20">
-                        <BellOff className="w-2.5 h-2.5" />
-                        <span>No Molestar</span>
-                      </span>
-                    ) : (
-                      <span className={`text-[11px] ${isNightMode ? 'text-[#8d90a0]' : 'text-[#476788]'}`}>
-                        • Chat Privado Seguro
+                    {user.doNotDisturb && (
+                      <span className="inline-flex items-center gap-1 text-[10px] text-amber-500 font-medium">
+                        • <BellOff className="w-2.5 h-2.5" /> No Molestar
                       </span>
                     )}
                   </>
@@ -699,18 +789,14 @@ export const ChatView: React.FC<ChatViewProps> = ({
           {/* Action buttons on contact bar */}
           <div className="flex items-center gap-1.5 shrink-0">
             {chat.type === 'group' && (
-              <>
-                <button
-                  onClick={() => setShowGroupMembersModal(true)}
-                  title="Ver Integrantes y Administrar Líderes del Grupo"
-                  className="flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-gradient-to-r from-[#2563eb] to-[#00a6e0] hover:from-[#1d4ed8] hover:to-[#2563eb] text-white text-xs font-bold shadow-md active:scale-95 transition-all cursor-pointer"
-                >
-                  <Users className="w-3.5 h-3.5 text-white" />
-                  <span>{chat.groupMembers?.length || 1} Integrantes</span>
-                </button>
-
-
-              </>
+              <button
+                onClick={() => setShowGroupMembersModal(true)}
+                title="Ver integrantes del grupo"
+                className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-[#0284c7] hover:bg-[#0369a1] text-white text-xs font-semibold transition-colors cursor-pointer"
+              >
+                <Users className="w-3.5 h-3.5 text-white" />
+                <span>{chat.groupMembers?.length || 1}</span>
+              </button>
             )}
 
             {!chat.isFriend && !chat.isBlocked && chat.type !== 'group' && onAddContactAsFriend && (
@@ -718,23 +804,37 @@ export const ChatView: React.FC<ChatViewProps> = ({
                 onClick={() => onAddContactAsFriend(chat.id)}
                 aria-label="Agregar a mis amigos"
                 title="Agregar contacto a mis amigos"
-                className="flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-gradient-to-r from-[#0284c7] to-[#00a6e0] hover:from-[#0369a1] hover:to-[#0284c7] text-white text-xs font-bold shadow-md shadow-sky-600/20 active:scale-95 transition-all cursor-pointer"
+                className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-[#0284c7] hover:bg-[#0369a1] text-white text-xs font-semibold transition-colors cursor-pointer"
               >
                 <UserPlus className="w-3.5 h-3.5 text-white" />
-                <span>+ Agregar Amigo</span>
+                <span>Agregar</span>
               </button>
             )}
 
-            {onOpenWaitingRoom && (
-              <button
-                onClick={onOpenWaitingRoom}
-                aria-label="Sala De Espera"
-                title="Jugar en Sala De Espera mientras respondes"
-                className="w-9 h-9 rounded-full bg-emerald-500/15 border border-emerald-500/30 flex items-center justify-center text-emerald-600 dark:text-emerald-400 hover:bg-emerald-500/25 transition-colors cursor-pointer"
-              >
-                <Gamepad2 className="w-4 h-4" />
-              </button>
-            )}
+            <button
+              onClick={() => setShowVirtualRoom3D(true)}
+              aria-label="Habitación Virtual 3D"
+              title="Habitación Virtual 3D"
+              className="w-9 h-9 rounded-full bg-sky-500/15 border border-sky-500/30 flex items-center justify-center text-sky-400 hover:bg-sky-500/25 transition-colors cursor-pointer"
+            >
+              <Box className="w-4 h-4" />
+            </button>
+            <button
+              onClick={() => setShowMediaGallery(true)}
+              aria-label="Álbum de Recuerdos"
+              title="Álbum Inteligente de Recuerdos"
+              className="w-9 h-9 rounded-full bg-amber-500/15 border border-amber-500/30 flex items-center justify-center text-amber-500 hover:bg-amber-500/25 transition-colors cursor-pointer"
+            >
+              <ImageIcon className="w-4 h-4" />
+            </button>
+            <button
+              onClick={() => setShowChatThemeModal(true)}
+              aria-label="Personalidad y Emoción"
+              title="Tema, Burbujas y Chat Emocional"
+              className="w-9 h-9 rounded-full bg-purple-500/15 border border-purple-500/30 flex items-center justify-center text-purple-400 hover:bg-purple-500/25 transition-colors cursor-pointer"
+            >
+              <Palette className="w-4 h-4" />
+            </button>
             <button
               onClick={() => setShowWallpaperDrawer(true)}
               aria-label="Cambiar fondo"
@@ -968,6 +1068,11 @@ export const ChatView: React.FC<ChatViewProps> = ({
             }}
           />
         )}
+        <EmotionalAmbienceOverlay
+          emotionalMode={chat.emotionalMode}
+          animatedBg={chat.personalityTheme?.animatedBg}
+          burstTrigger={burstTrigger}
+        />
         <div className="relative z-10 flex flex-col gap-3 w-full">
         {/* Blocked banner in conversation thread */}
         {chat.isBlocked && (
@@ -1013,43 +1118,38 @@ export const ChatView: React.FC<ChatViewProps> = ({
           </div>
         )}
 
-        {/* Date / Security Tag */}
-        <div className={`self-center px-3 py-1 rounded-full backdrop-blur-md shadow-sm border ${
-          isNightMode ? 'bg-[#262a33]/80 border-white/5 text-[#c3c6d7]' : 'bg-white/85 border-sky-200/70 text-sky-900 font-medium'
+        {/* Date Divider */}
+        <div className={`self-center px-3 py-1 rounded-lg border ${
+          isNightMode ? 'bg-[#171d29] border-white/10 text-[#94a3b8]' : 'bg-white border-slate-200 text-slate-600'
         }`}>
-          <span className="text-[11px]">Hoy • Chat Cifrado</span>
+          <span className="text-[11px] font-medium">Hoy</span>
         </div>
 
         {/* Realtime Live Room Banner */}
         {chat.isRealTime && (
-          <div className="self-center w-full max-w-md my-1 p-3.5 rounded-2xl bg-[#0c261c]/90 border border-[#10b981]/30 shadow-lg backdrop-blur-md flex flex-col gap-2">
+          <div className="self-center w-full max-w-md my-1 p-3.5 rounded-xl bg-[#0e241b] border border-emerald-500/25 shadow flex flex-col gap-2">
             <div className="flex items-center justify-between">
-              <div className="flex items-center gap-2">
-                <span className="w-2 h-2 rounded-full bg-[#10b981] animate-ping" />
-                <span className="text-xs font-bold text-white">Sala en Vivo con Personas Reales</span>
-              </div>
-              <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-[#10b981]/20 text-[#34d399] border border-[#10b981]/30">
+              <span className="text-xs font-semibold text-white">Sala en vivo</span>
+              <span className="text-[11px] font-medium text-emerald-400">
                 {chat.onlineCount && chat.onlineCount > 0
-                  ? `${chat.onlineCount} ${chat.onlineCount === 1 ? 'persona en línea' : 'personas en línea'}`
-                  : 'WebSockets Activos'}
+                  ? `${chat.onlineCount} ${chat.onlineCount === 1 ? 'conectado' : 'conectados'}`
+                  : 'Conectado'}
               </span>
             </div>
             <p className="text-xs text-[#a0b3aa] leading-relaxed">
-              Habla en directo con otras personas en tiempo real. Abre esta app en otra pestaña del navegador o comparte el enlace con amigos.
+              Conversa en directo o comparte el enlace para invitar amigos.
             </p>
-            <div className="flex items-center gap-2 pt-0.5">
-              <button
-                onClick={handleCopyRoomLink}
-                className="flex-1 py-1.5 px-3 rounded-xl bg-[#10b981] hover:bg-[#059669] text-white text-xs font-semibold flex items-center justify-center gap-1.5 shadow-sm active:scale-95 transition-all"
-              >
-                {copiedRoomLink ? (
-                  <Check className="w-3.5 h-3.5 text-white" />
-                ) : (
-                  <Copy className="w-3.5 h-3.5" />
-                )}
-                <span>{copiedRoomLink ? '¡Enlace copiado al portapapeles!' : 'Copiar enlace de invitación'}</span>
-              </button>
-            </div>
+            <button
+              onClick={handleCopyRoomLink}
+              className="w-full py-1.5 px-3 rounded-lg bg-[#10b981] hover:bg-[#059669] text-white text-xs font-semibold flex items-center justify-center gap-1.5 transition-colors cursor-pointer"
+            >
+              {copiedRoomLink ? (
+                <Check className="w-3.5 h-3.5 text-white" />
+              ) : (
+                <Copy className="w-3.5 h-3.5" />
+              )}
+              <span>{copiedRoomLink ? 'Enlace copiado' : 'Copiar enlace de invitación'}</span>
+            </button>
           </div>
         )}
 
@@ -1062,7 +1162,7 @@ export const ChatView: React.FC<ChatViewProps> = ({
               key={msg.id}
               onMouseEnter={() => setHoveredMessageId(msg.id)}
               onMouseLeave={() => setHoveredMessageId(null)}
-              className={`relative flex flex-col max-w-[85%] group ${
+              className={`relative flex flex-col max-w-[85%] group rounded-2xl transition-all ${
                 isMe ? 'self-end items-end' : 'self-start items-start'
               }`}
             >
@@ -1092,7 +1192,7 @@ export const ChatView: React.FC<ChatViewProps> = ({
                     isMe ? 'right-2' : 'left-2'
                   } z-30 bg-[#1c2028]/95 border border-white/10 rounded-full px-2 py-0.5 flex items-center gap-1 shadow-lg backdrop-blur-md animate-in fade-in duration-150`}
                 >
-                  {REACTION_OPTIONS.map((item) => (
+                  {dynamicReactions.map((item) => (
                     <button
                       key={item.key}
                       onClick={() => onAddReaction(chat.id, msg.id, item.key)}
@@ -1126,19 +1226,31 @@ export const ChatView: React.FC<ChatViewProps> = ({
 
               {/* Message Content according to Type */}
               {msg.type === 'text' && (() => {
-                const videoPreview = parseVideoLink(msg.text);
+                const videoPreview = parseVideoLink(msg.text || '');
+                const customTheme = chat.personalityTheme;
+                const bubbleStyle = customTheme
+                  ? isMe
+                    ? { backgroundColor: customTheme.bubbleMeBg, color: customTheme.bubbleMeText }
+                    : { backgroundColor: customTheme.bubbleThemBg, color: customTheme.bubbleThemText }
+                  : undefined;
+
                 return (
                   <div
-                    className={`rounded-2xl p-3 shadow-md backdrop-blur-md transition-colors ${
-                      isMe
-                        ? 'bg-gradient-to-r from-[#0284c7] to-[#0ea5e9] text-white rounded-br-sm shadow-sky-950/20'
+                    style={bubbleStyle}
+                    className={`rounded-2xl px-3.5 py-2.5 shadow-sm transition-colors ${
+                      customTheme
+                        ? isMe
+                          ? 'rounded-br-sm'
+                          : 'rounded-bl-sm border border-white/10'
+                        : isMe
+                        ? 'bg-[#0284c7] text-white rounded-br-sm'
                         : isNightMode
-                        ? 'bg-[#1c2028]/95 text-[#dfe2ee] rounded-bl-sm border border-white/10'
-                        : 'bg-white/95 text-[#0c2340] rounded-bl-sm border border-sky-200/90 shadow-sm'
+                        ? 'bg-[#1c2331] text-[#eef2f8] rounded-bl-sm border border-white/10'
+                        : 'bg-white text-slate-900 rounded-bl-sm border border-slate-200'
                     }`}
                   >
                     <p className="text-[14px] leading-relaxed whitespace-pre-wrap">{msg.text}</p>
-                    
+
                     {videoPreview && (
                       <div
                         className="mt-2.5 rounded-xl overflow-hidden bg-black/40 border border-white/10 group/vidcard cursor-pointer"
@@ -1177,7 +1289,7 @@ export const ChatView: React.FC<ChatViewProps> = ({
                       </div>
                     )}
 
-                    <div className="flex items-center justify-end gap-1 mt-1">
+                    <div className="flex items-center justify-end gap-1.5 mt-1">
                       <span className={`text-[10px] ${isMe ? 'text-white/80' : isNightMode ? 'text-[#8d90a0]' : 'text-sky-700/70'}`}>
                         {msg.timestamp}
                       </span>
@@ -1290,6 +1402,46 @@ export const ChatView: React.FC<ChatViewProps> = ({
                 );
               })()}
 
+              {msg.type === 'gif' && (
+                <div className={`flex flex-col ${isMe ? 'items-end' : 'items-start'} gap-1`}>
+                  <div
+                    onClick={() =>
+                      setActiveMediaModal({
+                        url: msg.mediaUrl || '',
+                        type: 'image',
+                        name: msg.mediaName || 'GIF animado',
+                      })
+                    }
+                    className="relative group cursor-pointer rounded-2xl overflow-hidden shadow-lg border border-white/10 bg-black/20 hover:scale-[1.03] active:scale-95 transition-all duration-200"
+                  >
+                    <img
+                      src={msg.mediaUrl}
+                      alt={msg.mediaName || 'GIF animado'}
+                      className="max-w-[240px] sm:max-w-[270px] max-h-60 object-cover rounded-2xl"
+                    />
+                    <span className="absolute bottom-1.5 left-1.5 px-1.5 py-0.5 rounded bg-black/65 backdrop-blur-sm text-[9px] font-bold text-[#38bdf8] border border-white/15">
+                      GIF
+                    </span>
+                  </div>
+                  <div className="flex items-center gap-1 px-1">
+                    <span className="text-[10px] text-[#8d90a0]">{msg.timestamp}</span>
+                    {isMe && <CheckCheck className="w-3 h-3 text-[#38bdf8]" />}
+                    {onDeleteMessage && (
+                      <button
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          onDeleteMessage(chat.id, msg.id);
+                        }}
+                        title="Borrar este mensaje"
+                        className="ml-1 p-0.5 text-red-400 hover:text-red-200 opacity-70 hover:opacity-100 transition-all cursor-pointer"
+                      >
+                        <Trash2 className="w-3 h-3" />
+                      </button>
+                    )}
+                  </div>
+                </div>
+              )}
+
               {msg.type === 'voice' && (
                 <div
                   className={`rounded-2xl p-2.5 shadow-md backdrop-blur-md ${
@@ -1349,14 +1501,30 @@ export const ChatView: React.FC<ChatViewProps> = ({
                 </div>
               )}
 
-              {msg.type === 'video' && (
-                <div className="rounded-2xl p-2 bg-[#1f242e] shadow-lg border border-white/10 overflow-hidden max-w-[340px] sm:max-w-[420px]">
+              {(msg.type === 'video' || msg.type === 'memory_reel') && (
+                <div
+                  className={`rounded-2xl p-2 shadow-sm border overflow-hidden max-w-[340px] sm:max-w-[420px] ${
+                    isMe
+                      ? 'bg-[#0c4a6e] border-sky-500/25 text-white'
+                      : isNightMode
+                      ? 'bg-[#1c2331] border-white/10 text-[#eef2f8]'
+                      : 'bg-white border-slate-200 text-slate-900'
+                  }`}
+                >
+                  {msg.type === 'memory_reel' && (
+                    <div className="px-2 pb-1.5 flex items-center gap-1.5 text-[11px] font-bold text-amber-400">
+                      <Sparkles className="w-3.5 h-3.5" />
+                      <span>Video de Recuerdos</span>
+                    </div>
+                  )}
                   <div className="relative rounded-xl overflow-hidden bg-black flex items-center justify-center">
                     <video
+                      key={msg.mediaUrl}
                       src={msg.mediaUrl}
+                      poster={msg.thumbnailUrl}
                       controls
                       playsInline
-                      preload="metadata"
+                      preload="auto"
                       className="w-full max-h-72 object-contain rounded-xl bg-black"
                     />
                     <button
@@ -1366,19 +1534,22 @@ export const ChatView: React.FC<ChatViewProps> = ({
                           url: msg.mediaUrl || '',
                           type: 'video',
                           name: msg.mediaName,
+                          size: msg.mediaSize,
                         })
                       }
                       title="Pantalla completa"
-                      className="absolute top-2 right-2 p-1.5 rounded-lg bg-black/60 hover:bg-black/90 text-white border border-white/20 transition-all z-10 cursor-pointer backdrop-blur-sm shadow-md"
+                      className="absolute top-2 right-2 p-1.5 rounded-lg bg-black/65 hover:bg-black/90 text-white border border-white/20 transition-colors z-10 cursor-pointer"
                     >
                       <Maximize2 className="w-4 h-4" />
                     </button>
                   </div>
                   {msg.text && (
-                    <p className="px-2 pt-2 text-xs text-[#dfe2ee] font-medium leading-relaxed">{msg.text}</p>
+                    <p className="px-2 pt-2 text-xs font-medium leading-relaxed">{msg.text}</p>
                   )}
-                  <div className="flex items-center justify-between px-2 pt-1.5 pb-0.5 text-[11px] text-[#8d90a0]">
-                    <span className="truncate max-w-[180px]">{msg.mediaName || 'Video clip'}</span>
+                  <div className={`flex items-center justify-between px-2 pt-1.5 pb-0.5 text-[11px] ${
+                    isMe ? 'text-sky-100/80' : isNightMode ? 'text-[#94a3b8]' : 'text-slate-500'
+                  }`}>
+                    <span className="truncate max-w-[180px]">{msg.mediaName || 'Video'}</span>
                     <div className="flex items-center gap-1.5 shrink-0">
                       <span>{msg.timestamp}</span>
                       {onDeleteMessage && (
@@ -1389,13 +1560,71 @@ export const ChatView: React.FC<ChatViewProps> = ({
                             onDeleteMessage(chat.id, msg.id);
                           }}
                           title="Borrar este mensaje"
-                          className="ml-1 p-0.5 text-red-400 hover:text-red-200 opacity-70 hover:opacity-100 transition-all cursor-pointer"
+                          className="ml-1 p-0.5 text-red-400 hover:text-red-200 opacity-75 hover:opacity-100 transition-opacity cursor-pointer"
                         >
                           <Trash2 className="w-3.5 h-3.5" />
                         </button>
                       )}
                     </div>
                   </div>
+                </div>
+              )}
+
+              {msg.type === 'avatar_msg' && (
+                <div className="flex flex-col gap-1">
+                  <AnimatedAvatarMessageCard
+                    config={msg.avatarPayload?.config}
+                    expression={msg.avatarPayload?.expression}
+                    text={msg.text}
+                    audioUrl={msg.avatarPayload?.audioUrl || msg.mediaUrl}
+                    isSender={isMe}
+                  />
+                  <div className="flex items-center justify-end gap-1 px-1">
+                    <span className="text-[10px] text-[#8d90a0]">{msg.timestamp}</span>
+                    {isMe && <CheckCheck className="w-3 h-3 text-[#38bdf8]" />}
+                  </div>
+                </div>
+              )}
+
+              {msg.type === 'capsule' && msg.capsuleData && (
+                <div className="flex flex-col gap-1">
+                  <CapsuleMessageCard
+                    text={msg.text}
+                    capsuleData={msg.capsuleData}
+                    isSender={isMe}
+                    onUnlockCapsule={() => onUnlockCapsuleMessage?.(chat.id, msg.id)}
+                  />
+                  <div className="flex items-center justify-end gap-1 px-1">
+                    <span className="text-[10px] text-[#8d90a0]">{msg.timestamp}</span>
+                    {isMe && <CheckCheck className="w-3 h-3 text-[#38bdf8]" />}
+                  </div>
+                </div>
+              )}
+
+              {msg.type === 'game_invite' && msg.gameData?.gameType === 'room3d' && (
+                <div
+                  className={`rounded-2xl p-3.5 border shadow-md max-w-[300px] flex flex-col gap-2.5 ${
+                    isMe
+                      ? 'bg-gradient-to-br from-indigo-700 to-sky-700 border-sky-400/30 text-white'
+                      : 'bg-[#1a2233] border-white/10 text-white'
+                  }`}
+                >
+                  <div className="flex items-center gap-2">
+                    <Box className="w-5 h-5 text-sky-300 shrink-0" />
+                    <div className="min-w-0">
+                      <div className="text-xs font-bold truncate">{msg.gameData.title}</div>
+                      {msg.gameData.scoreSummary && (
+                        <div className="text-[11px] opacity-85">{msg.gameData.scoreSummary}</div>
+                      )}
+                    </div>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => setShowVirtualRoom3D(true)}
+                    className="w-full py-2 rounded-xl bg-white/15 hover:bg-white/25 text-white text-xs font-bold cursor-pointer transition-colors"
+                  >
+                    Entrar a la Sala 3D
+                  </button>
                 </div>
               )}
 
@@ -1451,59 +1680,115 @@ export const ChatView: React.FC<ChatViewProps> = ({
 
       {/* 6. Attach Sheet Modal */}
       {showAttachSheet && (
-        <div className="fixed bottom-24 left-3 right-3 z-50 p-4 bg-[#262a33] rounded-2xl shadow-2xl border border-white/10 backdrop-blur-2xl animate-in slide-in-from-bottom-3 duration-200">
+        <div
+          className={`fixed bottom-20 left-3 right-3 z-50 p-4 rounded-2xl shadow-2xl border animate-in slide-in-from-bottom-2 duration-150 ${
+            isNightMode
+              ? 'bg-[#171d29] border-white/10 text-white'
+              : 'bg-white border-slate-200 text-slate-900'
+          }`}
+        >
           <div className="flex items-center justify-between mb-3">
-            <span className="font-bold text-sm text-[#dfe2ee]">Compartir contenido</span>
+            <span className="font-semibold text-sm">Adjuntar</span>
             <button
               onClick={() => setShowAttachSheet(false)}
-              className="w-7 h-7 rounded-full bg-[#1c2028] flex items-center justify-center text-[#dfe2ee]"
+              className={`w-7 h-7 rounded-full flex items-center justify-center cursor-pointer ${
+                isNightMode ? 'bg-white/10 text-white' : 'bg-slate-100 text-slate-700'
+              }`}
             >
               <X className="w-4 h-4" />
             </button>
           </div>
-          <div className="grid grid-cols-4 gap-2">
+          <div className="grid grid-cols-3 gap-2">
             <button
               onClick={() => {
                 setShowAttachSheet(false);
                 setIsRecordingVoice(true);
               }}
-              className="flex flex-col items-center gap-1.5 p-2 rounded-xl bg-[#1c2028] hover:bg-[#181c24] transition-colors group cursor-pointer"
+              className={`flex flex-col items-center gap-1.5 p-2.5 rounded-xl transition-colors cursor-pointer ${
+                isNightMode ? 'bg-[#202838] hover:bg-[#273145]' : 'bg-slate-50 hover:bg-slate-100'
+              }`}
             >
-              <div className="w-11 h-11 rounded-full bg-gradient-to-tr from-[#0284c7] to-[#38bdf8] flex items-center justify-center text-white shadow-md group-hover:scale-105 transition-transform">
+              <div className="w-10 h-10 rounded-full bg-[#0284c7] flex items-center justify-center text-white">
                 <Mic className="w-5 h-5" />
               </div>
-              <span className="text-xs text-[#38bdf8] font-bold">Voz</span>
+              <span className="text-xs font-medium">Audio</span>
             </button>
 
             <button
               onClick={() => {
                 setShowAttachSheet(false);
-                setShowPhotoModal(true);
+                setShowCameraChoice(true);
               }}
-              className="flex flex-col items-center gap-1.5 p-2 rounded-xl bg-[#1c2028] hover:bg-[#181c24] transition-colors group cursor-pointer"
+              className={`flex flex-col items-center gap-1.5 p-2.5 rounded-xl transition-colors cursor-pointer ${
+                isNightMode ? 'bg-[#202838] hover:bg-[#273145]' : 'bg-slate-50 hover:bg-slate-100'
+              }`}
             >
-              <div className="relative w-11 h-11 rounded-full bg-gradient-to-tr from-amber-400 to-yellow-300 flex items-center justify-center text-black shadow-md group-hover:scale-105 transition-transform">
+              <div className="w-10 h-10 rounded-full bg-amber-500 flex items-center justify-center text-white">
                 <Camera className="w-5 h-5" />
-                <span className="absolute -top-0.5 -right-0.5 w-3.5 h-3.5 bg-yellow-300 rounded-full flex items-center justify-center">
-                  <Sparkles className="w-2 h-2 text-black" />
-                </span>
               </div>
-              <span className="text-xs text-amber-300 font-bold">Foto o Video</span>
+              <span className="text-xs font-medium">Foto / Video</span>
             </button>
 
             <button
               onClick={() => {
                 setShowAttachSheet(false);
                 handleSendTextMessage(
-                  '📄 Documento adjunto: Documento_Compartido.pdf (1.2 MB)'
+                  'Documento compartido: Documento.pdf (1.2 MB)'
                 );
               }}
-              className="flex flex-col items-center gap-1.5 p-2 rounded-xl bg-[#1c2028] hover:bg-[#181c24] transition-colors cursor-pointer"
+              className={`flex flex-col items-center gap-1.5 p-2.5 rounded-xl transition-colors cursor-pointer ${
+                isNightMode ? 'bg-[#202838] hover:bg-[#273145]' : 'bg-slate-50 hover:bg-slate-100'
+              }`}
             >
-              <div className="w-11 h-11 rounded-full bg-[#943fe2] flex items-center justify-center text-white shadow-md">
+              <div className="w-10 h-10 rounded-full bg-indigo-600 flex items-center justify-center text-white">
                 <FileUp className="w-5 h-5" />
               </div>
-              <span className="text-xs text-[#dfe2ee] font-medium">Doc / CV</span>
+              <span className="text-xs font-medium">Documento</span>
+            </button>
+
+            <button
+              onClick={() => {
+                setShowAttachSheet(false);
+                setShowAvatarStudio(true);
+              }}
+              className={`flex flex-col items-center gap-1.5 p-2.5 rounded-xl transition-colors cursor-pointer ${
+                isNightMode ? 'bg-[#202838] hover:bg-[#273145]' : 'bg-slate-50 hover:bg-slate-100'
+              }`}
+            >
+              <div className="w-10 h-10 rounded-full bg-purple-600 flex items-center justify-center text-white">
+                <Sparkles className="w-5 h-5" />
+              </div>
+              <span className="text-xs font-medium">Avatar IA</span>
+            </button>
+
+            <button
+              onClick={() => {
+                setShowAttachSheet(false);
+                setShowStickerFactory(true);
+              }}
+              className={`flex flex-col items-center gap-1.5 p-2.5 rounded-xl transition-colors cursor-pointer ${
+                isNightMode ? 'bg-[#202838] hover:bg-[#273145]' : 'bg-slate-50 hover:bg-slate-100'
+              }`}
+            >
+              <div className="w-10 h-10 rounded-full bg-pink-600 flex items-center justify-center text-white">
+                <Wand2 className="w-5 h-5" />
+              </div>
+              <span className="text-xs font-medium">Stickers IA</span>
+            </button>
+
+            <button
+              onClick={() => {
+                setShowAttachSheet(false);
+                setShowVirtualRoom3D(true);
+              }}
+              className={`flex flex-col items-center gap-1.5 p-2.5 rounded-xl transition-colors cursor-pointer ${
+                isNightMode ? 'bg-[#202838] hover:bg-[#273145]' : 'bg-slate-50 hover:bg-slate-100'
+              }`}
+            >
+              <div className="w-10 h-10 rounded-full bg-emerald-600 flex items-center justify-center text-white">
+                <Box className="w-5 h-5" />
+              </div>
+              <span className="text-xs font-medium">Sala 3D</span>
             </button>
 
             <button
@@ -1511,14 +1796,14 @@ export const ChatView: React.FC<ChatViewProps> = ({
                 setShowAttachSheet(false);
                 setShowVideoLinkModal(true);
               }}
-              className="flex flex-col items-center gap-1.5 p-2 rounded-xl bg-[#1c2028] hover:bg-[#181c24] transition-colors cursor-pointer col-span-4 mt-1 border border-white/5"
+              className={`flex items-center gap-2.5 px-3 py-2.5 rounded-xl transition-colors cursor-pointer col-span-3 mt-1 border ${
+                isNightMode
+                  ? 'bg-[#202838] hover:bg-[#273145] border-white/5'
+                  : 'bg-slate-50 hover:bg-slate-100 border-slate-200'
+              }`}
             >
-              <div className="flex items-center gap-2 text-red-400 font-bold text-xs">
-                <div className="w-7 h-7 rounded-full bg-red-600/20 flex items-center justify-center text-red-500">
-                  <Play className="w-3.5 h-3.5 fill-current" />
-                </div>
-                <span>Compartir Enlace de Video (YouTube, TikTok, Facebook, etc.)</span>
-              </div>
+              <Play className="w-4 h-4 text-red-500 shrink-0" />
+              <span className="text-xs font-medium">Compartir enlace de YouTube, TikTok o Facebook</span>
             </button>
 
             <button
@@ -1526,37 +1811,35 @@ export const ChatView: React.FC<ChatViewProps> = ({
                 setShowAttachSheet(false);
                 onOpenTimeCapsule?.();
               }}
-              className="flex flex-col items-center gap-1.5 p-2 rounded-xl bg-[#1c2028] hover:bg-[#181c24] transition-colors cursor-pointer col-span-4 mt-1 border border-white/5"
+              className={`flex items-center gap-2.5 px-3 py-2.5 rounded-xl transition-colors cursor-pointer col-span-3 border ${
+                isNightMode
+                  ? 'bg-[#202838] hover:bg-[#273145] border-white/5'
+                  : 'bg-slate-50 hover:bg-slate-100 border-slate-200'
+              }`}
             >
-              <div className="flex items-center gap-2 text-amber-400 font-bold text-xs">
-                <div className="w-7 h-7 rounded-full bg-amber-500/20 flex items-center justify-center text-amber-400">
-                  <Clock className="w-3.5 h-3.5" />
-                </div>
-                <span>Cápsula del Tiempo (Mensajes Futuros)</span>
-              </div>
+              <Clock className="w-4 h-4 text-amber-500 shrink-0" />
+              <span className="text-xs font-medium">Mensajes del Futuro (programar foto/video/audio)</span>
             </button>
-
-
 
             <button
               onClick={() => {
                 setShowAttachSheet(false);
                 setShowPrivateMessageModal(true);
               }}
-              className="flex flex-col items-center gap-1.5 p-2 rounded-xl bg-[#1c2028] hover:bg-[#181c24] transition-colors cursor-pointer col-span-4 mt-1 border border-white/5"
+              className={`flex items-center gap-2.5 px-3 py-2.5 rounded-xl transition-colors cursor-pointer col-span-3 border ${
+                isNightMode
+                  ? 'bg-[#202838] hover:bg-[#273145] border-white/5'
+                  : 'bg-slate-50 hover:bg-slate-100 border-slate-200'
+              }`}
             >
-              <div className="flex items-center gap-2 text-amber-400 font-bold text-xs">
-                <div className="w-7 h-7 rounded-full bg-amber-500/20 flex items-center justify-center text-amber-400">
-                  <Lock className="w-3.5 h-3.5" />
-                </div>
-                <span>Mensaje Privado / Confidencial (PIN)</span>
-              </div>
+              <Lock className="w-4 h-4 text-sky-500 shrink-0" />
+              <span className="text-xs font-medium">Mensaje privado con PIN</span>
             </button>
           </div>
         </div>
       )}
 
-      {/* 7. Emoji Picker */}
+      {/* 7. Emoji, Sticker & GIF Picker */}
       <EmojiStickerPicker
         isOpen={showEmojiPicker}
         onClose={() => setShowEmojiPicker(false)}
@@ -1565,33 +1848,36 @@ export const ChatView: React.FC<ChatViewProps> = ({
           inputRef.current?.focus();
         }}
         onSelectSticker={handleSendSticker}
+        onSelectGif={handleSendGif}
+        customStickerPacks={user.customStickerPacks}
+        onOpenStickerFactory={() => setShowStickerFactory(true)}
       />
 
       {/* 8. Floating Input Composer Dock */}
       <div className="fixed bottom-3 left-3 right-3 z-40">
         {chat.isBlocked ? (
-          <div className="bg-[#1c2028]/95 backdrop-blur-2xl p-3.5 rounded-2xl shadow-2xl border border-red-500/20 flex flex-col sm:flex-row items-center justify-between gap-3 max-w-xl mx-auto">
+          <div className="bg-[#171d29] p-3.5 rounded-2xl shadow-xl border border-red-500/20 flex flex-col sm:flex-row items-center justify-between gap-3 max-w-xl mx-auto">
             <div className="flex items-center gap-2.5 min-w-0">
               <div className="w-8 h-8 rounded-full bg-red-500/15 text-red-400 flex items-center justify-center shrink-0">
                 <Ban className="w-4 h-4" />
               </div>
-              <p className="text-xs text-red-200/90 font-medium">
-                Has bloqueado a este usuario. Ya no está en tus amigos.
+              <p className="text-xs text-red-200 font-medium">
+                Has bloqueado a este usuario.
               </p>
             </div>
             {onUnblockContact && (
               <button
                 onClick={() => onUnblockContact(chat.id)}
-                className="w-full sm:w-auto px-4 py-2 rounded-xl bg-[#2563eb] hover:bg-[#1d4ed8] text-white text-xs font-bold flex items-center justify-center gap-1.5 shadow-md active:scale-95 transition-all cursor-pointer whitespace-nowrap"
+                className="w-full sm:w-auto px-4 py-2 rounded-xl bg-[#0284c7] hover:bg-[#0369a1] text-white text-xs font-semibold flex items-center justify-center gap-1.5 transition-colors cursor-pointer whitespace-nowrap"
               >
                 <UserCheck className="w-3.5 h-3.5" />
-                <span>Desbloquear y agregar</span>
+                <span>Desbloquear</span>
               </button>
             )}
           </div>
         ) : (
-          <div className={`backdrop-blur-2xl p-1.5 rounded-2xl shadow-2xl border flex flex-col gap-1 transition-colors ${
-            isNightMode ? 'bg-[#0a0e16]/90 border-white/10' : 'bg-white/95 border-sky-200 shadow-sky-950/10'
+          <div className={`p-1.5 rounded-2xl shadow-lg border flex flex-col gap-1 transition-colors ${
+            isNightMode ? 'bg-[#121722] border-white/10' : 'bg-white border-slate-200'
           }`}>
             {isRecordingVoice ? (
               <VoiceRecorder
@@ -1608,59 +1894,59 @@ export const ChatView: React.FC<ChatViewProps> = ({
                     setShowEmojiPicker(false);
                   }}
                   aria-label="Adjuntar archivo o nota de voz"
-                  title="Adjuntar contenido"
+                  title="Adjuntar"
                   className={`w-10 h-10 rounded-full flex items-center justify-center transition-colors shrink-0 cursor-pointer ${
                     isNightMode
-                      ? 'bg-[#262a33] text-[#dfe2ee] hover:text-[#38bdf8]'
-                      : 'bg-sky-100 text-sky-800 hover:bg-sky-200 border border-sky-200/80'
+                      ? 'bg-[#1d2433] text-[#dfe2ee] hover:bg-[#263044]'
+                      : 'bg-slate-100 text-slate-700 hover:bg-slate-200'
                   }`}
                 >
                   <Plus className="w-5 h-5" />
                 </button>
 
-                {/* Emoji button */}
+                {/* Emoji / GIF button */}
                 <button
                   onClick={() => {
                     setShowEmojiPicker(!showEmojiPicker);
                     setShowAttachSheet(false);
                   }}
-                  aria-label="Emojis"
-                  title="Emojis y stickers"
+                  aria-label="Emojis, Stickers y GIFs"
+                  title="Emojis, Stickers y GIFs"
                   className={`w-10 h-10 rounded-full flex items-center justify-center transition-colors shrink-0 cursor-pointer ${
                     isNightMode
-                      ? 'bg-[#262a33] text-[#dfe2ee] hover:text-[#7bd0ff]'
-                      : 'bg-sky-100 text-sky-800 hover:bg-sky-200 border border-sky-200/80'
+                      ? 'bg-[#1d2433] text-[#dfe2ee] hover:bg-[#263044]'
+                      : 'bg-slate-100 text-slate-700 hover:bg-slate-200'
                   }`}
                 >
                   <Smile className="w-5 h-5" />
                 </button>
 
-                {/* Snapchat Camera & Lenses quick button */}
+                {/* Camera (2 options: with filter or without filter) */}
                 <button
+                  type="button"
                   onClick={() => {
-                    setShowPhotoModal(true);
+                    setShowCameraChoice((prev) => !prev);
                     setShowAttachSheet(false);
                     setShowEmojiPicker(false);
                   }}
-                  aria-label="Cámara y Lentes Snapchat"
-                  title="Cámara y Lentes Snapchat"
-                  className={`relative w-10 h-10 rounded-full flex items-center justify-center transition-colors shrink-0 cursor-pointer ${
-                    isNightMode
-                      ? 'bg-[#262a33] hover:bg-[#31353e] text-[#dfe2ee] hover:text-amber-400'
-                      : 'bg-sky-100 hover:bg-sky-200 text-sky-800 hover:text-amber-600 border border-sky-200/80'
+                  aria-label="Cámara: elegir con filtro o sin filtro"
+                  title="Cámara"
+                  className={`w-10 h-10 rounded-full flex items-center justify-center transition-colors shrink-0 cursor-pointer ${
+                    showCameraChoice
+                      ? 'bg-[#0284c7] text-white'
+                      : isNightMode
+                      ? 'bg-[#1d2433] text-[#dfe2ee] hover:bg-[#263044]'
+                      : 'bg-slate-100 text-slate-700 hover:bg-slate-200'
                   }`}
                 >
                   <Camera className="w-5 h-5" />
-                  <span className="absolute -top-0.5 -right-0.5 w-3 h-3 bg-amber-400 rounded-full flex items-center justify-center shadow-sm">
-                    <Sparkles className="w-2 h-2 text-black" />
-                  </span>
                 </button>
 
                 {/* Text Input */}
-                <div className={`flex-1 flex items-center px-3 py-1.5 rounded-full min-w-0 border transition-colors ${
+                <div className={`flex-1 flex items-center px-3.5 py-2 rounded-full min-w-0 border transition-colors ${
                   isNightMode
-                    ? 'bg-[#1c2028] border-white/5 text-[#dfe2ee] focus-within:border-[#2563eb]/50'
-                    : 'bg-sky-50 border-sky-200 text-[#0c2340] focus-within:border-sky-500'
+                    ? 'bg-[#1a2130] border-white/10 text-[#eef2f8] focus-within:border-[#0284c7]'
+                    : 'bg-slate-50 border-slate-200 text-slate-900 focus-within:border-[#0284c7]'
                 }`}>
                   <input
                     ref={inputRef}
@@ -1675,7 +1961,7 @@ export const ChatView: React.FC<ChatViewProps> = ({
                     }}
                     onKeyDown={(e) => e.key === 'Enter' && handleSendTextMessage()}
                     className={`w-full bg-transparent text-sm focus:outline-none ${
-                      isNightMode ? 'text-[#dfe2ee] placeholder:text-[#8d90a0]' : 'text-[#0c2340] placeholder:text-sky-700/60'
+                      isNightMode ? 'text-[#eef2f8] placeholder:text-[#64748b]' : 'text-slate-900 placeholder:text-slate-400'
                     }`}
                   />
                 </div>
@@ -1685,12 +1971,12 @@ export const ChatView: React.FC<ChatViewProps> = ({
                   <button
                     type="button"
                     onClick={() => setIsRecordingVoice(true)}
-                    aria-label="Mandar mensaje de voz"
-                    title="Mandar mensaje de voz"
+                    aria-label="Mandar nota de voz"
+                    title="Mandar nota de voz"
                     className={`w-10 h-10 rounded-full flex items-center justify-center transition-colors shrink-0 cursor-pointer ${
                       isNightMode
-                        ? 'bg-[#262a33] text-[#38bdf8] hover:bg-[#323742]'
-                        : 'bg-sky-100 text-[#0284c7] hover:bg-sky-200 border border-sky-200/80'
+                        ? 'bg-[#1d2433] text-[#38bdf8] hover:bg-[#263044]'
+                        : 'bg-slate-100 text-[#0284c7] hover:bg-slate-200'
                     }`}
                   >
                     <Mic className="w-4 h-4" />
@@ -1703,8 +1989,8 @@ export const ChatView: React.FC<ChatViewProps> = ({
                     type="button"
                     onClick={() => handleSendTextMessage()}
                     aria-label="Enviar mensaje"
-                    title="Enviar mensaje"
-                    className="w-10 h-10 rounded-full bg-gradient-to-r from-[#0284c7] to-[#0ea5e9] text-white flex items-center justify-center shadow-md shrink-0 hover:scale-105 active:scale-95 transition-transform cursor-pointer"
+                    title="Enviar"
+                    className="w-10 h-10 rounded-full bg-[#0284c7] hover:bg-[#0369a1] text-white flex items-center justify-center shrink-0 active:scale-95 transition-colors cursor-pointer"
                   >
                     <Send className="w-4 h-4 ml-0.5" />
                   </button>
@@ -1712,12 +1998,11 @@ export const ChatView: React.FC<ChatViewProps> = ({
                   <button
                     type="button"
                     onClick={() => setIsRecordingVoice(true)}
-                    aria-label="Mandar mensaje de voz"
-                    title="Mandar mensaje de voz (micrófono)"
-                    className="relative w-10 h-10 rounded-full bg-gradient-to-r from-[#0284c7] to-[#38bdf8] text-white flex items-center justify-center shadow-md shadow-sky-500/25 shrink-0 hover:scale-105 active:scale-95 transition-all cursor-pointer group"
+                    aria-label="Grabar nota de voz"
+                    title="Grabar nota de voz"
+                    className="w-10 h-10 rounded-full bg-[#0284c7] hover:bg-[#0369a1] text-white flex items-center justify-center shrink-0 active:scale-95 transition-colors cursor-pointer"
                   >
-                    <span className="absolute inset-0 rounded-full bg-sky-400 opacity-25 group-hover:opacity-50 animate-ping pointer-events-none" />
-                    <Mic className="w-4 h-4 relative" />
+                    <Mic className="w-4 h-4" />
                   </button>
                 )}
               </div>
@@ -1736,12 +2021,106 @@ export const ChatView: React.FC<ChatViewProps> = ({
         mediaSize={activeMediaModal?.size}
       />
 
+      {/* Camera 2-Option Selector Sheet (With Filter vs Without Filter) */}
+      {showCameraChoice && (
+        <div
+          className="fixed inset-0 z-50 bg-black/50 flex items-end sm:items-center justify-center p-3 sm:p-4 animate-in fade-in duration-150"
+          onClick={() => setShowCameraChoice(false)}
+        >
+          <div
+            onClick={(e) => e.stopPropagation()}
+            className={`w-full max-w-sm rounded-2xl border p-4 shadow-2xl flex flex-col gap-3 animate-in slide-in-from-bottom-4 duration-150 ${
+              isNightMode
+                ? 'bg-[#151b28] border-white/10 text-[#eef2f8]'
+                : 'bg-white border-slate-200 text-slate-900'
+            }`}
+          >
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                <div className="w-8 h-8 rounded-xl bg-[#0284c7]/15 text-[#0284c7] flex items-center justify-center">
+                  <Camera className="w-4 h-4" />
+                </div>
+                <div>
+                  <h3 className="text-sm font-bold leading-tight">Cámara PidgeX</h3>
+                  <p className={`text-[11px] ${isNightMode ? 'text-slate-400' : 'text-slate-500'}`}>
+                    Elige cómo quieres tomar tu foto
+                  </p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setShowCameraChoice(false)}
+                aria-label="Cerrar opciones de cámara"
+                className={`w-8 h-8 rounded-full flex items-center justify-center cursor-pointer ${
+                  isNightMode ? 'hover:bg-white/10 text-slate-400' : 'hover:bg-slate-100 text-slate-500'
+                }`}
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            <div className="grid grid-cols-1 gap-2.5">
+              <button
+                type="button"
+                onClick={() => {
+                  setCameraFilterMode('with_filter');
+                  setShowCameraChoice(false);
+                  setShowPhotoModal(true);
+                }}
+                className={`w-full p-3.5 rounded-xl border flex items-center gap-3 text-left transition-colors cursor-pointer ${
+                  isNightMode
+                    ? 'bg-[#1c2538] hover:bg-[#232f47] border-sky-500/30 text-white'
+                    : 'bg-sky-50/70 hover:bg-sky-100/80 border-sky-200 text-slate-900'
+                }`}
+              >
+                <div className="w-10 h-10 rounded-xl bg-[#0284c7] text-white flex items-center justify-center shrink-0">
+                  <Sparkles className="w-5 h-5" />
+                </div>
+                <div className="min-w-0 flex-1">
+                  <div className="text-xs font-bold">Tomar foto con filtro</div>
+                  <div className={`text-[11px] mt-0.5 ${isNightMode ? 'text-slate-300' : 'text-slate-600'}`}>
+                    Filtros 3D, belleza, animales y efectos en vivo
+                  </div>
+                </div>
+              </button>
+
+              <button
+                type="button"
+                onClick={() => {
+                  setCameraFilterMode('no_filter');
+                  setShowCameraChoice(false);
+                  setShowPhotoModal(true);
+                }}
+                className={`w-full p-3.5 rounded-xl border flex items-center gap-3 text-left transition-colors cursor-pointer ${
+                  isNightMode
+                    ? 'bg-[#1b2130] hover:bg-[#242c3f] border-white/10 text-white'
+                    : 'bg-slate-50 hover:bg-slate-100 border-slate-200 text-slate-900'
+                }`}
+              >
+                <div className={`w-10 h-10 rounded-xl flex items-center justify-center shrink-0 ${
+                  isNightMode ? 'bg-white/10 text-white' : 'bg-slate-800 text-white'
+                }`}>
+                  <Camera className="w-5 h-5" />
+                </div>
+                <div className="min-w-0 flex-1">
+                  <div className="text-xs font-bold">Tomar foto sin filtro</div>
+                  <div className={`text-[11px] mt-0.5 ${isNightMode ? 'text-slate-400' : 'text-slate-500'}`}>
+                    Foto o video natural directo de la cámara
+                  </div>
+                </div>
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* 10. Photo Upload & Camera Modal */}
       <PhotoFilterModal
         isOpen={showPhotoModal}
         onClose={() => setShowPhotoModal(false)}
         onSendPhoto={handleSendPhoto}
         contactName={chat.name}
+        initialFilterMode={cameraFilterMode}
       />
 
       {/* 11. Audio & Video Call Modal */}
@@ -2088,16 +2467,96 @@ export const ChatView: React.FC<ChatViewProps> = ({
         </div>
       )}
 
-      {/* Chat Theme Modal */}
+      {/* Chat Theme & Emotional Mode Modal */}
       <ChatThemeModal
         isOpen={showChatThemeModal}
         onClose={() => setShowChatThemeModal(false)}
         chat={chat}
         isNightMode={isNightMode}
         onSelectGradient={onSelectGradient || (() => {})}
+        onUpdatePersonalityTheme={onUpdatePersonalityTheme}
+        onUpdateEmotionalMode={onUpdateEmotionalMode}
       />
 
+      {/* Digital AI Avatar Studio */}
+      <DigitalAvatarStudioModal
+        isOpen={showAvatarStudio}
+        onClose={() => setShowAvatarStudio(false)}
+        user={user}
+        isNightMode={isNightMode}
+        onSaveAvatarConfig={(config) => onUpdateUser?.({ digitalAvatar: config })}
+        onSendAvatarMessage={({ config, expression, text, audioUrl }) => {
+          onUpdateUser?.({ digitalAvatar: config });
+          onSendMessage(chat.id, {
+            senderId: 'me',
+            senderName: user.name,
+            senderAvatar: user.avatarUrl,
+            type: 'avatar_msg',
+            text,
+            mediaUrl: audioUrl,
+            avatarPayload: { config, expression, audioUrl },
+            timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+            isRead: true,
+          });
+          triggerChatEffects();
+        }}
+      />
 
+      {/* AI Sticker Factory */}
+      <AiStickerFactoryModal
+        isOpen={showStickerFactory}
+        onClose={() => setShowStickerFactory(false)}
+        customPacks={user.customStickerPacks || []}
+        onSavePacks={(packs) => onUpdateUser?.({ customStickerPacks: packs })}
+        onSendSticker={handleSendSticker}
+        isNightMode={isNightMode}
+      />
+
+      {/* Smart Memory Album & Video Reel Creator */}
+      <ChatMediaGalleryModal
+        isOpen={showMediaGallery}
+        onClose={() => setShowMediaGallery(false)}
+        messages={chat.messages || []}
+        chatName={chat.name}
+        isNightMode={isNightMode}
+        onShareMemoryReel={(videoUrl, title, duration) => {
+          onSendMessage(chat.id, {
+            senderId: 'me',
+            senderName: user.name,
+            senderAvatar: user.avatarUrl,
+            type: 'memory_reel',
+            text: title,
+            mediaUrl: videoUrl,
+            mediaName: `${title}.webm`,
+            mediaDuration: duration,
+            timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+            isRead: true,
+          });
+          setShowMediaGallery(false);
+          triggerChatEffects();
+        }}
+      />
+
+      {/* 3D Virtual Room Modal */}
+      <VirtualRoom3DModal
+        isOpen={showVirtualRoom3D}
+        onClose={() => setShowVirtualRoom3D(false)}
+        chat={chat}
+        user={user}
+        onSaveRoomConfig={(chatId, cfg) => onSaveVirtualRoomConfig?.(chatId, cfg)}
+        onShareInviteToChat={(title) => {
+          onSendMessage(chat.id, {
+            senderId: 'me',
+            senderName: user.name,
+            senderAvatar: user.avatarUrl,
+            type: 'game_invite',
+            text: title,
+            gameData: { gameType: 'room3d', title },
+            timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+            isRead: true,
+          });
+        }}
+      />
 
       <PrivateMessageModal
         isOpen={showPrivateMessageModal}

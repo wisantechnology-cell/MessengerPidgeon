@@ -4,7 +4,7 @@ import path from "path";
 import fs from "fs";
 import { createServer as createViteServer } from "vite";
 import dotenv from "dotenv";
-import { GoogleGenAI } from "@google/genai";
+import { GoogleGenAI, Type, ThinkingLevel } from "@google/genai";
 import { WebSocketServer, WebSocket } from "ws";
 import { createRequire } from "module";
 const require = createRequire(import.meta.url);
@@ -49,8 +49,148 @@ function getGenAI(): GoogleGenAI | null {
 // In-memory voice audio storage for lightweight instant cross-device streaming
 const voiceAudioStorage = new Map<string, { buffer: Buffer; mime: string }>();
 
-// In-memory photo & video storage to prevent exceeding Firestore 1MB limit
+// In-memory photo & video storage + disk cache to prevent exceeding Firestore 1MB limit and survive restarts
+const MEDIA_CACHE_DIR = path.join(process.cwd(), ".media_cache");
+try {
+  if (!fs.existsSync(MEDIA_CACHE_DIR)) {
+    fs.mkdirSync(MEDIA_CACHE_DIR, { recursive: true });
+  }
+} catch {}
+
 const mediaStorage = new Map<string, { buffer: Buffer; mime: string }>();
+
+function resolveMediaFormat(
+  buffer: Buffer,
+  rawMime: string,
+  filename = ""
+): { mime: string; ext: string; isVideo: boolean; kind: "video" | "audio" | "image" } {
+  const baseMime = (rawMime || "").split(";")[0].trim().toLowerCase();
+  const cleanFilename = (filename || "").toLowerCase();
+
+  // Check audio magic bytes and extensions first (unless explicitly video)
+  const isId3Mp3 =
+    buffer.length >= 3 &&
+    buffer[0] === 0x49 &&
+    buffer[1] === 0x44 &&
+    buffer[2] === 0x33;
+  const isMp3Sync =
+    buffer.length >= 2 &&
+    buffer[0] === 0xff &&
+    (buffer[1] & 0xe0) === 0xe0 &&
+    !cleanFilename.endsWith(".aac");
+  const isRiffWave =
+    buffer.length >= 12 &&
+    buffer.subarray(0, 4).toString("ascii") === "RIFF" &&
+    buffer.subarray(8, 12).toString("ascii") === "WAVE";
+  const isOgg =
+    buffer.length >= 4 &&
+    buffer.subarray(0, 4).toString("ascii") === "OggS";
+  const isFlac =
+    buffer.length >= 4 &&
+    buffer.subarray(0, 4).toString("ascii") === "fLaC";
+
+  const isAudioExtension =
+    cleanFilename.endsWith(".mp3") ||
+    cleanFilename.endsWith(".wav") ||
+    cleanFilename.endsWith(".ogg") ||
+    cleanFilename.endsWith(".oga") ||
+    cleanFilename.endsWith(".opus") ||
+    cleanFilename.endsWith(".m4a") ||
+    cleanFilename.endsWith(".aac") ||
+    cleanFilename.endsWith(".flac") ||
+    cleanFilename.endsWith(".weba");
+
+  const isAudio =
+    !baseMime.startsWith("video/") &&
+    (baseMime.startsWith("audio/") ||
+      isAudioExtension ||
+      isId3Mp3 ||
+      isMp3Sync ||
+      isRiffWave ||
+      isOgg ||
+      isFlac);
+
+  if (isAudio) {
+    if (cleanFilename.endsWith(".wav") || baseMime.includes("wav") || isRiffWave) {
+      return { mime: "audio/wav", ext: "wav", isVideo: false, kind: "audio" };
+    }
+    if (cleanFilename.endsWith(".ogg") || cleanFilename.endsWith(".oga") || cleanFilename.endsWith(".opus") || baseMime.includes("ogg") || isOgg) {
+      return { mime: "audio/ogg", ext: "ogg", isVideo: false, kind: "audio" };
+    }
+    if (cleanFilename.endsWith(".flac") || baseMime.includes("flac") || isFlac) {
+      return { mime: "audio/flac", ext: "flac", isVideo: false, kind: "audio" };
+    }
+    if (cleanFilename.endsWith(".m4a") || baseMime.includes("mp4") || baseMime.includes("m4a")) {
+      return { mime: "audio/mp4", ext: "m4a", isVideo: false, kind: "audio" };
+    }
+    if (cleanFilename.endsWith(".aac") || baseMime.includes("aac")) {
+      return { mime: "audio/aac", ext: "aac", isVideo: false, kind: "audio" };
+    }
+    if (cleanFilename.endsWith(".weba") || baseMime === "audio/webm") {
+      return { mime: "audio/webm", ext: "weba", isVideo: false, kind: "audio" };
+    }
+    return { mime: "audio/mpeg", ext: "mp3", isVideo: false, kind: "audio" };
+  }
+
+  // Check container magic bytes for videos so WebM is never mislabeled as MP4
+  const isEbmlWebm =
+    buffer.length >= 4 &&
+    buffer[0] === 0x1a &&
+    buffer[1] === 0x45 &&
+    buffer[2] === 0xdf &&
+    buffer[3] === 0xa3;
+
+  const isIsoMp4 =
+    buffer.length >= 8 &&
+    buffer.subarray(4, 8).toString("ascii") === "ftyp";
+
+  const isVideo =
+    isEbmlWebm ||
+    isIsoMp4 ||
+    baseMime.startsWith("video/") ||
+    cleanFilename.endsWith(".mp4") ||
+    cleanFilename.endsWith(".mov") ||
+    cleanFilename.endsWith(".webm") ||
+    cleanFilename.endsWith(".mkv") ||
+    cleanFilename.endsWith(".3gp") ||
+    cleanFilename.endsWith(".m4v");
+
+  if (isVideo) {
+    if (isEbmlWebm || (!isIsoMp4 && (baseMime.includes("webm") || baseMime.includes("matroska") || cleanFilename.endsWith(".webm") || cleanFilename.endsWith(".mkv")))) {
+      return { mime: "video/webm", ext: "webm", isVideo: true, kind: "video" };
+    }
+    return { mime: "video/mp4", ext: "mp4", isVideo: true, kind: "video" };
+  }
+
+  if (cleanFilename.endsWith(".png") || baseMime.includes("png")) {
+    return { mime: "image/png", ext: "png", isVideo: false, kind: "image" };
+  }
+  if (cleanFilename.endsWith(".webp") || baseMime.includes("webp")) {
+    return { mime: "image/webp", ext: "webp", isVideo: false, kind: "image" };
+  }
+  if (cleanFilename.endsWith(".gif") || baseMime.includes("gif")) {
+    return { mime: "image/gif", ext: "gif", isVideo: false, kind: "image" };
+  }
+  return { mime: "image/jpeg", ext: "jpg", isVideo: false, kind: "image" };
+}
+
+function storeMediaBuffer(buffer: Buffer, mime: string, ext: string): string {
+  const mediaId = `media_${Date.now()}_${Math.random().toString(36).substring(2, 8)}.${ext}`;
+  mediaStorage.set(mediaId, { buffer, mime });
+
+  try {
+    fs.writeFileSync(path.join(MEDIA_CACHE_DIR, mediaId), buffer);
+  } catch (err) {
+    console.warn("Media disk write notice:", err);
+  }
+
+  if (mediaStorage.size > 150) {
+    const oldestKeys = Array.from(mediaStorage.keys()).slice(0, 30);
+    oldestKeys.forEach((k) => mediaStorage.delete(k));
+  }
+
+  return mediaId;
+}
 
 // Helper to normalize phone numbers
 function cleanPhone(phone?: string): string {
@@ -358,19 +498,35 @@ app.post("/api/messages/trigger", async (req, res) => {
   }
 });
 
+function parseBase64DataUrl(dataUrl: string): { rawMime: string; buffer: Buffer } | null {
+  if (typeof dataUrl !== "string" || !dataUrl.startsWith("data:")) {
+    return null;
+  }
+  const marker = ";base64,";
+  const markerIdx = dataUrl.indexOf(marker);
+  if (markerIdx === -1) {
+    return null;
+  }
+  const rawMime = dataUrl.slice(5, markerIdx).trim();
+  const base64Data = dataUrl.slice(markerIdx + marker.length).trim();
+  if (!base64Data) {
+    return null;
+  }
+  return {
+    rawMime,
+    buffer: Buffer.from(base64Data, "base64"),
+  };
+}
+
 // API: Upload voice message audio to avoid exceeding Firestore 1MB document limit
 app.post("/api/audio/upload", express.json({ limit: "25mb" }), (req, res) => {
   try {
-    const { dataUrl } = req.body;
-    if (!dataUrl || !dataUrl.startsWith("data:")) {
-      return res.status(400).json({ error: "Invalid data URL" });
-    }
-    const matches = dataUrl.match(/^data:([^;]+);base64,(.+)$/);
-    if (!matches) {
+    const parsed = parseBase64DataUrl(req.body?.dataUrl);
+    if (!parsed) {
       return res.status(400).json({ error: "Invalid base64 audio format" });
     }
-    const mime = matches[1];
-    const buffer = Buffer.from(matches[2], "base64");
+    const mime = parsed.rawMime.split(";")[0].trim() || "audio/webm";
+    const buffer = parsed.buffer;
     const audioId = `voice_${Date.now()}_${Math.random().toString(36).substring(2, 8)}`;
     voiceAudioStorage.set(audioId, { buffer, mime });
 
@@ -405,73 +561,54 @@ app.get("/api/audio/:audioId", (req, res) => {
   return res.send(item.buffer);
 });
 
-// API: Upload photo or video to avoid Firestore 1MB document limit
-app.post("/api/media/upload", express.json({ limit: "50mb" }), (req, res) => {
+// API: Upload raw binary photo or video blob directly (faster, no base64 bloat, preserves exact bytes)
+app.post("/api/media/upload-raw", express.raw({ type: () => true, limit: "50mb" }), (req, res) => {
   try {
-    const { dataUrl, filename } = req.body;
-    if (!dataUrl || !dataUrl.startsWith("data:")) {
-      return res.status(400).json({ error: "Invalid data URL" });
-    }
-    const matches = dataUrl.match(/^data:([^;]+);base64,(.+)$/);
-    if (!matches) {
-      return res.status(400).json({ error: "Invalid base64 media format" });
-    }
-
-    let detectedMime = (matches[1] || '').toLowerCase();
-    const cleanFilename = (filename || '').toLowerCase();
-
-    // Determine if this is a video
-    const isVideo =
-      detectedMime.includes("video") ||
-      cleanFilename.endsWith(".mp4") ||
-      cleanFilename.endsWith(".mov") ||
-      cleanFilename.endsWith(".webm") ||
-      cleanFilename.endsWith(".mkv") ||
-      cleanFilename.endsWith(".3gp") ||
-      cleanFilename.endsWith(".m4v");
-
-    let finalMime = detectedMime;
-    let ext = "jpg";
-
-    if (isVideo) {
-      if (cleanFilename.endsWith(".webm") || detectedMime.includes("webm")) {
-        finalMime = "video/webm";
-        ext = "webm";
-      } else {
-        // mp4, mov, mkv, 3gp, m4v all serve as video/mp4 for standard HTML5 playback
-        finalMime = "video/mp4";
-        ext = "mp4";
-      }
-    } else if (cleanFilename.endsWith(".png") || detectedMime.includes("png")) {
-      finalMime = "image/png";
-      ext = "png";
-    } else if (cleanFilename.endsWith(".webp") || detectedMime.includes("webp")) {
-      finalMime = "image/webp";
-      ext = "webp";
-    } else if (cleanFilename.endsWith(".gif") || detectedMime.includes("gif")) {
-      finalMime = "image/gif";
-      ext = "gif";
-    } else {
-      finalMime = "image/jpeg";
-      ext = "jpg";
+    const buffer = Buffer.isBuffer(req.body)
+      ? req.body
+      : typeof req.body === "string"
+      ? Buffer.from(req.body)
+      : null;
+    if (!buffer || buffer.length === 0) {
+      return res.status(400).json({ error: "Empty media payload" });
     }
 
-    const buffer = Buffer.from(matches[2], "base64");
-    const mediaId = `media_${Date.now()}_${Math.random().toString(36).substring(2, 8)}.${ext}`;
-    mediaStorage.set(mediaId, { buffer, mime: finalMime });
-
-    // Rotate storage if it exceeds 150 items
-    if (mediaStorage.size > 150) {
-      const oldestKeys = Array.from(mediaStorage.keys()).slice(0, 30);
-      oldestKeys.forEach((k) => mediaStorage.delete(k));
-    }
+    const rawMime = String(req.headers["content-type"] || "");
+    const rawFilename = String(req.query.filename || req.headers["x-filename"] || "");
+    const { mime, ext, kind } = resolveMediaFormat(buffer, rawMime, rawFilename);
+    const mediaId = storeMediaBuffer(buffer, mime, ext);
 
     return res.json({
       success: true,
       mediaUrl: `/api/media/${mediaId}`,
-      mediaType: isVideo ? "video" : "image",
-      mimeType: finalMime,
+      mediaType: kind,
+      mimeType: mime,
       size: buffer.length,
+    });
+  } catch (err) {
+    console.error("Raw media upload error:", err);
+    return res.status(500).json({ error: "Raw media upload failed" });
+  }
+});
+
+// API: Upload photo or video via base64 data URL (supports ;codecs=... parameters cleanly)
+app.post("/api/media/upload", express.json({ limit: "50mb" }), (req, res) => {
+  try {
+    const { dataUrl, filename } = req.body || {};
+    const parsed = parseBase64DataUrl(dataUrl);
+    if (!parsed) {
+      return res.status(400).json({ error: "Invalid base64 media format" });
+    }
+
+    const { mime, ext, kind } = resolveMediaFormat(parsed.buffer, parsed.rawMime, filename || "");
+    const mediaId = storeMediaBuffer(parsed.buffer, mime, ext);
+
+    return res.json({
+      success: true,
+      mediaUrl: `/api/media/${mediaId}`,
+      mediaType: kind,
+      mimeType: mime,
+      size: parsed.buffer.length,
     });
   } catch (err) {
     console.error("Media upload error:", err);
@@ -479,22 +616,63 @@ app.post("/api/media/upload", express.json({ limit: "50mb" }), (req, res) => {
   }
 });
 
-// API: Stream media (videos and photos) directly with range headers for smooth seeking & playback
+// API: Stream media (videos, audio and photos) directly with range headers for smooth seeking & playback
 app.get("/api/media/:mediaId", (req, res) => {
-  const { mediaId } = req.params;
-  const item = mediaStorage.get(mediaId);
+  const safeId = path.basename(req.params.mediaId || "");
+  let item = mediaStorage.get(safeId);
+
+  if (!item && safeId) {
+    try {
+      const diskPath = path.join(MEDIA_CACHE_DIR, safeId);
+      if (fs.existsSync(diskPath)) {
+        const buffer = fs.readFileSync(diskPath);
+        const { mime } = resolveMediaFormat(buffer, "", safeId);
+        item = { buffer, mime };
+        mediaStorage.set(safeId, item);
+      }
+    } catch {}
+  }
+
   if (!item) {
     return res.status(404).send("Media not found");
   }
 
-  const range = req.headers.range;
   const totalLength = item.buffer.length;
-  const mimeType = item.mime || (mediaId.endsWith('.webm') ? 'video/webm' : mediaId.endsWith('.mp4') ? 'video/mp4' : 'application/octet-stream');
+  const mimeType =
+    item.mime ||
+    (safeId.endsWith(".webm")
+      ? "video/webm"
+      : safeId.endsWith(".mp4")
+      ? "video/mp4"
+      : safeId.endsWith(".mp3")
+      ? "audio/mpeg"
+      : safeId.endsWith(".wav")
+      ? "audio/wav"
+      : safeId.endsWith(".ogg")
+      ? "audio/ogg"
+      : safeId.endsWith(".m4a")
+      ? "audio/mp4"
+      : safeId.endsWith(".aac")
+      ? "audio/aac"
+      : safeId.endsWith(".weba")
+      ? "audio/webm"
+      : "application/octet-stream");
 
+  const range = req.headers.range;
   if (range) {
     const parts = range.replace(/bytes=/, "").split("-");
-    const start = parseInt(parts[0], 10);
-    const end = parts[1] ? parseInt(parts[1], 10) : totalLength - 1;
+    const parsedStart = parseInt(parts[0], 10);
+    const parsedEnd = parts[1] ? parseInt(parts[1], 10) : totalLength - 1;
+    const start = Number.isNaN(parsedStart) ? 0 : Math.max(0, parsedStart);
+    const end = Number.isNaN(parsedEnd)
+      ? totalLength - 1
+      : Math.min(totalLength - 1, parsedEnd);
+
+    if (start >= totalLength || start > end) {
+      res.setHeader("Content-Range", `bytes */${totalLength}`);
+      return res.status(416).send("Requested range not satisfiable");
+    }
+
     const chunkSize = end - start + 1;
     res.writeHead(206, {
       "Content-Range": `bytes ${start}-${end}/${totalLength}`,
@@ -511,6 +689,74 @@ app.get("/api/media/:mediaId", (req, res) => {
   res.setHeader("Accept-Ranges", "bytes");
   res.setHeader("Cache-Control", "public, max-age=86400");
   return res.send(item.buffer);
+});
+
+// API: Live GIF Search (searches Tenor web GIFs for instant meme & reaction GIFs)
+const gifSearchCache = new Map<string, { results: { id: string; title: string; url: string }[]; ts: number }>();
+
+app.get("/api/gifs/search", async (req, res) => {
+  try {
+    const rawQ = String(req.query.q || "").trim();
+    if (!rawQ) {
+      return res.json({ gifs: [] });
+    }
+    const cacheKey = rawQ.toLowerCase();
+    const cached = gifSearchCache.get(cacheKey);
+    if (cached && Date.now() - cached.ts < 1000 * 60 * 15) {
+      return res.json({ gifs: cached.results });
+    }
+
+    const slug = encodeURIComponent(
+      rawQ
+        .toLowerCase()
+        .replace(/[^a-z0-9áéíóúñü\s-]/gi, " ")
+        .trim()
+        .replace(/\s+/g, "-")
+    );
+
+    const response = await fetch(`https://tenor.com/search/${slug}-gifs`, {
+      headers: {
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
+        "Accept-Language": "es-ES,es;q=0.9,en;q=0.8",
+      },
+    });
+
+    if (!response.ok) {
+      return res.json({ gifs: [] });
+    }
+
+    const html = await response.text();
+    const imgRegex = /<img[^>]+src="(https:\/\/media1?\.tenor\.com\/[^"]+\.gif)"[^>]*?(?:alt="([^"]*)")?[^>]*>/gi;
+    const seen = new Set<string>();
+    const results: { id: string; title: string; url: string }[] = [];
+
+    let match: RegExpExecArray | null;
+    while ((match = imgRegex.exec(html)) !== null && results.length < 24) {
+      const url = match[1];
+      const alt = (match[2] || rawQ).trim();
+      if (!seen.has(url) && !url.includes("tenor-logo")) {
+        seen.add(url);
+        results.push({
+          id: `tenor_${results.length}_${Date.now()}`,
+          title: alt.slice(0, 48) || rawQ,
+          url,
+        });
+      }
+    }
+
+    if (results.length > 0) {
+      gifSearchCache.set(cacheKey, { results, ts: Date.now() });
+      if (gifSearchCache.size > 60) {
+        const firstKey = gifSearchCache.keys().next().value;
+        if (firstKey) gifSearchCache.delete(firstKey);
+      }
+    }
+
+    return res.json({ gifs: results });
+  } catch (err) {
+    console.warn("GIF search error:", err);
+    return res.json({ gifs: [] });
+  }
 });
 
 // Helper for contextual fallback responses for each contact persona
@@ -665,10 +911,11 @@ DIRECTRICES DE RESPUESTA:
 5. Responde siempre en español.`;
 
     const response = await ai.models.generateContent({
-      model: "gemini-2.5-flash",
+      model: "gemini-4-hydrogen",
       contents: prompt,
       config: {
         temperature: 0.8,
+        thinkingConfig: { thinkingLevel: ThinkingLevel.LOW },
       },
     });
 
@@ -719,11 +966,12 @@ Genera 3 respuestas cortas, naturales, empáticas y listas para enviar en españ
 Devuelve ÚNICAMENTE un JSON array válido con 3 strings. Ejemplo: ["Respuesta 1", "Respuesta 2", "Respuesta 3"]`;
 
     const response = await ai.models.generateContent({
-      model: "gemini-2.5-flash",
+      model: "gemini-4-hydrogen",
       contents: prompt,
       config: {
-        responseMimeType: "application/json"
-      }
+        responseMimeType: "application/json",
+        thinkingConfig: { thinkingLevel: ThinkingLevel.LOW },
+      },
     });
 
     const text = response.text || "";
@@ -851,10 +1099,11 @@ REGLAS ESTRICTAS:
 3. Mantén el idioma en español con excelente naturalidad y redacción.`;
 
     const response = await ai.models.generateContent({
-      model: "gemini-2.5-flash",
+      model: "gemini-4-hydrogen",
       contents: prompt,
       config: {
         temperature: 0.7,
+        thinkingConfig: { thinkingLevel: ThinkingLevel.LOW },
       },
     });
 
@@ -879,6 +1128,293 @@ REGLAS ESTRICTAS:
   }
 });
 
+
+
+// Helper to craft expressive die-cut SVG stickers cleanly
+function buildVectorStickerSvg(opts: {
+  title: string;
+  emoji: string;
+  primaryColor: string;
+  secondaryColor: string;
+  accentColor: string;
+  innerShapesSvg?: string;
+}): string {
+  const safeTitle = String(opts.title || "STICKER")
+    .replace(/[<>&"']/g, "")
+    .slice(0, 22)
+    .toUpperCase();
+  const safeEmoji = String(opts.emoji || "✨").replace(/[<>&"']/g, "").slice(0, 6);
+  const inner = opts.innerShapesSvg || `
+    <circle cx="160" cy="140" r="64" fill="rgba(255,255,255,0.18)" stroke="rgba(255,255,255,0.45)" stroke-width="4" />
+    <text x="160" y="164" text-anchor="middle" font-size="82" font-family="Apple Color Emoji, Segoe UI Emoji, sans-serif">${safeEmoji}</text>
+  `;
+  const svg = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 320 320" width="320" height="320">
+    <defs>
+      <linearGradient id="stBg" x1="0%" y1="0%" x2="100%" y2="100%">
+        <stop offset="0%" stop-color="${opts.primaryColor}" />
+        <stop offset="100%" stop-color="${opts.secondaryColor}" />
+      </linearGradient>
+      <filter id="stShadow" x="-15%" y="-15%" width="130%" height="130%">
+        <feDropShadow dx="0" dy="8" stdDeviation="8" flood-color="#000000" flood-opacity="0.35"/>
+      </filter>
+    </defs>
+    <g filter="url(#stShadow)">
+      <rect x="24" y="24" width="272" height="272" rx="68" fill="#ffffff" />
+      <rect x="34" y="34" width="252" height="252" rx="58" fill="url(#stBg)" />
+      <circle cx="72" cy="72" r="14" fill="${opts.accentColor}" opacity="0.7" />
+      <circle cx="248" cy="82" r="10" fill="#ffffff" opacity="0.5" />
+      ${inner}
+      <rect x="52" y="224" width="216" height="44" rx="22" fill="#0f172a" stroke="#ffffff" stroke-width="3.5" />
+      <text x="160" y="252" text-anchor="middle" fill="#ffffff" font-family="Plus Jakarta Sans, Arial, sans-serif" font-weight="800" font-size="18" letter-spacing="1">${safeTitle}</text>
+    </g>
+  </svg>`;
+  return `data:image/svg+xml;base64,${Buffer.from(svg, "utf8").toString("base64")}`;
+}
+
+// API: AI Sticker Factory (Prompt -> Die-cut Vector Sticker)
+app.post("/api/ai/sticker", async (req, res) => {
+  try {
+    const { prompt = "gato espacial feliz", style = "pop", emoji = "✨" } = req.body || {};
+    const ai = getGenAI();
+
+    if (!ai) {
+      const palettes: Record<string, [string, string, string]> = {
+        pop: ["#ec4899", "#8b5cf6", "#fde047"],
+        cyber: ["#06b6d4", "#2563eb", "#22d3ee"],
+        pastel: ["#fb7185", "#f59e0b", "#fef08a"],
+        dark: ["#1e293b", "#0f172a", "#38bdf8"],
+      };
+      const [c1, c2, acc] = palettes[style] || palettes.pop;
+      const svgDataUrl = buildVectorStickerSvg({
+        title: prompt.slice(0, 18),
+        emoji,
+        primaryColor: c1,
+        secondaryColor: c2,
+        accentColor: acc,
+      });
+      return res.json({
+        source: "fallback",
+        title: prompt.slice(0, 24),
+        subtitle: `Estilo ${style}`,
+        imageUrl: svgDataUrl,
+      });
+    }
+
+    const aiPrompt = `Diseña un sticker die-cut creativo basado en esta descripción: "${prompt}" (estilo visual: "${style}", emoji guía: "${emoji}").
+Devuelve un JSON con:
+- "title": etiqueta corta llamativa en español (máx 18 chars)
+- "emoji": el mejor emoji central expresivo
+- "primaryColor": color hex brillante #RRGGBB
+- "secondaryColor": segundo color hex #RRGGBB
+- "accentColor": color hex de acento #RRGGBB
+- "illustrationSvg": fragmento SVG válido SIN etiqueta <svg> externa (solo elementos <circle>, <ellipse>, <rect>, <path>, <polygon>, <text> dentro del área central x=70..250, y=55..210) que ilustre el concepto de forma adorable y limpia.`;
+
+    const response = await ai.models.generateContent({
+      model: "gemini-4-hydrogen",
+      contents: aiPrompt,
+      config: {
+        responseMimeType: "application/json",
+        responseSchema: {
+          type: Type.OBJECT,
+          properties: {
+            title: { type: Type.STRING },
+            emoji: { type: Type.STRING },
+            primaryColor: { type: Type.STRING },
+            secondaryColor: { type: Type.STRING },
+            accentColor: { type: Type.STRING },
+            illustrationSvg: { type: Type.STRING },
+          },
+          required: ["title", "emoji", "primaryColor", "secondaryColor", "accentColor"],
+        },
+        thinkingConfig: { thinkingLevel: ThinkingLevel.LOW },
+      },
+    });
+
+    const parsed = JSON.parse(response.text || "{}");
+    const rawSvg = String(parsed.illustrationSvg || "").replace(/<script[\s\S]*?>[\s\S]*?<\/script>/gi, "").replace(/on\w+=/gi, "");
+    const svgDataUrl = buildVectorStickerSvg({
+      title: parsed.title || prompt,
+      emoji: parsed.emoji || emoji,
+      primaryColor: /^#[0-9a-f]{6}$/i.test(parsed.primaryColor) ? parsed.primaryColor : "#2563eb",
+      secondaryColor: /^#[0-9a-f]{6}$/i.test(parsed.secondaryColor) ? parsed.secondaryColor : "#7c3aed",
+      accentColor: /^#[0-9a-f]{6}$/i.test(parsed.accentColor) ? parsed.accentColor : "#38bdf8",
+      innerShapesSvg: rawSvg || undefined,
+    });
+
+    return res.json({
+      source: "gemini",
+      title: parsed.title || prompt.slice(0, 24),
+      subtitle: "Creado con IA",
+      imageUrl: svgDataUrl,
+    });
+  } catch (err: any) {
+    console.error("Error in /api/ai/sticker:", err);
+    return res.status(500).json({ error: err?.message || "No se pudo generar el sticker" });
+  }
+});
+
+// API: AI Chat Personality Theme Generator
+app.post("/api/ai/theme", async (req, res) => {
+  try {
+    const { prompt = "futurista espacial azul neón" } = req.body || {};
+    const ai = getGenAI();
+
+    if (!ai) {
+      const p = String(prompt).toLowerCase();
+      const preset = p.includes("román") || p.includes("amor") || p.includes("rosa")
+        ? {
+            name: "Romance Estelar",
+            headerGradient: "from-rose-600 via-pink-600 to-fuchsia-600",
+            bubbleMeBg: "#e11d48",
+            bubbleMeText: "#ffffff",
+            bubbleThemBg: "#2a1626",
+            bubbleThemText: "#ffe4e6",
+            accentColor: "#fb7185",
+            sendEffect: "hearts",
+            soundPack: "soft",
+            animatedBg: "particles",
+          }
+        : p.includes("bosque") || p.includes("natur") || p.includes("verde")
+        ? {
+            name: "Bosque Bioluminiscente",
+            headerGradient: "from-emerald-700 via-teal-600 to-cyan-700",
+            bubbleMeBg: "#059669",
+            bubbleMeText: "#ffffff",
+            bubbleThemBg: "#122622",
+            bubbleThemText: "#d1fae5",
+            accentColor: "#34d399",
+            sendEffect: "bubbles",
+            soundPack: "soft",
+            animatedBg: "aurora",
+          }
+        : {
+            name: `Tema ${prompt.slice(0, 18)}`,
+            headerGradient: "from-cyan-600 via-blue-700 to-indigo-800",
+            bubbleMeBg: "#0284c7",
+            bubbleMeText: "#ffffff",
+            bubbleThemBg: "#172033",
+            bubbleThemText: "#e0f2fe",
+            accentColor: "#38bdf8",
+            sendEffect: "sparks",
+            soundPack: "cyber",
+            animatedBg: "stars",
+          };
+      return res.json({
+        source: "fallback",
+        theme: { id: `ai_theme_${Date.now()}`, ...preset },
+      });
+    }
+
+    const response = await ai.models.generateContent({
+      model: "gemini-4-hydrogen",
+      contents: `Crea un tema visual personalizado para una app de mensajería basado en: "${prompt}".
+Elige colores con excelente legibilidad (texto blanco sobre fondos oscuros/saturados o texto oscuro sobre fondos claros).
+Para "headerGradient" usa clases Tailwind válidas de gradiente, ej: "from-indigo-600 via-sky-600 to-cyan-500".
+"sendEffect" debe ser uno de: "none", "confetti", "hearts", "sparks", "bubbles".
+"soundPack" debe ser uno de: "default", "cyber", "soft", "retro".
+"animatedBg" debe ser uno de: "none", "aurora", "stars", "particles".`,
+      config: {
+        responseMimeType: "application/json",
+        responseSchema: {
+          type: Type.OBJECT,
+          properties: {
+            name: { type: Type.STRING },
+            headerGradient: { type: Type.STRING },
+            bubbleMeBg: { type: Type.STRING },
+            bubbleMeText: { type: Type.STRING },
+            bubbleThemBg: { type: Type.STRING },
+            bubbleThemText: { type: Type.STRING },
+            accentColor: { type: Type.STRING },
+            sendEffect: { type: Type.STRING },
+            soundPack: { type: Type.STRING },
+            animatedBg: { type: Type.STRING },
+          },
+          required: ["name", "headerGradient", "bubbleMeBg", "bubbleMeText", "bubbleThemBg", "bubbleThemText", "accentColor"],
+        },
+        thinkingConfig: { thinkingLevel: ThinkingLevel.LOW },
+      },
+    });
+
+    const parsed = JSON.parse(response.text || "{}");
+    return res.json({
+      source: "gemini",
+      theme: {
+        id: `ai_theme_${Date.now()}`,
+        name: parsed.name || "Tema IA",
+        headerGradient: parsed.headerGradient || "from-cyan-600 to-blue-700",
+        bubbleMeBg: parsed.bubbleMeBg || "#0284c7",
+        bubbleMeText: parsed.bubbleMeText || "#ffffff",
+        bubbleThemBg: parsed.bubbleThemBg || "#1e293b",
+        bubbleThemText: parsed.bubbleThemText || "#f8fafc",
+        accentColor: parsed.accentColor || "#38bdf8",
+        sendEffect: parsed.sendEffect || "sparks",
+        soundPack: parsed.soundPack || "cyber",
+        animatedBg: parsed.animatedBg || "aurora",
+      },
+    });
+  } catch (err: any) {
+    console.error("Error in /api/ai/theme:", err);
+    return res.status(500).json({ error: err?.message || "No se pudo crear el tema" });
+  }
+});
+
+// API: Analyze selfie photo to generate matching Digital Avatar traits
+app.post("/api/ai/avatar-analyze", async (req, res) => {
+  try {
+    const { imageDataUrl } = req.body || {};
+    const parsed = parseBase64DataUrl(imageDataUrl);
+    const ai = getGenAI();
+
+    if (!ai || !parsed) {
+      return res.json({
+        source: "local",
+        traits: null,
+      });
+    }
+
+    const response = await ai.models.generateContent({
+      model: "gemini-4-hydrogen",
+      contents: [
+        {
+          inlineData: {
+            mimeType: parsed.rawMime || "image/jpeg",
+            data: parsed.buffer.toString("base64"),
+          },
+        },
+        `Observa el rostro de la foto y sugiere rasgos estilizados para crear un avatar digital:
+- skinTone: color hex aproximado de piel
+- hairStyle: uno de "short", "long", "curly", "bob", "spiky", "bun", "mohawk", "none"
+- hairColor: color hex de cabello
+- eyeColor: color hex de ojos
+- accessory: "glasses" o "sunglasses" si usa lentes, sino "none"
+- outfitColor: color hex que combine con la ropa vista`,
+      ],
+      config: {
+        responseMimeType: "application/json",
+        responseSchema: {
+          type: Type.OBJECT,
+          properties: {
+            skinTone: { type: Type.STRING },
+            hairStyle: { type: Type.STRING },
+            hairColor: { type: Type.STRING },
+            eyeColor: { type: Type.STRING },
+            accessory: { type: Type.STRING },
+            outfitColor: { type: Type.STRING },
+          },
+          required: ["skinTone", "hairStyle", "hairColor", "eyeColor"],
+        },
+        thinkingConfig: { thinkingLevel: ThinkingLevel.LOW },
+      },
+    });
+
+    const traits = JSON.parse(response.text || "{}");
+    return res.json({ source: "gemini", traits });
+  } catch (err) {
+    console.warn("Avatar analyze fallback:", err);
+    return res.json({ source: "local", traits: null });
+  }
+});
+
 // --- Realtime Multi-User Rooms & WebSockets for Real People ---
 interface RealtimeUser {
   id: string;
@@ -896,6 +1432,9 @@ interface RealtimeRoom {
   createdAt: number;
   messages: any[];
   users: Map<string, RealtimeUser>;
+  room3dConfig?: any;
+  room3dAvatars?: Record<string, any>;
+  gameState?: any;
 }
 
 const realtimeRooms = new Map<string, RealtimeRoom>();
@@ -1117,7 +1656,7 @@ async function startServer() {
             lastActive: Date.now(),
           });
 
-          // Send init payload with history & online users
+          // Send init payload with history, online users, 3D room & active game state
           ws.send(
             JSON.stringify({
               type: 'init',
@@ -1128,6 +1667,11 @@ async function startServer() {
                 name: u.name,
                 avatarUrl: u.avatarUrl,
               })),
+              room3dState: {
+                config: room.room3dConfig || null,
+                avatars: room.room3dAvatars || {},
+              },
+              gameState: room.gameState || null,
             })
           );
 
@@ -1139,6 +1683,9 @@ async function startServer() {
             const room = realtimeRooms.get(roomId);
             if (room) {
               room.users.delete(currentUserId);
+              if (room.room3dAvatars) {
+                delete room.room3dAvatars[currentUserId];
+              }
               broadcastPresence(roomId);
             }
           }
@@ -1172,6 +1719,52 @@ async function startServer() {
               reactions: msg.reactions,
             });
           }
+        } else if (data.type === 'room_3d_update') {
+          const { roomId, avatarState, roomConfig } = data;
+          const room = getOrCreateRoom(roomId);
+          if (roomConfig) {
+            room.room3dConfig = roomConfig;
+          }
+          if (avatarState) {
+            room.room3dAvatars = room.room3dAvatars || {};
+            room.room3dAvatars[currentUserId] = {
+              ...avatarState,
+              userId: currentUserId,
+              userName: currentUserData?.name || avatarState.userName || 'Usuario',
+              updatedAt: Date.now(),
+            };
+          }
+          broadcastToRoom(
+            roomId,
+            {
+              type: 'room_3d_state',
+              roomId,
+              config: room.room3dConfig || null,
+              avatars: room.room3dAvatars || {},
+              senderId: currentUserId,
+            },
+            ws
+          );
+        } else if (data.type === 'game_event') {
+          const { roomId, gameType, action, payload, gameState } = data;
+          const room = getOrCreateRoom(roomId);
+          if (gameState) {
+            room.gameState = gameState;
+          }
+          broadcastToRoom(
+            roomId,
+            {
+              type: 'game_event',
+              roomId,
+              gameType,
+              action,
+              payload,
+              gameState: room.gameState || null,
+              senderId: currentUserId,
+              senderName: currentUserData?.name || 'Jugador',
+            },
+            ws
+          );
         } else if (data.type === 'call_signal') {
           const { roomId, callId, signal } = data;
           const targetRoom = roomId || `call_${callId}`;

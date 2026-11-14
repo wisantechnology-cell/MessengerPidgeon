@@ -15,15 +15,15 @@ export const BirdLogo: React.FC<BirdLogoProps> = ({
     <div
       className={`relative inline-flex items-center justify-center shrink-0 select-none overflow-hidden rounded-full ${
         withBackground
-          ? 'bg-black ring-1 ring-[#00d4ff]/30 shadow-md shadow-black/50 p-0.5'
+          ? 'bg-slate-900 ring-1 ring-slate-200 dark:ring-white/15 shadow-sm p-0.5'
           : ''
       } ${className}`}
       style={size ? { width: size, height: size } : undefined}
-      title="PidgeX - No hay límites para conectar."
+      title="PidgeX"
     >
       <img
         src="/pidgex-logo.svg"
-        alt="PidgeX Paloma Logo"
+        alt="PidgeX Logo"
         className="w-full h-full object-cover rounded-full"
       />
     </div>
@@ -38,33 +38,32 @@ interface PidgeXFullLogoProps {
 
 export const PidgeXFullLogo: React.FC<PidgeXFullLogoProps> = ({
   className = '',
-  showSlogan = true,
-  align = 'center',
+  showSlogan = false,
+  align = 'left',
 }) => {
   return (
     <div
-      className={`flex flex-col select-none p-6 bg-black rounded-3xl border border-white/15 shadow-2xl ${
-        align === 'center' ? 'items-center text-center' : 'items-start text-left'
+      className={`flex items-center gap-3 select-none ${
+        align === 'center' ? 'justify-center text-center' : 'justify-start text-left'
       } ${className}`}
     >
-      {/* Large Circular Paloma Logo Badge (No text inside SVG) */}
-      <div className="w-40 h-40 sm:w-48 sm:h-48 rounded-full overflow-hidden bg-black ring-4 ring-[#00d4ff]/60 shadow-2xl flex items-center justify-center mb-2">
+      <div className="w-11 h-11 rounded-full overflow-hidden bg-slate-900 ring-1 ring-slate-200 dark:ring-white/15 flex items-center justify-center shrink-0">
         <img
           src="/pidgex-logo.svg"
-          alt="PidgeX Paloma Emblem"
+          alt="PidgeX"
           className="w-full h-full object-cover rounded-full"
         />
       </div>
-
-      <span className="font-serif tracking-[0.18em] font-black text-white text-2xl sm:text-3xl mt-1 leading-tight uppercase drop-shadow-md">
-        PidgeX
-      </span>
-
-      {showSlogan && (
-        <span className="text-[11px] sm:text-xs tracking-[0.24em] text-[#38bdf8] font-extrabold uppercase mt-2 drop-shadow">
-          NO HAY LÍMITES PARA CONECTAR.
+      <div className="flex flex-col">
+        <span className="font-bold tracking-tight text-lg leading-tight">
+          PidgeX
         </span>
-      )}
+        {showSlogan && (
+          <span className="text-xs text-slate-500 dark:text-slate-400">
+            Mensajería y llamadas
+          </span>
+        )}
+      </div>
     </div>
   );
 };

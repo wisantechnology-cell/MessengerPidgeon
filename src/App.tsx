@@ -1,10 +1,21 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
 import {
   INITIAL_USER,
   INITIAL_CHATS,
   WALLPAPERS,
 } from './data/mockData';
-import { Chat, ChatCategory, Message, UserProfile, MarketplaceProduct, GroupMember } from './types';
+import {
+  Chat,
+  ChatCategory,
+  Message,
+  UserProfile,
+  MarketplaceProduct,
+  GroupMember,
+  ChatPersonalityTheme,
+  EmotionalMode,
+  VirtualRoomConfig,
+  TimeCapsuleData,
+} from './types';
 import {
   auth,
   db,
@@ -50,16 +61,16 @@ import { NewChatModal } from './components/NewChatModal';
 import { NewGroupModal } from './components/NewGroupModal';
 import { AddFriendModal, AddFriendData } from './components/AddFriendModal';
 import { SendVoiceMessageModal } from './components/SendVoiceMessageModal';
-import { StudioWatermark } from './components/StudioWatermark';
 import { VirtualPetWidget } from './components/VirtualPetWidget';
 import { ContactProfileModal } from './components/ContactProfileModal';
 import { WeatherEffectsOverlay } from './components/WeatherEffectsOverlay';
-import { TimeCapsuleModal } from './components/TimeCapsuleModal';
+import { TimeCapsuleModal, StoredTimeCapsule } from './components/TimeCapsuleModal';
 import { ensurePhoneStartsWith16, generateUniquePidgePhone } from './utils/phoneUtils';
 import { createSvgAvatar } from './utils/avatarUtils';
 import { InstallPwaModal } from './components/InstallPwaModal';
 import { FlyingBirdLoader } from './components/FlyingBirdLoader';
 import { BirdNotificationToast, BirdNotification } from './components/BirdNotificationToast';
+import { AccountOnboardingView, AccountRegistrationPayload } from './components/AccountOnboardingView';
 import {
   sendNativeCallNotification,
   sendNativeMessageNotification,
@@ -358,6 +369,13 @@ export default function App() {
   const [isTourOpen, setIsTourOpen] = useState<boolean>(false);
   const [isInstallModalOpen, setIsInstallModalOpen] = useState<boolean>(false);
   const [isAppLoading, setIsAppLoading] = useState<boolean>(true);
+  const [isAccountRegistered, setIsAccountRegistered] = useState<boolean>(() => {
+    try {
+      return localStorage.getItem('pidgex_account_completed_v1') === 'true';
+    } catch {
+      return false;
+    }
+  });
 
   useEffect(() => {
     const timer = setTimeout(() => {
@@ -399,6 +417,13 @@ export default function App() {
   } | null>(null);
   const [isCallMinimized, setIsCallMinimized] = useState<boolean>(false);
   const [incomingCallData, setIncomingCallData] = useState<IncomingCallData | null>(null);
+  const incomingCallRef = useRef<IncomingCallData | null>(null);
+  incomingCallRef.current = incomingCallData;
+  const activeCallSessionRef = useRef(activeCallSession);
+  activeCallSessionRef.current = activeCallSession;
+  const dismissedCallIdsRef = useRef<Set<string>>(new Set());
+  const userRef = useRef<UserProfile>(user);
+  userRef.current = user;
   const [inAppNotification, setInAppNotification] = useState<BirdNotification | null>(null);
 
   useEffect(() => {
@@ -450,7 +475,7 @@ export default function App() {
 
   // Sync user profile changes to Firestore and local cross-tab registry
   useEffect(() => {
-    if (!user) return;
+    if (!user || !isAccountRegistered) return;
     broadcastUserPresence(user);
     const unsubPresence = initPresenceListener();
 
@@ -464,7 +489,55 @@ export default function App() {
     }
 
     return () => unsubPresence();
-  }, [user]);
+  }, [user, isAccountRegistered]);
+
+  const handleCompleteAccountCreation = async (payload: AccountRegistrationPayload) => {
+    const newId =
+      user.id && user.id !== 'user_me'
+        ? user.id
+        : `user_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`;
+
+    try {
+      localStorage.setItem('birdmessage_client_uid', newId);
+      localStorage.setItem(
+        'pidgex_account_credentials_v1',
+        JSON.stringify({
+          userId: newId,
+          username: payload.username,
+          phone: payload.phone,
+          passwordHash: payload.passwordHash,
+          createdAt: Date.now(),
+        })
+      );
+      localStorage.setItem('pidgex_account_completed_v1', 'true');
+    } catch {
+      // ignore storage errors
+    }
+
+    const updatedUser: UserProfile = {
+      ...user,
+      id: newId,
+      name: payload.name,
+      username: payload.username,
+      bio: payload.bio,
+      phone: payload.phone,
+      avatarUrl: payload.avatarUrl,
+      accountCreated: true,
+    };
+
+    setUser(updatedUser);
+    registerKnownUser(updatedUser);
+    broadcastUserPresence(updatedUser);
+
+    try {
+      const userRef = doc(db, 'users', newId);
+      await setDoc(userRef, updatedUser, { merge: true });
+    } catch (err) {
+      console.warn('Firestore profile save notice (continuing locally):', err);
+    }
+
+    setIsAccountRegistered(true);
+  };
 
   // Index contacts from chats into local registry
   useEffect(() => {
@@ -473,7 +546,7 @@ export default function App() {
 
   // Real-time Incoming Calls Listener
   useEffect(() => {
-    if (!user) return;
+    if (!user?.id) return;
     const myPhoneClean = getCleanPhone(user.phone);
     const myUserId = user.id || 'me';
     const myNameClean = (user.name || '').trim().toLowerCase();
@@ -484,21 +557,32 @@ export default function App() {
       (snapshot) => {
         const now = Date.now();
         let foundCall: IncomingCallData | null = null;
+        let currentIncomingStatus: string | null = null;
+        const currentIncomingId = incomingCallRef.current?.id;
 
         snapshot.docs.forEach((d) => {
           const data = d.data();
           if (!data) return;
 
-          // 1. Completely ignore calls created at or before this app session loaded
-          const callTime = data.createdAt || 0;
-          if (callTime <= appLoadedTimeRef.current) return;
+          if (currentIncomingId && d.id === currentIncomingId) {
+            currentIncomingStatus = data.status || null;
+          }
 
-          // 2. Ignore calls originated by this exact tab or by this user account
+          if (dismissedCallIdsRef.current.has(d.id)) return;
+          if (activeCallSessionRef.current?.callId === d.id) return;
+
+          // Allow slight clock skew across devices while ignoring stale calls from old sessions
+          const callTime = data.createdAt || 0;
+          if (callTime <= appLoadedTimeRef.current - 15000) return;
+
+          // Ignore calls originated by this exact tab or by this user account
           const isCallerTab = data.callerTabSessionId === tabSessionIdRef.current;
-          const isCallerUser = (data.callerId && data.callerId === myUserId) || (data.callerPhone && myPhoneClean && data.callerPhone === myPhoneClean);
+          const isCallerUser =
+            (data.callerId && data.callerId === myUserId) ||
+            (data.callerPhone && myPhoneClean && data.callerPhone === myPhoneClean);
           if (isCallerTab || isCallerUser) return;
 
-          // 3. Strict target receiver matching
+          // Strict target receiver matching
           const recPhone = getCleanPhone(data.receiverPhone);
           const recId = data.receiverId;
           const recName = (data.receiverName || '').trim().toLowerCase();
@@ -506,10 +590,15 @@ export default function App() {
           const isTargetedToMe =
             (recPhone && myPhoneClean && recPhone.length >= 6 && recPhone === myPhoneClean) ||
             (recId && recId === myUserId) ||
-            (recName && myNameClean && myNameClean !== 'usuario nuevo' && (recName === myNameClean || recName.includes(myNameClean) || myNameClean.includes(recName)));
+            (recName &&
+              myNameClean &&
+              myNameClean !== 'usuario nuevo' &&
+              (recName === myNameClean ||
+                recName.includes(myNameClean) ||
+                myNameClean.includes(recName)));
 
-          // 4. Only detect active ringing calls created live in the last 40 seconds
-          if (isTargetedToMe && data.status === 'ringing' && now - callTime < 40000) {
+          // Only detect active ringing calls created live in the last 45 seconds
+          if (isTargetedToMe && data.status === 'ringing' && now - callTime < 45000) {
             foundCall = {
               id: d.id,
               callerId: data.callerId || 'unknown',
@@ -523,17 +612,24 @@ export default function App() {
           }
         });
 
-        if (foundCall && (!incomingCallData || incomingCallData.id !== foundCall.id)) {
-          sendNativeCallNotification(
-            foundCall.callerName,
-            foundCall.isVideo,
-            foundCall.callerAvatar,
-            foundCall.id,
-            user
-          );
+        if (foundCall) {
+          if (!incomingCallRef.current || incomingCallRef.current.id !== foundCall.id) {
+            sendNativeCallNotification(
+              foundCall.callerName,
+              foundCall.isVideo,
+              foundCall.callerAvatar,
+              foundCall.id,
+              userRef.current
+            );
+            setIncomingCallData(foundCall);
+          }
+        } else if (
+          currentIncomingId &&
+          currentIncomingStatus !== null &&
+          currentIncomingStatus !== 'ringing'
+        ) {
+          setIncomingCallData(null);
         }
-
-        setIncomingCallData(foundCall);
       },
       (err) => {
         console.warn('Real-time calls listener error:', err);
@@ -541,7 +637,7 @@ export default function App() {
     );
 
     return () => unsubscribe();
-  }, [user, user.phone, user.id, user.name, incomingCallData]);
+  }, [user.id, user.phone, user.name]);
 
   // Real-time Chat Discovery (e.g. when brother adds user or initiates contact)
   useEffect(() => {
@@ -653,6 +749,7 @@ export default function App() {
             type: data.type || 'text',
             text: data.text || undefined,
             mediaUrl: data.mediaUrl || undefined,
+            thumbnailUrl: data.thumbnailUrl || undefined,
             mediaName: data.mediaName || undefined,
             mediaSize: data.mediaSize || undefined,
             mediaDuration: data.mediaDuration || undefined,
@@ -664,6 +761,11 @@ export default function App() {
             timestampMs: data.timestampMs || 0,
             isRead: true,
             reactions: data.reactions || {},
+            avatarPayload: data.avatarPayload || undefined,
+            capsuleData: data.capsuleData || undefined,
+            gameData: data.gameData || undefined,
+            translatedText: data.translatedText || undefined,
+            emotionTag: data.emotionTag || undefined,
           };
         }).sort((a, b) => ((a as any).timestampMs || 0) - ((b as any).timestampMs || 0));
 
@@ -731,23 +833,30 @@ export default function App() {
           (payload.receiverPhone && user.phone && payload.receiverPhone === user.phone);
 
         if (isTargetedToMe && payload.callerId !== myUserId) {
-          const callData: IncomingCallData = {
-            id: payload.callId || `call_${Date.now()}`,
-            callerId: payload.callerId || 'unknown',
-            callerName: payload.callerName || 'Contacto PidgeX',
-            callerPhone: payload.callerPhone || '',
-            callerAvatar: payload.callerAvatar || '',
-            isVideo: Boolean(payload.isVideo),
-            chatId: payload.chatId || roomId,
-          };
-          sendNativeCallNotification(
-            callData.callerName,
-            callData.isVideo,
-            callData.callerAvatar,
-            callData.id,
-            user
-          );
-          setIncomingCallData(callData);
+          const incomingId = payload.callId || `call_${Date.now()}`;
+          if (
+            !dismissedCallIdsRef.current.has(incomingId) &&
+            activeCallSessionRef.current?.callId !== incomingId &&
+            incomingCallRef.current?.id !== incomingId
+          ) {
+            const callData: IncomingCallData = {
+              id: incomingId,
+              callerId: payload.callerId || 'unknown',
+              callerName: payload.callerName || 'Contacto PidgeX',
+              callerPhone: payload.callerPhone || '',
+              callerAvatar: payload.callerAvatar || '',
+              isVideo: Boolean(payload.isVideo),
+              chatId: payload.chatId || roomId,
+            };
+            sendNativeCallNotification(
+              callData.callerName,
+              callData.isVideo,
+              callData.callerAvatar,
+              callData.id,
+              userRef.current
+            );
+            setIncomingCallData(callData);
+          }
         }
       } catch (err) {
         console.warn('Failed parsing PIDGEX_CALL_RINGING payload:', err);
@@ -796,7 +905,17 @@ export default function App() {
           messages: [...currentList, incomingMsg],
           lastMessageText:
             incomingMsg.text ||
-            (incomingMsg.type === 'voice' ? 'Mensaje de voz' : `[${incomingMsg.type}]`),
+            (incomingMsg.type === 'voice'
+              ? 'Mensaje de voz'
+              : incomingMsg.type === 'avatar_msg'
+              ? 'Mensaje de Avatar IA'
+              : incomingMsg.type === 'capsule'
+              ? 'Mensaje del Futuro'
+              : incomingMsg.type === 'memory_reel'
+              ? 'Video de Recuerdos'
+              : incomingMsg.type === 'game_invite'
+              ? incomingMsg.gameData?.title || 'Invitación a jugar'
+              : `[${incomingMsg.type}]`),
           lastMessageTime: incomingMsg.timestamp,
           lastMessageRead: activeChatId === existingChat.id,
           unreadCount: activeChatId === existingChat.id ? 0 : (existingChat.unreadCount || 0) + 1,
@@ -828,7 +947,17 @@ export default function App() {
           unreadCount: 1,
           lastMessageText:
             incomingMsg.text ||
-            (incomingMsg.type === 'voice' ? 'Mensaje de voz' : `[${incomingMsg.type}]`),
+            (incomingMsg.type === 'voice'
+              ? 'Mensaje de voz'
+              : incomingMsg.type === 'avatar_msg'
+              ? 'Mensaje de Avatar IA'
+              : incomingMsg.type === 'capsule'
+              ? 'Mensaje del Futuro'
+              : incomingMsg.type === 'memory_reel'
+              ? 'Video de Recuerdos'
+              : incomingMsg.type === 'game_invite'
+              ? incomingMsg.gameData?.title || 'Invitación a jugar'
+              : `[${incomingMsg.type}]`),
           lastMessageTime: incomingMsg.timestamp,
           lastMessageRead: false,
           messages: [incomingMsg],
@@ -1017,6 +1146,7 @@ export default function App() {
   };
 
   const handleAcceptIncomingCall = async (call: IncomingCallData) => {
+    dismissedCallIdsRef.current.add(call.id);
     ringtoneManager.stopIncomingCallAlert();
     try {
       const AudioCtx = window.AudioContext || (window as any).webkitAudioContext;
@@ -1084,6 +1214,7 @@ export default function App() {
   };
 
   const handleDeclineIncomingCall = async (call: IncomingCallData) => {
+    dismissedCallIdsRef.current.add(call.id);
     ringtoneManager.stopIncomingCallAlert();
     try {
       fetch('/api/calls/end', {
@@ -1104,6 +1235,24 @@ export default function App() {
     }
     setIncomingCallData(null);
   };
+
+  const handleCloseActiveCall = useCallback(() => {
+    const current = activeCallSessionRef.current;
+    if (current?.callId) {
+      dismissedCallIdsRef.current.add(current.callId);
+      try {
+        const callRef = doc(db, 'calls', current.callId);
+        updateDoc(callRef, { status: 'ended', endedAt: Date.now() }).catch(() => {});
+      } catch (e) {
+        console.warn('Error ending call doc:', e);
+      }
+    }
+    setIsCallMinimized(false);
+    setActiveCallSession(null);
+  }, []);
+
+  const handleMinimizeActiveCall = useCallback(() => setIsCallMinimized(true), []);
+  const handleRestoreActiveCall = useCallback(() => setIsCallMinimized(false), []);
 
   // Service Worker background action listener & URL wake-up handler (even when app was closed)
   useEffect(() => {
@@ -1177,7 +1326,6 @@ export default function App() {
               handleAcceptIncomingCall(incoming);
             } else {
               setIncomingCallData(incoming);
-              ringtoneManager.startIncomingCallAlert(user);
             }
           }
         };
@@ -1262,6 +1410,8 @@ export default function App() {
       localStorage.removeItem('birdmessage_chats_data_v5');
       localStorage.removeItem('birdmessage_chats_data_v6');
       localStorage.removeItem('birdmessage_marketplace_v1');
+      localStorage.removeItem('pidgex_account_completed_v1');
+      localStorage.removeItem('pidgex_account_credentials_v1');
     } catch (e) {
       console.error('Error clearing localStorage:', e);
     }
@@ -1276,6 +1426,7 @@ export default function App() {
       bio: 'Soy nuevo en PidgeX',
       phone: '16 600 000 001',
       email: '',
+      accountCreated: false,
       pendingFriendRequests: [],
     };
 
@@ -1284,6 +1435,7 @@ export default function App() {
     setActiveChatId(null);
     setFirebaseUser(null);
     setIsCloudSynced(false);
+    setIsAccountRegistered(false);
     setActiveTab('chats');
   };
 
@@ -1305,11 +1457,23 @@ export default function App() {
     try {
       localStorage.setItem(CHATS_STORAGE_KEY, JSON.stringify(chats));
     } catch {
-      // ignore
+      try {
+        const compactChats = chats.map((c) => ({
+          ...c,
+          messages: (c.messages || []).map((m) =>
+            m.mediaUrl && m.mediaUrl.startsWith('data:video/')
+              ? { ...m, mediaUrl: undefined }
+              : m
+          ),
+        }));
+        localStorage.setItem(CHATS_STORAGE_KEY, JSON.stringify(compactChats));
+      } catch {
+        // ignore quota errors gracefully
+      }
     }
   }, [chats]);
 
-  // Play authentic bird chirp sound & show toast notification when receiving a new message
+  // Play notification sound & show toast when receiving a new message
   const prevMessageCountsRef = useRef<Record<string, number>>({});
   useEffect(() => {
     chats.forEach((c) => {
@@ -1317,7 +1481,17 @@ export default function App() {
       if (c.messages.length > prevCount) {
         const latestMsg = c.messages[c.messages.length - 1];
         if (latestMsg && latestMsg.senderId !== 'me') {
-          const notifText = latestMsg.text || (latestMsg.type === 'voice' ? '🎵 Mensaje de voz' : latestMsg.type === 'image' ? '📷 Foto adjunta' : 'Nuevo mensaje');
+          const notifText =
+            latestMsg.text ||
+            (latestMsg.type === 'voice'
+              ? 'Mensaje de voz'
+              : latestMsg.type === 'video'
+              ? 'Video adjunto'
+              : latestMsg.type === 'image'
+              ? 'Foto adjunta'
+              : latestMsg.type === 'gif'
+              ? `GIF${latestMsg.mediaName ? `: ${latestMsg.mediaName}` : ''}`
+              : 'Nuevo mensaje');
           
           sendNativeSystemNotification(c.name, notifText, c.avatarUrl, c.id);
           ringtoneManager.playIncomingMessageAlert(user);
@@ -1388,6 +1562,7 @@ export default function App() {
       type: messageData.type || 'text',
       text: messageData.text,
       mediaUrl: messageData.mediaUrl,
+      thumbnailUrl: messageData.thumbnailUrl,
       mediaName: messageData.mediaName,
       mediaSize: messageData.mediaSize,
       mediaDuration: messageData.mediaDuration,
@@ -1397,6 +1572,11 @@ export default function App() {
       stickerTitle: messageData.stickerTitle,
       stickerSubtitle: messageData.stickerSubtitle,
       stickerUrl: messageData.stickerUrl,
+      avatarPayload: messageData.avatarPayload,
+      capsuleData: messageData.capsuleData,
+      gameData: messageData.gameData,
+      translatedText: messageData.translatedText,
+      emotionTag: messageData.emotionTag,
       timestamp:
         messageData.timestamp ||
         new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
@@ -1431,7 +1611,12 @@ export default function App() {
           if (newMessage.type === 'image') lastText = 'Foto adjunta';
           if (newMessage.type === 'voice') lastText = 'Mensaje de voz';
           if (newMessage.type === 'sticker') lastText = `Sticker: ${newMessage.stickerTitle || 'Sticker'}`;
+          if (newMessage.type === 'gif') lastText = `GIF: ${newMessage.mediaName || 'Animación'}`;
           if (newMessage.type === 'video') lastText = 'Video adjunto';
+          if (newMessage.type === 'avatar_msg') lastText = `Avatar IA: ${newMessage.text || 'Mensaje animado'}`;
+          if (newMessage.type === 'capsule') lastText = `Mensaje del Futuro: ${newMessage.capsuleData?.occasion || 'Sorpresa'}`;
+          if (newMessage.type === 'memory_reel') lastText = 'Video de Recuerdos';
+          if (newMessage.type === 'game_invite') lastText = newMessage.gameData?.title || 'Invitación a jugar';
 
           return {
             ...c,
@@ -1478,6 +1663,7 @@ export default function App() {
         type: newMessage.type,
         text: newMessage.text || null,
         mediaUrl: newMessage.mediaUrl || null,
+        thumbnailUrl: newMessage.thumbnailUrl || null,
         mediaName: newMessage.mediaName || null,
         mediaSize: newMessage.mediaSize || null,
         mediaDuration: newMessage.mediaDuration || null,
@@ -1485,6 +1671,11 @@ export default function App() {
         filter: newMessage.filter || null,
         stickerTitle: newMessage.stickerTitle || null,
         stickerUrl: newMessage.stickerUrl || null,
+        avatarPayload: newMessage.avatarPayload || null,
+        capsuleData: newMessage.capsuleData || null,
+        gameData: newMessage.gameData || null,
+        translatedText: newMessage.translatedText || null,
+        emotionTag: newMessage.emotionTag || null,
         timestamp: newMessage.timestamp,
         timestampMs: Date.now(),
         isRead: false,
@@ -1494,7 +1685,12 @@ export default function App() {
       if (newMessage.type === 'image') lastText = 'Foto adjunta';
       if (newMessage.type === 'voice') lastText = 'Mensaje de voz';
       if (newMessage.type === 'sticker') lastText = `Sticker: ${newMessage.stickerTitle || 'Sticker'}`;
+      if (newMessage.type === 'gif') lastText = `GIF: ${newMessage.mediaName || 'Animación'}`;
       if (newMessage.type === 'video') lastText = 'Video adjunto';
+      if (newMessage.type === 'avatar_msg') lastText = `Avatar IA: ${newMessage.text || 'Mensaje animado'}`;
+      if (newMessage.type === 'capsule') lastText = `Mensaje del Futuro: ${newMessage.capsuleData?.occasion || 'Sorpresa'}`;
+      if (newMessage.type === 'memory_reel') lastText = 'Video de Recuerdos';
+      if (newMessage.type === 'game_invite') lastText = newMessage.gameData?.title || 'Invitación a jugar';
 
       const chatDocRef = doc(db, 'chats', chatId);
       setDoc(chatDocRef, {
@@ -1526,6 +1722,62 @@ export default function App() {
       }
     } catch {}
   };
+
+  // Automatic Time Capsule / Scheduled Future Messages delivery scheduler
+  const handleSendMessageRef = useRef(handleSendMessage);
+  handleSendMessageRef.current = handleSendMessage;
+  useEffect(() => {
+    const checkDueCapsules = () => {
+      try {
+        const raw = localStorage.getItem('pidge_time_capsules_v1');
+        if (!raw) return;
+        const list: StoredTimeCapsule[] = JSON.parse(raw);
+        if (!Array.isArray(list) || list.length === 0) return;
+        const now = Date.now();
+        let changed = false;
+
+        const updated = list.map((cap) => {
+          if (!cap.delivered && now >= cap.unlockTime) {
+            changed = true;
+            handleSendMessageRef.current(cap.chatId, {
+              senderId: 'me',
+              senderName: userRef.current.name,
+              senderAvatar: userRef.current.avatarUrl,
+              type: 'capsule',
+              text: cap.messageText,
+              capsuleData: {
+                id: cap.id,
+                unlockTime: cap.unlockTime,
+                occasion: cap.occasion,
+                isSurprise: cap.isSurprise,
+                unlocked: false,
+                attachments: cap.attachments,
+              },
+              timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+              isRead: true,
+            });
+            setInAppNotification({
+              id: `cap_due_${cap.id}`,
+              title: 'Mensaje del Futuro desbloqueado',
+              body: `Tu mensaje "${cap.occasion}" llegó a ${cap.chatName}`,
+              chatId: cap.chatId,
+            });
+            return { ...cap, delivered: true, isUnlocked: true };
+          }
+          return cap;
+        });
+
+        if (changed) {
+          localStorage.setItem('pidge_time_capsules_v1', JSON.stringify(updated));
+        }
+      } catch {
+        // ignore storage errors
+      }
+    };
+
+    const timer = setInterval(checkDueCapsules, 8000);
+    return () => clearInterval(timer);
+  }, []);
 
   const handleSendVoiceMessageFromModal = (
     chatId: string,
@@ -1568,6 +1820,7 @@ export default function App() {
             if (lastMsg.type === 'image') lastText = 'Foto adjunta';
             if (lastMsg.type === 'voice') lastText = 'Mensaje de voz';
             if (lastMsg.type === 'sticker') lastText = `Sticker: ${lastMsg.stickerTitle || 'Sticker'}`;
+            if (lastMsg.type === 'gif') lastText = `GIF: ${lastMsg.mediaName || 'Animación'}`;
             if (lastMsg.type === 'video') lastText = 'Video adjunto';
           }
           return {
@@ -2357,23 +2610,36 @@ export default function App() {
           </filter>
         </defs>
       </svg>
-      {/* Dynamic Global Background Wallpaper Layer (Main menu, chats list, etc.) */}
+      {/* Dynamic Global Background Wallpaper Layer */}
       <div className="fixed inset-0 pointer-events-none z-0 overflow-hidden">
         {wallpaperBackgroundUrl && (
-          <img
-            src={wallpaperBackgroundUrl}
-            alt="Fondo de pantalla"
-            className="w-full h-full object-cover transition-all duration-700 ease-out scale-105"
-            style={{
-              filter: isNightMode
-                ? 'invert(0.88) hue-rotate(180deg) brightness(0.65) contrast(1.1)'
-                : 'none',
-            }}
-          />
+          <>
+            <img
+              src={wallpaperBackgroundUrl}
+              alt="Fondo de pantalla"
+              className="w-full h-full object-cover transition-opacity duration-500"
+              style={{
+                filter: isNightMode
+                  ? 'invert(0.88) hue-rotate(180deg) brightness(0.55) contrast(1.05)'
+                  : 'none',
+              }}
+            />
+            <div
+              className={`absolute inset-0 ${
+                isNightMode ? 'bg-[#0b0f17]/55' : 'bg-[#f4f7fb]/45'
+              }`}
+            />
+          </>
         )}
       </div>
 
       {/* Main App Content Container */}
+      {!isAccountRegistered ? (
+        <AccountOnboardingView
+          onCompleteAccount={handleCompleteAccountCreation}
+          isNightMode={isNightMode}
+        />
+      ) : (
       <div className="relative z-10 min-h-screen w-full flex flex-col">
         {activeChat ? (
           <div key={`chat_${activeChat.id}`} className="w-full h-full animate-in slide-in-from-right-12 duration-1000 ease-out">
@@ -2411,6 +2677,46 @@ export default function App() {
               onSelectGradient={(chatId, gradient) => {
                 setChats((prev) =>
                   prev.map((c) => (c.id === chatId ? { ...c, headerGradient: gradient } : c))
+                );
+              }}
+              onUpdatePersonalityTheme={(chatId, theme: ChatPersonalityTheme) => {
+                setChats((prev) =>
+                  prev.map((c) => (c.id === chatId ? { ...c, personalityTheme: theme, headerGradient: theme.headerGradient } : c))
+                );
+                try {
+                  setDoc(doc(db, 'chats', chatId), { personalityTheme: theme, headerGradient: theme.headerGradient }, { merge: true }).catch(() => {});
+                } catch {}
+              }}
+              onUpdateEmotionalMode={(chatId, mode: EmotionalMode) => {
+                setChats((prev) =>
+                  prev.map((c) => (c.id === chatId ? { ...c, emotionalMode: mode } : c))
+                );
+                try {
+                  setDoc(doc(db, 'chats', chatId), { emotionalMode: mode }, { merge: true }).catch(() => {});
+                } catch {}
+              }}
+              onSaveVirtualRoomConfig={(chatId, config: VirtualRoomConfig) => {
+                setChats((prev) =>
+                  prev.map((c) => (c.id === chatId ? { ...c, virtualRoomConfig: config } : c))
+                );
+                try {
+                  setDoc(doc(db, 'chats', chatId), { virtualRoomConfig: config }, { merge: true }).catch(() => {});
+                } catch {}
+              }}
+              onUnlockCapsuleMessage={(chatId, messageId) => {
+                setChats((prev) =>
+                  prev.map((c) =>
+                    c.id === chatId
+                      ? {
+                          ...c,
+                          messages: (c.messages || []).map((m) =>
+                            m.id === messageId && m.capsuleData
+                              ? { ...m, capsuleData: { ...m.capsuleData, unlocked: true } }
+                              : m
+                          ),
+                        }
+                      : c
+                  )
                 );
               }}
               onStartPrivateChat={(memberId, memberName) => {
@@ -2700,15 +3006,17 @@ export default function App() {
           isOpen={isTimeCapsuleModalOpen}
           onClose={() => setIsTimeCapsuleModalOpen(false)}
           chats={chats}
+          defaultChatId={activeChat?.id}
           user={user}
           isNightMode={isNightMode}
-          onSendCapsuleMessage={(chatId, text) => {
+          onSendCapsuleMessage={(chatId, text, capsuleData?: TimeCapsuleData) => {
             handleSendMessage(chatId, {
               senderId: 'me',
               senderName: user.name,
               senderAvatar: user.avatarUrl,
-              type: 'text',
+              type: capsuleData ? 'capsule' : 'text',
               text,
+              capsuleData,
               timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
               isRead: true,
             });
@@ -2719,28 +3027,14 @@ export default function App() {
         {/* Virtual Pet Pikito */}
         <VirtualPetWidget user={user} isNightMode={isNightMode} />
 
-        {/* Floating Studios M.A P.J Badge Symbol (auto-hidden inside chats, non-blocking) */}
-        <StudioWatermark hidden={Boolean(activeChatId)} />
-
         {/* Real-time Outgoing & Active Call Modal */}
         {activeCallSession && (
           <CallModal
             isOpen={Boolean(activeCallSession)}
             isMinimized={isCallMinimized}
-            onMinimize={() => setIsCallMinimized(true)}
-            onRestore={() => setIsCallMinimized(false)}
-            onClose={() => {
-              if (activeCallSession.callId) {
-                try {
-                  const callRef = doc(db, 'calls', activeCallSession.callId);
-                  updateDoc(callRef, { status: 'ended', endedAt: Date.now() }).catch(() => {});
-                } catch (e) {
-                  console.warn('Error ending call doc:', e);
-                }
-              }
-              setIsCallMinimized(false);
-              setActiveCallSession(null);
-            }}
+            onMinimize={handleMinimizeActiveCall}
+            onRestore={handleRestoreActiveCall}
+            onClose={handleCloseActiveCall}
             contactName={activeCallSession.chat.name}
             contactAvatar={activeCallSession.chat.avatarUrl}
             isVideo={activeCallSession.isVideo}
@@ -2768,10 +3062,10 @@ export default function App() {
           isNightMode={isNightMode}
         />
 
-        {/* Flying Bird Loader */}
+        {/* Splash Loader */}
         <FlyingBirdLoader
           isLoading={isAppLoading}
-          message="Eugenio volando con tus mensajes..."
+          message="Cargando tus chats..."
           isNightMode={isNightMode}
         />
 
@@ -2786,6 +3080,7 @@ export default function App() {
           isNightMode={isNightMode}
         />
       </div>
+      )}
     </div>
   );
 }

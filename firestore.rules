@@ -72,9 +72,16 @@ service cloud.firestore {
 
     match /gameScores/{scoreId} {
       allow get, list: if true;
-      allow create: if isSignedIn() && isValidId(scoreId) && isValidGameScore(incoming());
-      allow update: if isSignedIn() && isValidId(scoreId) && isValidGameScore(incoming());
-      allow delete: if isSignedIn() && isValidId(scoreId);
+      allow create, update: if isValidId(scoreId) && isValidGameScore(incoming());
+      allow delete: if isValidId(scoreId);
+    }
+
+    match /timeCapsules/{capsuleId} {
+      allow get, list, create, update, delete: if isValidId(capsuleId);
+    }
+
+    match /virtualRooms/{roomId} {
+      allow get, list, create, update, delete: if isValidId(roomId);
     }
 
     match /{document=**} {
