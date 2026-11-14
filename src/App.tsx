@@ -2193,6 +2193,16 @@ export default function App() {
     );
   };
 
+  // Update Group Photo / Avatar
+  const handleUpdateGroupAvatar = (chatId: string, newAvatarUrl: string) => {
+    setChats((prev) =>
+      prev.map((c) => (c.id === chatId ? { ...c, avatarUrl: newAvatarUrl } : c))
+    );
+    try {
+      setDoc(doc(db, 'chats', chatId), { avatarUrl: newAvatarUrl, updatedAt: Date.now() }, { merge: true }).catch(() => {});
+    } catch {}
+  };
+
   // Leave Group
   const handleLeaveGroup = (chatId: string) => {
     setChats((prev) =>
@@ -2671,6 +2681,7 @@ export default function App() {
               onAddContactAsFriend={handleAddContactAsFriend}
               onOpenAddFriend={() => setIsAddFriendModalOpen(true)}
               onUpdateGroupMembers={handleUpdateGroupMembers}
+              onUpdateGroupAvatar={handleUpdateGroupAvatar}
               onLeaveGroup={handleLeaveGroup}
               onOpenTimeCapsule={() => setIsTimeCapsuleModalOpen(true)}
               onExportChat={(c) => exportChatAsText(c)}

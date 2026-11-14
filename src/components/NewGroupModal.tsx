@@ -1,9 +1,10 @@
 import React, { useState } from 'react';
-import { X, Users, Phone, Check, Plus, AlertCircle, Loader2, Crown, Trash2, Sparkles } from 'lucide-react';
+import { X, Users, Phone, Check, Plus, AlertCircle, Loader2, Crown, Sparkles, Camera } from 'lucide-react';
 import { Chat, GroupMember, UserProfile } from '../types';
 import { ensurePhoneStartsWith16 } from '../utils/phoneUtils';
 import { createSvgAvatar } from '../utils/avatarUtils';
 import { findUserByPhone } from '../utils/phoneValidation';
+import { AvatarCaptureModal } from './AvatarCaptureModal';
 
 interface NewGroupModalProps {
   isOpen: boolean;
@@ -38,6 +39,8 @@ export const NewGroupModal: React.FC<NewGroupModalProps> = ({
 }) => {
   const [groupName, setGroupName] = useState<string>('');
   const [description, setDescription] = useState<string>('');
+  const [customAvatarUrl, setCustomAvatarUrl] = useState<string>('');
+  const [showAvatarModal, setShowAvatarModal] = useState<boolean>(false);
   const [countryCode, setCountryCode] = useState<string>('16');
   const [phoneInput, setPhoneInput] = useState<string>('');
   const [selectedFriends, setSelectedFriends] = useState<GroupMember[]>([
@@ -54,6 +57,9 @@ export const NewGroupModal: React.FC<NewGroupModalProps> = ({
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
 
   if (!isOpen) return null;
+
+  const previewGroupAvatar =
+    customAvatarUrl || createSvgAvatar(groupName.trim() || 'Grupo', '#2563eb');
 
   // Filter available friends from existing chats (not blocked)
   const availableFriends = chats.filter(
@@ -141,12 +147,13 @@ export const NewGroupModal: React.FC<NewGroupModalProps> = ({
       return;
     }
 
-    const groupAvatar = createSvgAvatar(groupName.trim(), '#2563eb');
+    const groupAvatar = customAvatarUrl || createSvgAvatar(groupName.trim(), '#2563eb');
     onCreateGroup(groupName.trim(), selectedFriends, description.trim() || undefined, groupAvatar);
     
     // Reset form
     setGroupName('');
     setDescription('');
+    setCustomAvatarUrl('');
     setPhoneInput('');
     setErrorMessage(null);
     onClose();
@@ -187,11 +194,53 @@ export const NewGroupModal: React.FC<NewGroupModalProps> = ({
         )}
 
         <form onSubmit={handleCreate} className="flex flex-col gap-4">
-          {/* Group Details */}
-          <div className="flex flex-col gap-2">
+          {/* Group Photo + Details */}
+          <div className="flex flex-col gap-2.5">
             <label className="text-xs text-[#8d90a0] font-semibold">
-              1. Nombre y Descripción del Grupo
+              1. Foto, Nombre y Descripción del Grupo
             </label>
+            <div className="flex items-center gap-3.5 p-3 rounded-xl bg-[#181c24] border border-white/10">
+              <div className="relative shrink-0">
+                <img
+                  src={previewGroupAvatar}
+                  alt="Foto del grupo"
+                  className="w-16 h-16 rounded-full object-cover ring-2 ring-[#38bdf8]/50"
+                />
+                <button
+                  type="button"
+                  onClick={() => setShowAvatarModal(true)}
+                  title="Personalizar foto del grupo"
+                  className="absolute -bottom-0.5 -right-0.5 w-7 h-7 rounded-full bg-[#0284c7] hover:bg-[#0369a1] text-white flex items-center justify-center shadow-md ring-2 ring-[#181c24] cursor-pointer"
+                >
+                  <Camera className="w-3.5 h-3.5" />
+                </button>
+              </div>
+              <div className="flex flex-col gap-1.5 min-w-0 flex-1">
+                <span className="text-xs font-bold text-[#dfe2ee]">Foto del Grupo</span>
+                <span className="text-[11px] text-[#8d90a0]">
+                  Sube una imagen de tu galería, toma una foto con cámara o elige un avatar.
+                </span>
+                <div className="flex items-center gap-2 mt-0.5">
+                  <button
+                    type="button"
+                    onClick={() => setShowAvatarModal(true)}
+                    className="px-3 py-1.5 rounded-lg bg-[#2563eb] hover:bg-[#1d4ed8] text-white text-[11px] font-bold flex items-center gap-1.5 cursor-pointer transition-colors"
+                  >
+                    <Camera className="w-3.5 h-3.5" />
+                    <span>Personalizar foto</span>
+                  </button>
+                  {customAvatarUrl && (
+                    <button
+                      type="button"
+                      onClick={() => setCustomAvatarUrl('')}
+                      className="px-2.5 py-1.5 rounded-lg bg-white/5 hover:bg-white/10 text-[#8d90a0] hover:text-white text-[11px] font-semibold cursor-pointer"
+                    >
+                      Restablecer
+                    </button>
+                  )}
+                </div>
+              </div>
+            </div>
             <input
               type="text"
               required
@@ -420,6 +469,13 @@ export const NewGroupModal: React.FC<NewGroupModalProps> = ({
           </button>
         </form>
       </div>
+
+      <AvatarCaptureModal
+        isOpen={showAvatarModal}
+        onClose={() => setShowAvatarModal(false)}
+        currentAvatarUrl={previewGroupAvatar}
+        onSaveAvatar={(newUrl) => setCustomAvatarUrl(newUrl)}
+      />
     </div>
   );
 };

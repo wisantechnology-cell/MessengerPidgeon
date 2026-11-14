@@ -107,6 +107,7 @@ import { EmojiStickerPicker } from './EmojiStickerPicker';
 import { MediaModal } from './MediaModal';
 import { CallModal } from './CallModal';
 import { GroupMembersModal } from './GroupMembersModal';
+import { AvatarCaptureModal } from './AvatarCaptureModal';
 import { ChatThemeModal } from './ChatThemeModal';
 import { DigitalAvatarStudioModal } from './DigitalAvatarStudioModal';
 import { AiStickerFactoryModal } from './AiStickerFactoryModal';
@@ -141,6 +142,7 @@ interface ChatViewProps {
   onClearChatMessages?: (chatId: string) => void;
   onDeleteChat?: (chatId: string) => void;
   onUpdateGroupMembers?: (chatId: string, updatedMembers: GroupMember[]) => void;
+  onUpdateGroupAvatar?: (chatId: string, newAvatarUrl: string) => void;
   onLeaveGroup?: (chatId: string) => void;
   onOpenTimeCapsule?: () => void;
   onSelectGradient?: (chatId: string, gradient: string) => void;
@@ -238,6 +240,7 @@ export const ChatView: React.FC<ChatViewProps> = ({
   onClearChatMessages,
   onDeleteChat,
   onUpdateGroupMembers,
+  onUpdateGroupAvatar,
   onLeaveGroup,
   onOpenTimeCapsule,
   onSelectGradient,
@@ -269,6 +272,7 @@ export const ChatView: React.FC<ChatViewProps> = ({
   const [showBlockModal, setShowBlockModal] = useState<boolean>(false);
   const [showClearChatModal, setShowClearChatModal] = useState<boolean>(false);
   const [showGroupMembersModal, setShowGroupMembersModal] = useState<boolean>(false);
+  const [showGroupAvatarModal, setShowGroupAvatarModal] = useState<boolean>(false);
   const [showVideoLinkModal, setShowVideoLinkModal] = useState<boolean>(false);
   const [videoLinkInput, setVideoLinkInput] = useState<string>('');
   const [videoLinkCaption, setVideoLinkCaption] = useState<string>('');
@@ -511,13 +515,23 @@ export const ChatView: React.FC<ChatViewProps> = ({
                 <ArrowLeft className="w-5 h-5" />
               </button>
 
-              <div className="relative shrink-0">
+              <div
+                onClick={chat.type === 'group' ? () => setShowGroupAvatarModal(true) : undefined}
+                title={chat.type === 'group' ? 'Personalizar foto del grupo' : undefined}
+                className={`relative shrink-0 ${chat.type === 'group' ? 'cursor-pointer group/grpav' : ''}`}
+              >
                 <img
                   src={chat.avatarUrl}
                   alt={chat.name}
                   className="w-9 h-9 rounded-full object-cover"
                 />
-                <span className={`absolute bottom-0 right-0 w-2.5 h-2.5 bg-emerald-500 rounded-full ring-2 ${isNightMode ? 'ring-[#121722]' : 'ring-white'}`} />
+                {chat.type === 'group' ? (
+                  <span className="absolute -bottom-0.5 -right-0.5 w-4 h-4 bg-[#0284c7] text-white rounded-full flex items-center justify-center ring-2 ring-[#121722]">
+                    <Camera className="w-2.5 h-2.5" />
+                  </span>
+                ) : (
+                  <span className={`absolute bottom-0 right-0 w-2.5 h-2.5 bg-emerald-500 rounded-full ring-2 ${isNightMode ? 'ring-[#121722]' : 'ring-white'}`} />
+                )}
               </div>
 
               <div className="flex flex-col min-w-0">
@@ -578,6 +592,20 @@ export const ChatView: React.FC<ChatViewProps> = ({
                       className="absolute right-3 top-14 w-60 p-1.5 rounded-2xl bg-[#181e2c] border border-white/10 shadow-2xl z-50 flex flex-col gap-0.5 animate-in fade-in zoom-in-95 duration-150"
                       onClick={(e) => e.stopPropagation()}
                     >
+                      {chat.type === 'group' && (
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setShowGroupAvatarModal(true);
+                            setShowMobileMoreMenu(false);
+                          }}
+                          className="w-full px-3 py-2.5 rounded-xl text-xs font-medium text-cyan-300 hover:text-white hover:bg-cyan-500/20 flex items-center gap-2.5 text-left cursor-pointer"
+                        >
+                          <Camera className="w-4 h-4 text-cyan-400" />
+                          <span>Personalizar foto del grupo</span>
+                        </button>
+                      )}
+
                       <button
                         type="button"
                         onClick={() => {
@@ -748,13 +776,23 @@ export const ChatView: React.FC<ChatViewProps> = ({
           isNightMode ? 'bg-[#161c29] border-white/5' : 'bg-slate-50 border-slate-200/80'
         }`}>
           <div className="flex items-center gap-2.5 min-w-0">
-            <div className="relative shrink-0">
+            <div
+              onClick={chat.type === 'group' ? () => setShowGroupAvatarModal(true) : undefined}
+              title={chat.type === 'group' ? 'Personalizar foto del grupo' : undefined}
+              className={`relative shrink-0 ${chat.type === 'group' ? 'cursor-pointer group/grpav' : ''}`}
+            >
               <img
                 src={chat.avatarUrl}
                 alt={chat.name}
                 className="w-10 h-10 rounded-full object-cover"
               />
-              <span className={`absolute bottom-0 right-0 w-2.5 h-2.5 bg-emerald-500 rounded-full ring-2 ${isNightMode ? 'ring-[#161c29]' : 'ring-slate-50'}`} />
+              {chat.type === 'group' ? (
+                <span className="absolute -bottom-0.5 -right-0.5 w-4 h-4 bg-[#0284c7] text-white rounded-full flex items-center justify-center ring-2 ring-[#161c29]">
+                  <Camera className="w-2.5 h-2.5" />
+                </span>
+              ) : (
+                <span className={`absolute bottom-0 right-0 w-2.5 h-2.5 bg-emerald-500 rounded-full ring-2 ${isNightMode ? 'ring-[#161c29]' : 'ring-slate-50'}`} />
+              )}
             </div>
             <div className="flex flex-col min-w-0">
               <div className="flex items-center gap-1.5">
@@ -789,14 +827,24 @@ export const ChatView: React.FC<ChatViewProps> = ({
           {/* Action buttons on contact bar */}
           <div className="flex items-center gap-1.5 shrink-0">
             {chat.type === 'group' && (
-              <button
-                onClick={() => setShowGroupMembersModal(true)}
-                title="Ver integrantes del grupo"
-                className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-[#0284c7] hover:bg-[#0369a1] text-white text-xs font-semibold transition-colors cursor-pointer"
-              >
-                <Users className="w-3.5 h-3.5 text-white" />
-                <span>{chat.groupMembers?.length || 1}</span>
-              </button>
+              <>
+                <button
+                  onClick={() => setShowGroupAvatarModal(true)}
+                  title="Personalizar foto del grupo"
+                  className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg bg-sky-500/15 hover:bg-sky-500/25 border border-sky-500/30 text-sky-400 text-xs font-semibold transition-colors cursor-pointer"
+                >
+                  <Camera className="w-3.5 h-3.5" />
+                  <span className="hidden sm:inline">Foto</span>
+                </button>
+                <button
+                  onClick={() => setShowGroupMembersModal(true)}
+                  title="Ver integrantes del grupo"
+                  className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-[#0284c7] hover:bg-[#0369a1] text-white text-xs font-semibold transition-colors cursor-pointer"
+                >
+                  <Users className="w-3.5 h-3.5 text-white" />
+                  <span>{chat.groupMembers?.length || 1}</span>
+                </button>
+              </>
             )}
 
             {!chat.isFriend && !chat.isBlocked && chat.type !== 'group' && onAddContactAsFriend && (
@@ -2350,29 +2398,43 @@ export const ChatView: React.FC<ChatViewProps> = ({
 
       {/* 15. Group Members & Leader Management Modal */}
       {chat.type === 'group' && (
-        <GroupMembersModal
-          isOpen={showGroupMembersModal}
-          onClose={() => setShowGroupMembersModal(false)}
-          chat={chat}
-          user={user}
-          contacts={allContacts}
-          onUpdateGroupMembers={(chatId, updatedMembers) => {
-            if (onUpdateGroupMembers) {
-              onUpdateGroupMembers(chatId, updatedMembers);
-            }
-          }}
-          onLeaveGroup={(chatId) => {
-            if (onLeaveGroup) {
-              onLeaveGroup(chatId);
-            }
-            onBack();
-          }}
-          onStartPrivateChat={(member) => {
-            if (onStartPrivateChat) {
-              onStartPrivateChat(member.id, member.name);
-            }
-          }}
-        />
+        <>
+          <GroupMembersModal
+            isOpen={showGroupMembersModal}
+            onClose={() => setShowGroupMembersModal(false)}
+            chat={chat}
+            user={user}
+            contacts={allContacts}
+            onUpdateGroupMembers={(chatId, updatedMembers) => {
+              if (onUpdateGroupMembers) {
+                onUpdateGroupMembers(chatId, updatedMembers);
+              }
+            }}
+            onUpdateGroupAvatar={(chatId, newAvatarUrl) => {
+              onUpdateGroupAvatar?.(chatId, newAvatarUrl);
+            }}
+            onLeaveGroup={(chatId) => {
+              if (onLeaveGroup) {
+                onLeaveGroup(chatId);
+              }
+              onBack();
+            }}
+            onStartPrivateChat={(member) => {
+              if (onStartPrivateChat) {
+                onStartPrivateChat(member.id, member.name);
+              }
+            }}
+          />
+
+          <AvatarCaptureModal
+            isOpen={showGroupAvatarModal}
+            onClose={() => setShowGroupAvatarModal(false)}
+            currentAvatarUrl={chat.avatarUrl}
+            onSaveAvatar={(newUrl) => {
+              onUpdateGroupAvatar?.(chat.id, newUrl);
+            }}
+          />
+        </>
       )}
 
       {/* 16. Share Video Link Modal */}

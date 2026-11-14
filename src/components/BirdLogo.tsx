@@ -1,5 +1,7 @@
 import React from 'react';
 
+export const BIRD_APP_LOGO_DATA_URL = '/assets/aistudio/Logo_de_PidgeX_5e3aa7b3.PNG';
+
 interface BirdLogoProps {
   className?: string;
   size?: number | string;
@@ -7,24 +9,19 @@ interface BirdLogoProps {
 }
 
 export const BirdLogo: React.FC<BirdLogoProps> = ({
-  className = 'w-10 h-10',
+  className = 'w-11 h-11',
   size,
-  withBackground = false,
 }) => {
   return (
     <div
-      className={`relative inline-flex items-center justify-center shrink-0 select-none overflow-hidden rounded-full ${
-        withBackground
-          ? 'bg-slate-900 ring-1 ring-slate-200 dark:ring-white/15 shadow-sm p-0.5'
-          : ''
-      } ${className}`}
+      className={`relative inline-flex items-center justify-center shrink-0 select-none overflow-hidden rounded-full bg-black ring-1 ring-slate-200 dark:ring-white/20 shadow-sm ${className}`}
       style={size ? { width: size, height: size } : undefined}
       title="PidgeX"
     >
       <img
-        src="/pidgex-logo.svg"
+        src={BIRD_APP_LOGO_DATA_URL}
         alt="PidgeX Logo"
-        className="w-full h-full object-cover rounded-full"
+        className="w-full h-full object-contain rounded-full"
       />
     </div>
   );
@@ -47,11 +44,11 @@ export const PidgeXFullLogo: React.FC<PidgeXFullLogoProps> = ({
         align === 'center' ? 'justify-center text-center' : 'justify-start text-left'
       } ${className}`}
     >
-      <div className="w-11 h-11 rounded-full overflow-hidden bg-slate-900 ring-1 ring-slate-200 dark:ring-white/15 flex items-center justify-center shrink-0">
+      <div className="w-11 h-11 rounded-full overflow-hidden bg-black ring-1 ring-slate-200 dark:ring-white/20 flex items-center justify-center shrink-0 shadow-sm">
         <img
-          src="/pidgex-logo.svg"
+          src={BIRD_APP_LOGO_DATA_URL}
           alt="PidgeX"
-          className="w-full h-full object-cover rounded-full"
+          className="w-full h-full object-contain rounded-full"
         />
       </div>
       <div className="flex flex-col">
@@ -68,4 +65,3 @@ export const PidgeXFullLogo: React.FC<PidgeXFullLogoProps> = ({
   );
 };
 
-export const BIRD_APP_LOGO_DATA_URL = '/pidgex-logo.svg';

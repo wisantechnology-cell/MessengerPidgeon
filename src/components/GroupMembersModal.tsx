@@ -14,11 +14,13 @@ import {
   Check,
   ShieldAlert,
   MessageCircle,
+  Camera,
 } from 'lucide-react';
 import { Chat, GroupMember, UserProfile } from '../types';
 import { ensurePhoneStartsWith16 } from '../utils/phoneUtils';
 import { createSvgAvatar } from '../utils/avatarUtils';
 import { findUserByPhone } from '../utils/phoneValidation';
+import { AvatarCaptureModal } from './AvatarCaptureModal';
 
 interface GroupMembersModalProps {
   isOpen: boolean;
@@ -27,6 +29,7 @@ interface GroupMembersModalProps {
   user: UserProfile;
   contacts: Chat[]; // available contacts
   onUpdateGroupMembers: (chatId: string, updatedMembers: GroupMember[]) => void;
+  onUpdateGroupAvatar?: (chatId: string, newAvatarUrl: string) => void;
   onLeaveGroup: (chatId: string) => void;
   onStartPrivateChat?: (member: GroupMember) => void;
 }
@@ -49,10 +52,12 @@ export const GroupMembersModal: React.FC<GroupMembersModalProps> = ({
   user,
   contacts,
   onUpdateGroupMembers,
+  onUpdateGroupAvatar,
   onLeaveGroup,
   onStartPrivateChat,
 }) => {
   const [showAddMemberSection, setShowAddMemberSection] = useState<boolean>(false);
+  const [showAvatarModal, setShowAvatarModal] = useState<boolean>(false);
   const [countryCode, setCountryCode] = useState<string>('16');
   const [phoneInput, setPhoneInput] = useState<string>('');
   const [isSearchingPhone, setIsSearchingPhone] = useState<boolean>(false);
@@ -192,28 +197,46 @@ export const GroupMembersModal: React.FC<GroupMembersModalProps> = ({
       <div className="bg-[#1c2028] border border-white/10 rounded-2xl w-full max-w-lg p-5 flex flex-col gap-4 shadow-2xl max-h-[85vh] overflow-y-auto animate-in zoom-in-95 duration-150">
         {/* Header */}
         <div className="flex items-center justify-between border-b border-white/10 pb-3">
-          <div className="flex items-center gap-3">
-            <img
-              src={chat.avatarUrl}
-              alt={chat.name}
-              className="w-10 h-10 rounded-full object-cover ring-2 ring-sky-400/40"
-            />
-            <div className="flex flex-col">
-              <h3 className="font-bold text-base text-[#dfe2ee] flex items-center gap-2">
-                <span>{chat.name}</span>
+          <div className="flex items-center gap-3 min-w-0">
+            <div className="relative shrink-0">
+              <img
+                src={chat.avatarUrl}
+                alt={chat.name}
+                className="w-12 h-12 rounded-full object-cover ring-2 ring-sky-400/40"
+              />
+              <button
+                type="button"
+                onClick={() => setShowAvatarModal(true)}
+                title="Cambiar foto del grupo"
+                className="absolute -bottom-0.5 -right-0.5 w-6 h-6 rounded-full bg-[#0284c7] hover:bg-[#0369a1] text-white flex items-center justify-center shadow ring-2 ring-[#1c2028] cursor-pointer"
+              >
+                <Camera className="w-3 h-3" />
+              </button>
+            </div>
+            <div className="flex flex-col min-w-0">
+              <h3 className="font-bold text-base text-[#dfe2ee] flex flex-wrap items-center gap-2">
+                <span className="truncate">{chat.name}</span>
                 <span className="px-2 py-0.5 rounded-full bg-emerald-500/20 text-emerald-300 text-[10px] font-bold border border-emerald-500/30 flex items-center gap-1">
                   <span>{groupMembers.length} Miembros</span>
                   <span>(Ilimitado ♾️)</span>
                 </span>
               </h3>
-              <p className="text-xs text-[#8d90a0]">
+              <p className="text-xs text-[#8d90a0] truncate">
                 {chat.description || 'Grupo oficial de PidgeX'}
               </p>
+              <button
+                type="button"
+                onClick={() => setShowAvatarModal(true)}
+                className="mt-1 self-start text-[11px] font-bold text-[#38bdf8] hover:text-[#7bd0ff] flex items-center gap-1 cursor-pointer transition-colors"
+              >
+                <Camera className="w-3 h-3" />
+                <span>Cambiar foto del grupo</span>
+              </button>
             </div>
           </div>
           <button
             onClick={onClose}
-            className="w-8 h-8 rounded-full bg-[#262a33] text-[#8d90a0] hover:text-white flex items-center justify-center cursor-pointer transition-colors"
+            className="w-8 h-8 rounded-full bg-[#262a33] text-[#8d90a0] hover:text-white flex items-center justify-center cursor-pointer transition-colors shrink-0"
           >
             <X className="w-4 h-4" />
           </button>
@@ -490,6 +513,17 @@ export const GroupMembersModal: React.FC<GroupMembersModalProps> = ({
           </div>
         )}
       </div>
+
+      <AvatarCaptureModal
+        isOpen={showAvatarModal}
+        onClose={() => setShowAvatarModal(false)}
+        currentAvatarUrl={chat.avatarUrl}
+        onSaveAvatar={(newUrl) => {
+          onUpdateGroupAvatar?.(chat.id, newUrl);
+          setSuccessMessage('¡La foto del grupo ha sido actualizada!');
+          setTimeout(() => setSuccessMessage(null), 3000);
+        }}
+      />
     </div>
   );
 };

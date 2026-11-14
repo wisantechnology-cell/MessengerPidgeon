@@ -76,7 +76,7 @@ export const ChatsListView: React.FC<ChatsListViewProps> = ({
       >
         <div className="h-16 max-w-[760px] mx-auto px-4 flex items-center justify-between">
           <div className="flex items-center gap-2.5">
-            <BirdLogo className="w-9 h-9" />
+            <BirdLogo className="w-11 h-11" />
             <span className="text-xl font-bold tracking-tight">PidgeX</span>
           </div>
 

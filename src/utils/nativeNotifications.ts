@@ -78,8 +78,8 @@ export async function sendNativeCallNotification(
       actions?: { action: string; title: string }[];
     } = {
       body,
-      icon: avatarUrl || '/pidgex-logo.svg',
-      badge: '/pidgex-logo.svg',
+      icon: avatarUrl || '/assets/aistudio/Logo_de_PidgeX_5e3aa7b3.PNG',
+      badge: '/assets/aistudio/Logo_de_PidgeX_5e3aa7b3.PNG',
       vibrate: [800, 400, 800, 400, 800, 400, 1000],
       tag: 'incoming_call',
       renotify: true,
@@ -167,8 +167,8 @@ export async function sendNativeMessageNotification(
       actions?: { action: string; title: string }[];
     } = {
       body,
-      icon: avatarUrl || '/pidgex-logo.svg',
-      badge: '/pidgex-logo.svg',
+      icon: avatarUrl || '/assets/aistudio/Logo_de_PidgeX_5e3aa7b3.PNG',
+      badge: '/assets/aistudio/Logo_de_PidgeX_5e3aa7b3.PNG',
       vibrate: [250, 100, 250],
       tag: `msg_${chatId || Date.now()}`,
       renotify: true,

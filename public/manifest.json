@@ -12,15 +12,15 @@
   "categories": ["social", "games", "communication"],
   "icons": [
     {
-      "src": "/pidgex-logo.svg",
+      "src": "/assets/aistudio/Logo_de_PidgeX_5e3aa7b3.PNG",
       "sizes": "192x192 512x512",
-      "type": "image/svg+xml",
+      "type": "image/png",
       "purpose": "any"
     },
     {
-      "src": "/pidgex-logo.svg",
+      "src": "/assets/aistudio/Logo_de_PidgeX_5e3aa7b3.PNG",
       "sizes": "192x192 512x512",
-      "type": "image/svg+xml",
+      "type": "image/png",
       "purpose": "maskable"
     }
   ],
@@ -30,14 +30,14 @@
       "short_name": "Chat",
       "description": "Iniciar una conversación en PidgeX",
       "url": "/?action=new_chat",
-      "icons": [{ "src": "/pidgex-logo.svg", "sizes": "96x96" }]
+      "icons": [{ "src": "/assets/aistudio/Logo_de_PidgeX_5e3aa7b3.PNG", "sizes": "96x96" }]
     },
     {
       "name": "Sala de Juegos",
       "short_name": "Juegos",
       "description": "Jugar minijuegos en tiempo real",
       "url": "/?tab=games",
-      "icons": [{ "src": "/pidgex-logo.svg", "sizes": "96x96" }]
+      "icons": [{ "src": "/assets/aistudio/Logo_de_PidgeX_5e3aa7b3.PNG", "sizes": "96x96" }]
     }
   ]
 }
