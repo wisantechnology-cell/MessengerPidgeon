@@ -424,6 +424,7 @@ export default function App() {
   const dismissedCallIdsRef = useRef<Set<string>>(new Set());
   const userRef = useRef<UserProfile>(user);
   userRef.current = user;
+  const sessionTokenRef = useRef<string | null>(null);
   const [inAppNotification, setInAppNotification] = useState<BirdNotification | null>(null);
 
   useEffect(() => {
@@ -493,22 +494,16 @@ export default function App() {
 
   const handleCompleteAccountCreation = async (payload: AccountRegistrationPayload) => {
     const newId =
-      user.id && user.id !== 'user_me'
+      payload.userId ||
+      (user.id && user.id !== 'user_me'
         ? user.id
-        : `user_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`;
+        : `user_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`);
+
+    sessionTokenRef.current = payload.sessionToken || null;
 
     try {
       localStorage.setItem('birdmessage_client_uid', newId);
-      localStorage.setItem(
-        'pidgex_account_credentials_v1',
-        JSON.stringify({
-          userId: newId,
-          username: payload.username,
-          phone: payload.phone,
-          passwordHash: payload.passwordHash,
-          createdAt: Date.now(),
-        })
-      );
+      localStorage.removeItem('pidgex_account_credentials_v1');
       localStorage.setItem('pidgex_account_completed_v1', 'true');
     } catch {
       // ignore storage errors
@@ -517,6 +512,7 @@ export default function App() {
     const updatedUser: UserProfile = {
       ...user,
       id: newId,
+      email: payload.email || user.email,
       name: payload.name,
       username: payload.username,
       bio: payload.bio,
@@ -530,10 +526,63 @@ export default function App() {
     broadcastUserPresence(updatedUser);
 
     try {
-      const userRef = doc(db, 'users', newId);
-      await setDoc(userRef, updatedUser, { merge: true });
+      const userRefDoc = doc(db, 'users', newId);
+      await setDoc(userRefDoc, updatedUser, { merge: true });
     } catch (err) {
       console.warn('Firestore profile save notice (continuing locally):', err);
+    }
+
+    setIsAccountRegistered(true);
+  };
+
+  const handleCompleteLogin = async (payload: AccountRegistrationPayload) => {
+    const finalId =
+      payload.userId ||
+      (user.id && user.id !== 'user_me'
+        ? user.id
+        : `user_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`);
+
+    sessionTokenRef.current = payload.sessionToken || null;
+
+    let cloudData: Partial<UserProfile> = {};
+    try {
+      const userSnap = await getDoc(doc(db, 'users', finalId));
+      if (userSnap.exists()) {
+        cloudData = userSnap.data() as Partial<UserProfile>;
+      }
+    } catch {
+      // continue with payload if Firestore is unavailable
+    }
+
+    const loggedUser: UserProfile = {
+      ...user,
+      ...cloudData,
+      id: finalId,
+      email: payload.email || cloudData.email || user.email,
+      name: payload.name || cloudData.name || user.name,
+      username: payload.username || cloudData.username || user.username,
+      bio: payload.bio || cloudData.bio || user.bio,
+      phone: payload.phone || cloudData.phone || user.phone,
+      avatarUrl: payload.avatarUrl || cloudData.avatarUrl || user.avatarUrl,
+      accountCreated: true,
+    };
+
+    try {
+      localStorage.setItem('birdmessage_client_uid', finalId);
+      localStorage.removeItem('pidgex_account_credentials_v1');
+      localStorage.setItem('pidgex_account_completed_v1', 'true');
+    } catch {
+      // ignore storage errors
+    }
+
+    setUser(loggedUser);
+    registerKnownUser(loggedUser);
+    broadcastUserPresence(loggedUser);
+
+    try {
+      await setDoc(doc(db, 'users', finalId), loggedUser, { merge: true });
+    } catch (err) {
+      console.warn('Firestore profile sync notice (continuing locally):', err);
     }
 
     setIsAccountRegistered(true);
@@ -1355,8 +1404,38 @@ export default function App() {
     }
   };
 
-  // Delete account completely (local data and cloud data)
+  const handleSignOutSession = async () => {
+    sessionTokenRef.current = null;
+    try {
+      localStorage.removeItem('pidgex_account_completed_v1');
+    } catch {
+      // ignore
+    }
+    try {
+      await signOut(auth);
+    } catch {
+      // ignore
+    }
+    setActiveChatId(null);
+    setActiveTab('chats');
+    setIsAccountRegistered(false);
+  };
+
+  // Delete account completely (local data, server auth record, and cloud data)
   const handleDeleteAccount = async () => {
+    const token = sessionTokenRef.current;
+    sessionTokenRef.current = null;
+    if (token) {
+      try {
+        await fetch('/api/auth/account', {
+          method: 'DELETE',
+          headers: { Authorization: `Bearer ${token}` },
+        });
+      } catch {
+        // ignore server delete errors
+      }
+    }
+
     const currentFbUser = auth.currentUser || firebaseUser;
 
     // 1. Delete from Firestore if synced
@@ -2647,6 +2726,7 @@ export default function App() {
       {!isAccountRegistered ? (
         <AccountOnboardingView
           onCompleteAccount={handleCompleteAccountCreation}
+          onCompleteLogin={handleCompleteLogin}
           isNightMode={isNightMode}
         />
       ) : (
@@ -2908,6 +2988,7 @@ export default function App() {
                   onToggleDoNotDisturb={handleToggleDoNotDisturb}
                   onApproveFriendRequest={handleApproveFriendRequest}
                   onRejectFriendRequest={handleRejectFriendRequest}
+                  onSignOut={handleSignOutSession}
                   onDeleteAccount={handleDeleteAccount}
                   onAddScannedContact={(name, username) => {
                     handleAddFriendDirect({

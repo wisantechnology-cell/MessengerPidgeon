@@ -6,6 +6,7 @@ import {
   Check,
   Edit3,
   LogIn,
+  LogOut,
   Trash2,
   AlertTriangle,
   Activity,
@@ -61,6 +62,7 @@ interface SettingsProfileViewProps {
   onToggleDoNotDisturb?: (duration?: string) => void;
   onApproveFriendRequest?: (requestId: string) => void;
   onRejectFriendRequest?: (requestId: string) => void;
+  onSignOut?: () => Promise<void> | void;
   onDeleteAccount?: () => Promise<void> | void;
   onAddScannedContact?: (name: string, username: string) => void;
   onToggleClassicMode?: () => void;
@@ -79,6 +81,7 @@ export const SettingsProfileView: React.FC<SettingsProfileViewProps> = ({
   onGoogleLogin,
   onGoogleLogout,
   onUpdateUser,
+  onSignOut,
   onDeleteAccount,
   onAddScannedContact,
   onToggleClassicMode,
@@ -1321,6 +1324,34 @@ export const SettingsProfileView: React.FC<SettingsProfileViewProps> = ({
                 </button>
               )}
             </div>
+
+            {onSignOut && (
+              <section
+                className={`rounded-2xl border p-4 flex items-center justify-between mt-1 ${
+                  isNightMode
+                    ? 'bg-[#161b24] border-white/10'
+                    : 'bg-white border-slate-200'
+                }`}
+              >
+                <div className="flex flex-col gap-0.5">
+                  <span className="text-xs font-bold">Cerrar sesión</span>
+                  <span className={`text-[11px] ${mutedTextCls}`}>
+                    Vuelve a la pantalla de Iniciar sesión o Registrarse
+                  </span>
+                </div>
+                <button
+                  onClick={() => onSignOut()}
+                  className={`px-3.5 py-2 rounded-xl text-xs font-semibold cursor-pointer flex items-center gap-1.5 transition-colors ${
+                    isNightMode
+                      ? 'bg-white/10 hover:bg-white/15 text-white'
+                      : 'bg-slate-100 hover:bg-slate-200 text-slate-800'
+                  }`}
+                >
+                  <LogOut className="w-3.5 h-3.5" />
+                  <span>Salir</span>
+                </button>
+              </section>
+            )}
 
             {/* Danger Zone: Delete Account */}
             <section className="rounded-2xl bg-red-500/10 border border-red-500/25 p-4 flex items-center justify-between mt-1">

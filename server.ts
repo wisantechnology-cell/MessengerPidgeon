@@ -2,6 +2,7 @@ import express from "express";
 import http from "http";
 import path from "path";
 import fs from "fs";
+import crypto from "crypto";
 import { createServer as createViteServer } from "vite";
 import dotenv from "dotenv";
 import { GoogleGenAI, Type, ThinkingLevel } from "@google/genai";
@@ -1625,7 +1626,258 @@ app.post('/api/realtime/create-room', (req, res) => {
   });
 });
 
+// ============================================================================
+// Authentication: Salted scrypt password hashing & HMAC Bearer session tokens
+// ============================================================================
+const AUTH_ACCOUNTS_FILE = path.join(MEDIA_CACHE_DIR, "auth_accounts.json");
+const SESSION_SECRET = process.env.SESSION_SECRET || crypto.randomBytes(32).toString("hex");
 
+interface StoredAuthAccount {
+  userId: string;
+  email: string;
+  username: string;
+  name: string;
+  bio: string;
+  phone: string;
+  avatarUrl: string;
+  salt: string;
+  passwordHash: string;
+  googleLinked?: boolean;
+  createdAt: number;
+}
+
+const authAccountsById = new Map<string, StoredAuthAccount>();
+
+function loadAuthAccounts() {
+  try {
+    if (fs.existsSync(AUTH_ACCOUNTS_FILE)) {
+      const raw = fs.readFileSync(AUTH_ACCOUNTS_FILE, "utf-8");
+      const list = JSON.parse(raw);
+      if (Array.isArray(list)) {
+        authAccountsById.clear();
+        for (const acc of list) {
+          if (acc && typeof acc.userId === "string" && typeof acc.email === "string") {
+            authAccountsById.set(acc.userId, acc);
+          }
+        }
+      }
+    }
+  } catch (err) {
+    console.warn("Could not load auth accounts cache:", err);
+  }
+}
+
+function saveAuthAccounts() {
+  try {
+    const tmpFile = `${AUTH_ACCOUNTS_FILE}.tmp`;
+    fs.writeFileSync(tmpFile, JSON.stringify(Array.from(authAccountsById.values()), null, 2), "utf-8");
+    fs.renameSync(tmpFile, AUTH_ACCOUNTS_FILE);
+  } catch (err) {
+    console.warn("Could not persist auth accounts cache:", err);
+  }
+}
+
+loadAuthAccounts();
+
+function hashPasswordScrypt(password: string, existingSalt?: string): { salt: string; hash: string } {
+  const salt = existingSalt || crypto.randomBytes(16).toString("hex");
+  const hash = crypto.scryptSync(password, salt, 64).toString("hex");
+  return { salt, hash };
+}
+
+function verifyPasswordScrypt(password: string, salt: string, expectedHash: string): boolean {
+  try {
+    const derived = crypto.scryptSync(password, salt, 64);
+    const expected = Buffer.from(expectedHash, "hex");
+    if (derived.length !== expected.length) return false;
+    return crypto.timingSafeEqual(derived, expected);
+  } catch {
+    return false;
+  }
+}
+
+function signSessionToken(userId: string): string {
+  const payload = Buffer.from(JSON.stringify({ uid: userId, iat: Date.now() })).toString("base64url");
+  const sig = crypto.createHmac("sha256", SESSION_SECRET).update(payload).digest("base64url");
+  return `${payload}.${sig}`;
+}
+
+function verifySessionToken(authHeader?: string): string | null {
+  if (!authHeader || !authHeader.startsWith("Bearer ")) return null;
+  const token = authHeader.slice(7).trim();
+  const parts = token.split(".");
+  if (parts.length !== 2) return null;
+  const [payload, sig] = parts;
+  const expectedSig = crypto.createHmac("sha256", SESSION_SECRET).update(payload).digest("base64url");
+  const sigBuf = Buffer.from(sig);
+  const expBuf = Buffer.from(expectedSig);
+  if (sigBuf.length !== expBuf.length || !crypto.timingSafeEqual(sigBuf, expBuf)) {
+    return null;
+  }
+  try {
+    const parsed = JSON.parse(Buffer.from(payload, "base64url").toString("utf-8"));
+    return typeof parsed?.uid === "string" ? parsed.uid : null;
+  } catch {
+    return null;
+  }
+}
+
+function sanitizePublicAccount(acc: StoredAuthAccount) {
+  return {
+    userId: acc.userId,
+    email: acc.email,
+    username: acc.username,
+    name: acc.name,
+    bio: acc.bio,
+    phone: acc.phone,
+    avatarUrl: acc.avatarUrl,
+    googleLinked: Boolean(acc.googleLinked),
+    createdAt: acc.createdAt,
+  };
+}
+
+app.post('/api/auth/register', (req, res) => {
+  try {
+    const {
+      userId,
+      email,
+      password,
+      name,
+      username,
+      bio,
+      phone,
+      avatarUrl,
+      googleLinked,
+    } = req.body || {};
+
+    if (typeof email !== 'string' || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email.trim())) {
+      return res.status(400).json({ error: 'Ingresa una cuenta o correo electrónico válido.' });
+    }
+    if (typeof password !== 'string' || password.length < 6 || password.length > 128) {
+      return res.status(400).json({ error: 'La contraseña debe tener entre 6 y 128 caracteres.' });
+    }
+    if (typeof name !== 'string' || name.trim().length < 2) {
+      return res.status(400).json({ error: 'Ingresa tu nombre completo.' });
+    }
+    if (typeof username !== 'string' || username.trim().length < 3) {
+      return res.status(400).json({ error: 'Ingresa un nombre de usuario válido.' });
+    }
+
+    const normEmail = email.trim().toLowerCase();
+    const rawUser = username.trim().replace(/^@+/, '').replace(/\s+/g, '').toLowerCase();
+    const normUsername = `@${rawUser}`;
+
+    for (const existing of authAccountsById.values()) {
+      if (existing.email === normEmail) {
+        return res.status(409).json({
+          error: 'Esta cuenta ya está registrada en PidgeX. Por favor inicia sesión con tu contraseña.',
+        });
+      }
+      if (existing.username === normUsername) {
+        return res.status(409).json({
+          error: 'Ese nombre de usuario ya está en uso. Elige otro o inicia sesión.',
+        });
+      }
+    }
+
+    const cleanId =
+      typeof userId === 'string' && userId.trim().length >= 4 && userId !== 'user_me'
+        ? userId.trim()
+        : `user_${Date.now()}_${crypto.randomBytes(4).toString('hex')}`;
+
+    const { salt, hash } = hashPasswordScrypt(password);
+
+    const newAccount: StoredAuthAccount = {
+      userId: cleanId,
+      email: normEmail,
+      username: normUsername,
+      name: name.trim().slice(0, 60),
+      bio: typeof bio === 'string' ? bio.trim().slice(0, 160) : 'Soy nuevo en PidgeX',
+      phone: typeof phone === 'string' ? phone.trim() : '',
+      avatarUrl: typeof avatarUrl === 'string' ? avatarUrl : '',
+      salt,
+      passwordHash: hash,
+      googleLinked: Boolean(googleLinked),
+      createdAt: Date.now(),
+    };
+
+    authAccountsById.set(cleanId, newAccount);
+    saveAuthAccounts();
+
+    const token = signSessionToken(cleanId);
+    return res.status(201).json({
+      ok: true,
+      token,
+      account: sanitizePublicAccount(newAccount),
+    });
+  } catch (err) {
+    console.error('Register error:', err);
+    return res.status(500).json({ error: 'No se pudo completar el registro en el servidor.' });
+  }
+});
+
+app.post('/api/auth/login', (req, res) => {
+  try {
+    const { identifier, password } = req.body || {};
+
+    if (typeof identifier !== 'string' || !identifier.trim()) {
+      return res.status(400).json({ error: 'Ingresa tu cuenta (correo, @usuario o teléfono).' });
+    }
+    if (typeof password !== 'string' || password.length === 0) {
+      return res.status(400).json({ error: 'Ingresa tu contraseña.' });
+    }
+
+    const needle = identifier.trim().toLowerCase();
+    const needleAsUser = needle.startsWith('@') ? needle : `@${needle}`;
+    const needleDigits = needle.replace(/\D/g, '');
+
+    let matched: StoredAuthAccount | undefined;
+    for (const acc of authAccountsById.values()) {
+      const accDigits = (acc.phone || '').replace(/\D/g, '');
+      if (
+        acc.email === needle ||
+        acc.username === needle ||
+        acc.username === needleAsUser ||
+        (needleDigits.length >= 6 && accDigits === needleDigits)
+      ) {
+        matched = acc;
+        break;
+      }
+    }
+
+    if (!matched) {
+      return res.status(401).json({
+        error: 'No existe una cuenta registrada con ese correo o usuario. Si eres nuevo, toca Registrarse.',
+      });
+    }
+
+    if (!verifyPasswordScrypt(password, matched.salt, matched.passwordHash)) {
+      return res.status(401).json({
+        error: 'Contraseña incorrecta para esta cuenta.',
+      });
+    }
+
+    const token = signSessionToken(matched.userId);
+    return res.json({
+      ok: true,
+      token,
+      account: sanitizePublicAccount(matched),
+    });
+  } catch (err) {
+    console.error('Login error:', err);
+    return res.status(500).json({ error: 'Error al iniciar sesión en el servidor.' });
+  }
+});
+
+app.delete('/api/auth/account', (req, res) => {
+  const uid = verifySessionToken(req.headers.authorization);
+  if (!uid) {
+    return res.status(401).json({ error: 'Sesión no autorizada.' });
+  }
+  authAccountsById.delete(uid);
+  saveAuthAccounts();
+  return res.json({ ok: true });
+});
 
 async function startServer() {
   const server = http.createServer(app);
