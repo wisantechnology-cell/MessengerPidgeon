@@ -1627,14 +1627,20 @@ app.post('/api/realtime/create-room', (req, res) => {
 });
 
 // ============================================================================
-// Authentication: Salted scrypt password hashing & HMAC Bearer session tokens
+// Authentication: Salted scrypt password hashing, uniqueness, & account state
 // ============================================================================
 const AUTH_ACCOUNTS_FILE = path.join(MEDIA_CACHE_DIR, "auth_accounts.json");
+const ACCOUNT_STATES_DIR = path.join(MEDIA_CACHE_DIR, "account_states");
+try {
+  if (!fs.existsSync(ACCOUNT_STATES_DIR)) {
+    fs.mkdirSync(ACCOUNT_STATES_DIR, { recursive: true });
+  }
+} catch {}
+
 const SESSION_SECRET = process.env.SESSION_SECRET || crypto.randomBytes(32).toString("hex");
 
 interface StoredAuthAccount {
   userId: string;
-  email: string;
   username: string;
   name: string;
   bio: string;
@@ -1642,11 +1648,83 @@ interface StoredAuthAccount {
   avatarUrl: string;
   salt: string;
   passwordHash: string;
-  googleLinked?: boolean;
   createdAt: number;
 }
 
+interface StoredAccountState {
+  user?: Record<string, any>;
+  chats?: any[];
+  updatedAt?: number;
+}
+
 const authAccountsById = new Map<string, StoredAuthAccount>();
+
+function normalizePhoneDigitsServer(phone?: string): { full: string; core: string } {
+  const full = typeof phone === "string" ? phone.replace(/\D/g, "") : "";
+  const core = full.startsWith("16") ? full.slice(2) : full;
+  return { full, core };
+}
+
+function resolveAccountStatePath(userId: string): string | null {
+  if (!userId || !/^[a-zA-Z0-9_-]{3,128}$/.test(userId)) {
+    return null;
+  }
+  const baseDir = path.resolve(ACCOUNT_STATES_DIR);
+  const resolved = path.resolve(baseDir, `${userId}.json`);
+  if (!resolved.startsWith(baseDir + path.sep)) {
+    return null;
+  }
+  return resolved;
+}
+
+function loadAccountState(userId: string): StoredAccountState | null {
+  try {
+    const filePath = resolveAccountStatePath(userId);
+    if (!filePath || !fs.existsSync(filePath)) return null;
+    const raw = fs.readFileSync(filePath, "utf-8");
+    const parsed = JSON.parse(raw);
+    if (parsed && typeof parsed === "object") {
+      return {
+        user: parsed.user && typeof parsed.user === "object" ? parsed.user : undefined,
+        chats: Array.isArray(parsed.chats) ? parsed.chats : undefined,
+        updatedAt: typeof parsed.updatedAt === "number" ? parsed.updatedAt : Date.now(),
+      };
+    }
+  } catch (err) {
+    console.warn("Could not load account state:", err);
+  }
+  return null;
+}
+
+function saveAccountState(userId: string, state: StoredAccountState): boolean {
+  try {
+    const filePath = resolveAccountStatePath(userId);
+    if (!filePath) return false;
+    const payload: StoredAccountState = {
+      user: state.user && typeof state.user === "object" ? state.user : undefined,
+      chats: Array.isArray(state.chats) ? state.chats : undefined,
+      updatedAt: Date.now(),
+    };
+    const tmpFile = `${filePath}.tmp`;
+    fs.writeFileSync(tmpFile, JSON.stringify(payload), "utf-8");
+    fs.renameSync(tmpFile, filePath);
+    return true;
+  } catch (err) {
+    console.warn("Could not save account state:", err);
+    return false;
+  }
+}
+
+function deleteAccountState(userId: string) {
+  try {
+    const filePath = resolveAccountStatePath(userId);
+    if (filePath && fs.existsSync(filePath)) {
+      fs.unlinkSync(filePath);
+    }
+  } catch {
+    // ignore
+  }
+}
 
 function loadAuthAccounts() {
   try {
@@ -1656,7 +1734,7 @@ function loadAuthAccounts() {
       if (Array.isArray(list)) {
         authAccountsById.clear();
         for (const acc of list) {
-          if (acc && typeof acc.userId === "string" && typeof acc.email === "string") {
+          if (acc && typeof acc.userId === "string" && typeof acc.passwordHash === "string") {
             authAccountsById.set(acc.userId, acc);
           }
         }
@@ -1696,6 +1774,20 @@ function verifyPasswordScrypt(password: string, salt: string, expectedHash: stri
   }
 }
 
+function isPhoneUsedByOtherAccount(phone: string, excludeUserId?: string): boolean {
+  const target = normalizePhoneDigitsServer(phone);
+  if (target.full.length < 6) return false;
+  for (const existing of authAccountsById.values()) {
+    if (excludeUserId && existing.userId === excludeUserId) continue;
+    const ex = normalizePhoneDigitsServer(existing.phone);
+    if (!ex.full) continue;
+    if (ex.full === target.full || (target.core.length >= 7 && ex.core === target.core)) {
+      return true;
+    }
+  }
+  return false;
+}
+
 function signSessionToken(userId: string): string {
   const payload = Buffer.from(JSON.stringify({ uid: userId, iat: Date.now() })).toString("base64url");
   const sig = crypto.createHmac("sha256", SESSION_SECRET).update(payload).digest("base64url");
@@ -1725,121 +1817,124 @@ function verifySessionToken(authHeader?: string): string | null {
 function sanitizePublicAccount(acc: StoredAuthAccount) {
   return {
     userId: acc.userId,
-    email: acc.email,
     username: acc.username,
     name: acc.name,
     bio: acc.bio,
     phone: acc.phone,
     avatarUrl: acc.avatarUrl,
-    googleLinked: Boolean(acc.googleLinked),
     createdAt: acc.createdAt,
   };
 }
 
+app.post('/api/auth/check-phone', (req, res) => {
+  const { phone, currentUserId } = req.body || {};
+  if (typeof phone !== 'string') {
+    return res.json({ taken: false });
+  }
+  const taken = isPhoneUsedByOtherAccount(phone, typeof currentUserId === 'string' ? currentUserId : undefined);
+  return res.json({ taken });
+});
+
 app.post('/api/auth/register', (req, res) => {
   try {
     const {
-      userId,
-      email,
       password,
       name,
       username,
       bio,
       phone,
       avatarUrl,
-      googleLinked,
+      initialChats,
+      initialUser,
     } = req.body || {};
 
-    if (typeof email !== 'string' || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email.trim())) {
-      return res.status(400).json({ error: 'Ingresa una cuenta o correo electrónico válido.' });
-    }
-    if (typeof password !== 'string' || password.length < 6 || password.length > 128) {
-      return res.status(400).json({ error: 'La contraseña debe tener entre 6 y 128 caracteres.' });
+    if (typeof password !== 'string' || password.length < 4 || password.length > 128) {
+      return res.status(400).json({ error: 'Tu contraseña de PidgeX debe tener entre 4 y 128 caracteres.' });
     }
     if (typeof name !== 'string' || name.trim().length < 2) {
-      return res.status(400).json({ error: 'Ingresa tu nombre completo.' });
+      return res.status(400).json({ error: 'Ingresa tu nombre completo (mínimo 2 letras).' });
     }
-    if (typeof username !== 'string' || username.trim().length < 3) {
-      return res.status(400).json({ error: 'Ingresa un nombre de usuario válido.' });
+    if (typeof username !== 'string' || username.trim().replace(/^@+/, '').length < 3) {
+      return res.status(400).json({ error: 'Ingresa un nombre de usuario válido (mínimo 3 caracteres).' });
+    }
+    const phoneDigits = normalizePhoneDigitsServer(typeof phone === 'string' ? phone : '');
+    if (phoneDigits.full.length < 8) {
+      return res.status(400).json({ error: 'Ingresa un número de teléfono válido de al menos 8 dígitos.' });
     }
 
-    const normEmail = email.trim().toLowerCase();
     const rawUser = username.trim().replace(/^@+/, '').replace(/\s+/g, '').toLowerCase();
     const normUsername = `@${rawUser}`;
 
+    // Enforce unique phone number across all accounts
+    if (isPhoneUsedByOtherAccount(phone)) {
+      return res.status(409).json({
+        error: 'Ese número de teléfono ya está registrado en otra cuenta. No se puede repetir.',
+      });
+    }
+
+    // Enforce unique username and unique password across all accounts
     for (const existing of authAccountsById.values()) {
-      if (existing.email === normEmail) {
-        return res.status(409).json({
-          error: 'Esta cuenta ya está registrada en PidgeX. Por favor inicia sesión con tu contraseña.',
-        });
-      }
       if (existing.username === normUsername) {
         return res.status(409).json({
-          error: 'Ese nombre de usuario ya está en uso. Elige otro o inicia sesión.',
+          error: 'Ese nombre de usuario ya está en uso. Elige otro.',
+        });
+      }
+      if (verifyPasswordScrypt(password, existing.salt, existing.passwordHash)) {
+        return res.status(409).json({
+          error: 'Esa contraseña ya está en uso por otra cuenta. No se puede repetir contraseña.',
         });
       }
     }
 
-    const cleanId =
-      typeof userId === 'string' && userId.trim().length >= 4 && userId !== 'user_me'
-        ? userId.trim()
-        : `user_${Date.now()}_${crypto.randomBytes(4).toString('hex')}`;
-
+    const cleanId = `user_${Date.now()}_${crypto.randomBytes(4).toString('hex')}`;
     const { salt, hash } = hashPasswordScrypt(password);
 
     const newAccount: StoredAuthAccount = {
       userId: cleanId,
-      email: normEmail,
       username: normUsername,
       name: name.trim().slice(0, 60),
       bio: typeof bio === 'string' ? bio.trim().slice(0, 160) : 'Soy nuevo en PidgeX',
-      phone: typeof phone === 'string' ? phone.trim() : '',
+      phone: phone.trim(),
       avatarUrl: typeof avatarUrl === 'string' ? avatarUrl : '',
       salt,
       passwordHash: hash,
-      googleLinked: Boolean(googleLinked),
       createdAt: Date.now(),
     };
 
     authAccountsById.set(cleanId, newAccount);
     saveAuthAccounts();
 
+    if (Array.isArray(initialChats) || (initialUser && typeof initialUser === 'object')) {
+      saveAccountState(cleanId, {
+        user: initialUser && typeof initialUser === 'object' ? { ...initialUser, id: cleanId } : undefined,
+        chats: Array.isArray(initialChats) ? initialChats : undefined,
+      });
+    }
+
     const token = signSessionToken(cleanId);
     return res.status(201).json({
       ok: true,
       token,
       account: sanitizePublicAccount(newAccount),
+      savedState: loadAccountState(cleanId),
     });
   } catch (err) {
     console.error('Register error:', err);
-    return res.status(500).json({ error: 'No se pudo completar el registro en el servidor.' });
+    return res.status(500).json({ error: 'No se pudo crear la cuenta en el servidor.' });
   }
 });
 
 app.post('/api/auth/login', (req, res) => {
   try {
-    const { identifier, password } = req.body || {};
+    const { password } = req.body || {};
 
-    if (typeof identifier !== 'string' || !identifier.trim()) {
-      return res.status(400).json({ error: 'Ingresa tu cuenta (correo, @usuario o teléfono).' });
-    }
     if (typeof password !== 'string' || password.length === 0) {
-      return res.status(400).json({ error: 'Ingresa tu contraseña.' });
+      return res.status(400).json({ error: 'Ingresa tu contraseña de PidgeX.' });
     }
-
-    const needle = identifier.trim().toLowerCase();
-    const needleAsUser = needle.startsWith('@') ? needle : `@${needle}`;
-    const needleDigits = needle.replace(/\D/g, '');
 
     let matched: StoredAuthAccount | undefined;
     for (const acc of authAccountsById.values()) {
-      const accDigits = (acc.phone || '').replace(/\D/g, '');
-      if (
-        acc.email === needle ||
-        acc.username === needle ||
-        acc.username === needleAsUser ||
-        (needleDigits.length >= 6 && accDigits === needleDigits)
-      ) {
+      if (verifyPasswordScrypt(password, acc.salt, acc.passwordHash)) {
         matched = acc;
         break;
       }
@@ -1847,26 +1942,84 @@ app.post('/api/auth/login', (req, res) => {
 
     if (!matched) {
       return res.status(401).json({
-        error: 'No existe una cuenta registrada con ese correo o usuario. Si eres nuevo, toca Registrarse.',
-      });
-    }
-
-    if (!verifyPasswordScrypt(password, matched.salt, matched.passwordHash)) {
-      return res.status(401).json({
-        error: 'Contraseña incorrecta para esta cuenta.',
+        error: 'Esa contraseña no existe en PidgeX. Verifica tu contraseña o crea una cuenta en Iniciar sesión.',
       });
     }
 
     const token = signSessionToken(matched.userId);
+    const savedState = loadAccountState(matched.userId);
     return res.json({
       ok: true,
       token,
       account: sanitizePublicAccount(matched),
+      savedState,
     });
   } catch (err) {
     console.error('Login error:', err);
-    return res.status(500).json({ error: 'Error al iniciar sesión en el servidor.' });
+    return res.status(500).json({ error: 'Error al validar la contraseña en el servidor.' });
   }
+});
+
+app.get('/api/auth/state', (req, res) => {
+  const uid = verifySessionToken(req.headers.authorization);
+  if (!uid) {
+    return res.status(401).json({ error: 'Sesión no autorizada.' });
+  }
+  const acc = authAccountsById.get(uid);
+  if (!acc) {
+    return res.status(404).json({ error: 'Cuenta no encontrada.' });
+  }
+  return res.json({
+    ok: true,
+    account: sanitizePublicAccount(acc),
+    savedState: loadAccountState(uid),
+  });
+});
+
+app.put('/api/auth/state', (req, res) => {
+  const uid = verifySessionToken(req.headers.authorization);
+  if (!uid) {
+    return res.status(401).json({ error: 'Sesión no autorizada.' });
+  }
+  const acc = authAccountsById.get(uid);
+  if (!acc) {
+    return res.status(404).json({ error: 'Cuenta no encontrada.' });
+  }
+
+  const { user, chats } = req.body || {};
+  if (user && typeof user === 'object') {
+    if (typeof user.phone === 'string' && isPhoneUsedByOtherAccount(user.phone, uid)) {
+      return res.status(409).json({
+        error: 'Este número de teléfono ya está registrado en otra cuenta.',
+      });
+    }
+    if (typeof user.name === 'string' && user.name.trim()) {
+      acc.name = user.name.trim().slice(0, 60);
+    }
+    if (typeof user.username === 'string' && user.username.trim()) {
+      const norm = `@${user.username.trim().replace(/^@+/, '').replace(/\s+/g, '').toLowerCase()}`;
+      acc.username = norm;
+    }
+    if (typeof user.bio === 'string') {
+      acc.bio = user.bio.trim().slice(0, 160);
+    }
+    if (typeof user.phone === 'string' && user.phone.trim()) {
+      acc.phone = user.phone.trim();
+    }
+    if (typeof user.avatarUrl === 'string') {
+      acc.avatarUrl = user.avatarUrl;
+    }
+    authAccountsById.set(uid, acc);
+    saveAuthAccounts();
+  }
+
+  const existingState = loadAccountState(uid) || {};
+  saveAccountState(uid, {
+    user: user && typeof user === 'object' ? { ...user, id: uid, email: '' } : existingState.user,
+    chats: Array.isArray(chats) ? chats : existingState.chats,
+  });
+
+  return res.json({ ok: true });
 });
 
 app.delete('/api/auth/account', (req, res) => {
@@ -1876,6 +2029,7 @@ app.delete('/api/auth/account', (req, res) => {
   }
   authAccountsById.delete(uid);
   saveAuthAccounts();
+  deleteAccountState(uid);
   return res.json({ ok: true });
 });
 

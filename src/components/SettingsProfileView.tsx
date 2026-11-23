@@ -5,12 +5,10 @@ import {
   Shield,
   Check,
   Edit3,
-  LogIn,
   LogOut,
   Trash2,
   AlertTriangle,
   Activity,
-  QrCode,
   Compass,
   Smartphone,
   Laptop,
@@ -38,7 +36,6 @@ import { ensurePhoneStartsWith16 } from '../utils/phoneUtils';
 import { DEFAULT_PIDGEON_AVATAR } from '../utils/avatarUtils';
 import { isPhoneTakenByAnotherUser } from '../utils/phoneValidation';
 import { PidgeXFullLogo } from './BirdLogo';
-import { ProfileQrCardModal } from './ProfileQrCardModal';
 import { AvatarCaptureModal } from './AvatarCaptureModal';
 import { DigitalAvatarStudioModal } from './DigitalAvatarStudioModal';
 import { AiStickerFactoryModal } from './AiStickerFactoryModal';
@@ -52,19 +49,14 @@ import {
 interface SettingsProfileViewProps {
   user: UserProfile;
   wallpapers: Wallpaper[];
-  firebaseUser?: any;
-  isCloudSynced?: boolean;
   isNightMode?: boolean;
   isClassicMode?: boolean;
-  onGoogleLogin?: () => void;
-  onGoogleLogout?: () => void;
   onUpdateUser: (updated: Partial<UserProfile>) => void;
   onToggleDoNotDisturb?: (duration?: string) => void;
   onApproveFriendRequest?: (requestId: string) => void;
   onRejectFriendRequest?: (requestId: string) => void;
   onSignOut?: () => Promise<void> | void;
   onDeleteAccount?: () => Promise<void> | void;
-  onAddScannedContact?: (name: string, username: string) => void;
   onToggleClassicMode?: () => void;
   onOpenTutorial?: () => void;
   onOpenTour?: () => void;
@@ -75,15 +67,11 @@ interface SettingsProfileViewProps {
 export const SettingsProfileView: React.FC<SettingsProfileViewProps> = ({
   user,
   wallpapers,
-  firebaseUser,
   isNightMode = false,
   isClassicMode = false,
-  onGoogleLogin,
-  onGoogleLogout,
   onUpdateUser,
   onSignOut,
   onDeleteAccount,
-  onAddScannedContact,
   onToggleClassicMode,
   onOpenTutorial,
   onOpenTour,
@@ -102,7 +90,6 @@ export const SettingsProfileView: React.FC<SettingsProfileViewProps> = ({
   const [isDeleting, setIsDeleting] = useState<boolean>(false);
   const [savedFeedback, setSavedFeedback] = useState<boolean>(false);
   const [phoneError, setPhoneError] = useState<string | null>(null);
-  const [showQrCardModal, setShowQrCardModal] = useState<boolean>(false);
   const [showAvatarStudio, setShowAvatarStudio] = useState<boolean>(false);
   const [showStickerFactory, setShowStickerFactory] = useState<boolean>(false);
 
@@ -436,14 +423,6 @@ export const SettingsProfileView: React.FC<SettingsProfileViewProps> = ({
                 >
                   <Camera className="w-3.5 h-3.5 text-[#0284c7]" />
                   <span>Cambiar foto</span>
-                </button>
-
-                <button
-                  onClick={() => setShowQrCardModal(true)}
-                  className="px-3.5 py-2 rounded-xl bg-[#0284c7] hover:bg-[#0369a1] text-white text-xs font-semibold flex items-center gap-1.5 transition-colors cursor-pointer"
-                >
-                  <QrCode className="w-3.5 h-3.5" />
-                  <span>Tarjeta QR</span>
                 </button>
 
                 <button
@@ -1233,42 +1212,6 @@ export const SettingsProfileView: React.FC<SettingsProfileViewProps> = ({
               </div>
             </section>
 
-            {/* Cloud Sync */}
-            <section className={`rounded-2xl border p-5 flex flex-col gap-3 ${cardCls}`}>
-              <div className="flex items-center justify-between pb-2 border-b border-slate-200 dark:border-white/10">
-                <div className="flex items-center gap-2.5">
-                  <div className="w-8 h-8 rounded-xl bg-[#0284c7]/15 text-[#0284c7] dark:text-[#38bdf8] flex items-center justify-center">
-                    <Shield className="w-4 h-4" />
-                  </div>
-                  <div>
-                    <h4 className="text-xs font-bold">Respaldo en la nube</h4>
-                    <span className={`text-[11px] ${mutedTextCls}`}>
-                      {firebaseUser ? 'Cuenta vinculada' : 'Solo en este dispositivo'}
-                    </span>
-                  </div>
-                </div>
-                {firebaseUser ? (
-                  <button
-                    onClick={onGoogleLogout}
-                    className="px-3 py-1.5 rounded-xl bg-red-500/15 hover:bg-red-500/25 text-red-500 text-xs font-semibold border border-red-500/30 cursor-pointer"
-                  >
-                    Desvincular
-                  </button>
-                ) : (
-                  <button
-                    onClick={onGoogleLogin}
-                    className="px-3 py-1.5 rounded-xl bg-[#0284c7] hover:bg-[#0369a1] text-white text-xs font-semibold cursor-pointer flex items-center gap-1.5"
-                  >
-                    <LogIn className="w-3.5 h-3.5" />
-                    <span>Conectar Google</span>
-                  </button>
-                )}
-              </div>
-              <p className={`text-xs leading-relaxed ${mutedTextCls}`}>
-                Guarda tus conversaciones, contactos y perfil para recuperarlos si cambias de equipo.
-              </p>
-            </section>
-
             {/* App Actions */}
             <div className="flex flex-col gap-2.5">
               <button
@@ -1427,15 +1370,6 @@ export const SettingsProfileView: React.FC<SettingsProfileViewProps> = ({
           </div>
         </div>
       )}
-
-      {/* QR Card Modal */}
-      <ProfileQrCardModal
-        isOpen={showQrCardModal}
-        onClose={() => setShowQrCardModal(false)}
-        user={user}
-        isNightMode={isNightMode}
-        onAddScannedContact={onAddScannedContact}
-      />
 
       {/* Avatar Capture Modal (Gallery & Live Camera) */}
       <AvatarCaptureModal

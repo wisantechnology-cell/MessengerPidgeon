@@ -425,6 +425,7 @@ export default function App() {
   const userRef = useRef<UserProfile>(user);
   userRef.current = user;
   const sessionTokenRef = useRef<string | null>(null);
+  const sessionSignedOutRef = useRef<boolean>(false);
   const [inAppNotification, setInAppNotification] = useState<BirdNotification | null>(null);
 
   useEffect(() => {
@@ -436,40 +437,11 @@ export default function App() {
     } catch {}
   }, []);
 
-  // Firebase Auth & Cloud Sync
+  // Cloud status initialization (email-free)
   useEffect(() => {
-    const unsubscribe = onAuthStateChanged(auth, async (currentUser) => {
+    const unsubscribe = onAuthStateChanged(auth, (currentUser) => {
       setFirebaseUser(currentUser);
-      if (currentUser) {
-        try {
-          const userRef = doc(db, 'users', currentUser.uid);
-          const userSnap = await getDoc(userRef);
-          if (userSnap.exists()) {
-            const data = userSnap.data() as UserProfile;
-            setUser((prev) => ({
-              ...prev,
-              ...data,
-              id: currentUser.uid,
-              email: currentUser.email || prev.email,
-              name: currentUser.displayName || prev.name,
-              avatarUrl: currentUser.photoURL || prev.avatarUrl,
-            }));
-          } else {
-            await setDoc(userRef, {
-              ...user,
-              id: currentUser.uid,
-              email: currentUser.email || user.email,
-              name: currentUser.displayName || user.name,
-              avatarUrl: currentUser.photoURL || user.avatarUrl,
-            });
-          }
-          setIsCloudSynced(true);
-        } catch (e) {
-          console.error('Cloud sync error:', e);
-        }
-      } else {
-        setIsCloudSynced(false);
-      }
+      setIsCloudSynced(Boolean(currentUser));
     });
     return () => unsubscribe();
   }, []);
@@ -492,27 +464,54 @@ export default function App() {
     return () => unsubPresence();
   }, [user, isAccountRegistered]);
 
-  const handleCompleteAccountCreation = async (payload: AccountRegistrationPayload) => {
+  const saveAccountSnapshotLocal = (targetId: string, snapshotUser: UserProfile, snapshotChats: Chat[]) => {
+    try {
+      localStorage.setItem(
+        `pidgex_account_snapshot_${targetId}`,
+        JSON.stringify({ user: snapshotUser, chats: snapshotChats })
+      );
+    } catch {
+      try {
+        const compactChats = snapshotChats.map((c) => ({
+          ...c,
+          messages: (c.messages || []).map((m) =>
+            m.mediaUrl && m.mediaUrl.startsWith('data:video/')
+              ? { ...m, mediaUrl: undefined }
+              : m
+          ),
+        }));
+        localStorage.setItem(
+          `pidgex_account_snapshot_${targetId}`,
+          JSON.stringify({ user: snapshotUser, chats: compactChats })
+        );
+      } catch {
+        // ignore quota errors
+      }
+    }
+  };
+
+  // Iniciar sesión = Crear una cuenta nueva
+  const handleCompleteCreateAccount = async (payload: AccountRegistrationPayload) => {
     const newId =
       payload.userId ||
-      (user.id && user.id !== 'user_me'
-        ? user.id
-        : `user_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`);
+      `user_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`;
 
     sessionTokenRef.current = payload.sessionToken || null;
 
-    try {
-      localStorage.setItem('birdmessage_client_uid', newId);
-      localStorage.removeItem('pidgex_account_credentials_v1');
-      localStorage.setItem('pidgex_account_completed_v1', 'true');
-    } catch {
-      // ignore storage errors
-    }
+    const wasSignedOut = sessionSignedOutRef.current;
+    sessionSignedOutRef.current = false;
+
+    const accountChats: Chat[] = wasSignedOut
+      ? INITIAL_CHATS
+      : chatsRef.current && chatsRef.current.length > 0
+      ? chatsRef.current
+      : INITIAL_CHATS;
 
     const updatedUser: UserProfile = {
-      ...user,
+      ...INITIAL_USER,
+      ...(wasSignedOut ? {} : user),
       id: newId,
-      email: payload.email || user.email,
+      email: '',
       name: payload.name,
       username: payload.username,
       bio: payload.bio,
@@ -521,9 +520,35 @@ export default function App() {
       accountCreated: true,
     };
 
+    try {
+      localStorage.setItem('birdmessage_client_uid', newId);
+      localStorage.removeItem('pidgex_account_credentials_v1');
+      localStorage.setItem('pidgex_account_completed_v1', 'true');
+      localStorage.setItem(USER_STORAGE_KEY, JSON.stringify(updatedUser));
+      localStorage.setItem(CHATS_STORAGE_KEY, JSON.stringify(accountChats));
+    } catch {
+      // ignore storage errors
+    }
+
+    saveAccountSnapshotLocal(newId, updatedUser, accountChats);
+
     setUser(updatedUser);
+    setChats(accountChats);
+    setActiveChatId(null);
     registerKnownUser(updatedUser);
+    registerChatsContacts(accountChats);
     broadcastUserPresence(updatedUser);
+
+    if (sessionTokenRef.current) {
+      fetch('/api/auth/state', {
+        method: 'PUT',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${sessionTokenRef.current}`,
+        },
+        body: JSON.stringify({ user: updatedUser, chats: accountChats }),
+      }).catch(() => {});
+    }
 
     try {
       const userRefDoc = doc(db, 'users', newId);
@@ -535,7 +560,8 @@ export default function App() {
     setIsAccountRegistered(true);
   };
 
-  const handleCompleteLogin = async (payload: AccountRegistrationPayload) => {
+  // Registrarse = Entrar a cuenta existente con su contraseña y restaurar contactos/conversaciones
+  const handleCompleteExistingAccount = async (payload: AccountRegistrationPayload) => {
     const finalId =
       payload.userId ||
       (user.id && user.id !== 'user_me'
@@ -543,6 +569,7 @@ export default function App() {
         : `user_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`);
 
     sessionTokenRef.current = payload.sessionToken || null;
+    sessionSignedOutRef.current = false;
 
     let cloudData: Partial<UserProfile> = {};
     try {
@@ -551,36 +578,65 @@ export default function App() {
         cloudData = userSnap.data() as Partial<UserProfile>;
       }
     } catch {
-      // continue with payload if Firestore is unavailable
+      // continue with server snapshot / payload if Firestore is unavailable
     }
 
-    const loggedUser: UserProfile = {
-      ...user,
+    let localSnapshot: { user?: Partial<UserProfile>; chats?: Chat[] } | null = null;
+    try {
+      const rawSnap = localStorage.getItem(`pidgex_account_snapshot_${finalId}`);
+      if (rawSnap) {
+        localSnapshot = JSON.parse(rawSnap);
+      }
+    } catch {
+      // ignore
+    }
+
+    const serverUser = payload.savedState?.user;
+    const serverChats = payload.savedState?.chats;
+
+    const restoredUser: UserProfile = {
+      ...INITIAL_USER,
       ...cloudData,
+      ...(localSnapshot?.user || {}),
+      ...(serverUser || {}),
       id: finalId,
-      email: payload.email || cloudData.email || user.email,
-      name: payload.name || cloudData.name || user.name,
-      username: payload.username || cloudData.username || user.username,
-      bio: payload.bio || cloudData.bio || user.bio,
-      phone: payload.phone || cloudData.phone || user.phone,
-      avatarUrl: payload.avatarUrl || cloudData.avatarUrl || user.avatarUrl,
+      email: '',
+      name: payload.name || serverUser?.name || cloudData.name || 'Usuario PidgeX',
+      username: payload.username || serverUser?.username || cloudData.username || '@usuario',
+      bio: payload.bio || serverUser?.bio || cloudData.bio || 'Disponible en PidgeX',
+      phone: payload.phone || serverUser?.phone || cloudData.phone || user.phone,
+      avatarUrl: payload.avatarUrl || serverUser?.avatarUrl || cloudData.avatarUrl || INITIAL_USER.avatarUrl,
       accountCreated: true,
     };
+
+    const restoredChats: Chat[] =
+      Array.isArray(serverChats) && serverChats.length > 0
+        ? serverChats
+        : Array.isArray(localSnapshot?.chats) && localSnapshot.chats.length > 0
+        ? localSnapshot.chats
+        : INITIAL_CHATS;
 
     try {
       localStorage.setItem('birdmessage_client_uid', finalId);
       localStorage.removeItem('pidgex_account_credentials_v1');
       localStorage.setItem('pidgex_account_completed_v1', 'true');
+      localStorage.setItem(USER_STORAGE_KEY, JSON.stringify(restoredUser));
+      localStorage.setItem(CHATS_STORAGE_KEY, JSON.stringify(restoredChats));
     } catch {
       // ignore storage errors
     }
 
-    setUser(loggedUser);
-    registerKnownUser(loggedUser);
-    broadcastUserPresence(loggedUser);
+    saveAccountSnapshotLocal(finalId, restoredUser, restoredChats);
+
+    setUser(restoredUser);
+    setChats(restoredChats);
+    setActiveChatId(null);
+    registerKnownUser(restoredUser);
+    registerChatsContacts(restoredChats);
+    broadcastUserPresence(restoredUser);
 
     try {
-      await setDoc(doc(db, 'users', finalId), loggedUser, { merge: true });
+      await setDoc(doc(db, 'users', finalId), restoredUser, { merge: true });
     } catch (err) {
       console.warn('Firestore profile sync notice (continuing locally):', err);
     }
@@ -1388,24 +1444,33 @@ export default function App() {
     };
   }, [incomingCallData]);
 
-  const handleGoogleLogin = async () => {
-    try {
-      await signInWithPopup(auth, googleProvider);
-    } catch (e) {
-      console.error('Google login error:', e);
-    }
-  };
-
-  const handleGoogleLogout = async () => {
-    try {
-      await signOut(auth);
-    } catch (e) {
-      console.error('Google logout error:', e);
-    }
-  };
-
   const handleSignOutSession = async () => {
+    // Save current account contacts and conversations before signing out
+    const currentId = userRef.current?.id;
+    const currentToken = sessionTokenRef.current;
+    if (currentId && currentId !== 'user_me') {
+      saveAccountSnapshotLocal(currentId, userRef.current, chatsRef.current);
+      if (currentToken) {
+        try {
+          await fetch('/api/auth/state', {
+            method: 'PUT',
+            headers: {
+              'Content-Type': 'application/json',
+              Authorization: `Bearer ${currentToken}`,
+            },
+            body: JSON.stringify({
+              user: userRef.current,
+              chats: chatsRef.current,
+            }),
+          });
+        } catch {
+          // ignore network errors
+        }
+      }
+    }
+
     sessionTokenRef.current = null;
+    sessionSignedOutRef.current = true;
     try {
       localStorage.removeItem('pidgex_account_completed_v1');
     } catch {
@@ -1491,6 +1556,9 @@ export default function App() {
       localStorage.removeItem('birdmessage_marketplace_v1');
       localStorage.removeItem('pidgex_account_completed_v1');
       localStorage.removeItem('pidgex_account_credentials_v1');
+      if (userRef.current?.id) {
+        localStorage.removeItem(`pidgex_account_snapshot_${userRef.current.id}`);
+      }
     } catch (e) {
       console.error('Error clearing localStorage:', e);
     }
@@ -1551,6 +1619,25 @@ export default function App() {
       }
     }
   }, [chats]);
+
+  // Keep per-account contacts, conversations, and profile synchronized
+  useEffect(() => {
+    if (!isAccountRegistered || !user?.id || user.id === 'user_me') return;
+    saveAccountSnapshotLocal(user.id, user, chats);
+    const token = sessionTokenRef.current;
+    if (!token) return;
+    const timer = setTimeout(() => {
+      fetch('/api/auth/state', {
+        method: 'PUT',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify({ user, chats }),
+      }).catch(() => {});
+    }, 650);
+    return () => clearTimeout(timer);
+  }, [user, chats, isAccountRegistered]);
 
   // Play notification sound & show toast when receiving a new message
   const prevMessageCountsRef = useRef<Record<string, number>>({});
@@ -2725,8 +2812,10 @@ export default function App() {
       {/* Main App Content Container */}
       {!isAccountRegistered ? (
         <AccountOnboardingView
-          onCompleteAccount={handleCompleteAccountCreation}
-          onCompleteLogin={handleCompleteLogin}
+          onCompleteCreate={handleCompleteCreateAccount}
+          onCompleteExisting={handleCompleteExistingAccount}
+          currentChats={sessionSignedOutRef.current ? undefined : chats}
+          currentUser={sessionSignedOutRef.current ? undefined : user}
           isNightMode={isNightMode}
         />
       ) : (
@@ -2979,26 +3068,13 @@ export default function App() {
                 <SettingsProfileView
                   user={user}
                   wallpapers={WALLPAPERS}
-                  firebaseUser={firebaseUser}
-                  isCloudSynced={isCloudSynced}
                   isNightMode={isNightMode}
-                  onGoogleLogin={handleGoogleLogin}
-                  onGoogleLogout={handleGoogleLogout}
                   onUpdateUser={handleUpdateUser}
                   onToggleDoNotDisturb={handleToggleDoNotDisturb}
                   onApproveFriendRequest={handleApproveFriendRequest}
                   onRejectFriendRequest={handleRejectFriendRequest}
                   onSignOut={handleSignOutSession}
                   onDeleteAccount={handleDeleteAccount}
-                  onAddScannedContact={(name, username) => {
-                    handleAddFriendDirect({
-                      name,
-                      username,
-                      avatarUrl: createSvgAvatar(name),
-                      initialMessage: '¡Hola! Nos escaneamos por código QR en PidgeX.',
-                    });
-                    setActiveTab('chats');
-                  }}
                   isClassicMode={isClassicMode}
                   onToggleClassicMode={() => {
                     const next = !isClassicMode;

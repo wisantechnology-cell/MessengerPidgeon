@@ -174,6 +174,22 @@ export async function isPhoneTakenByAnotherUser(
   }
 
   try {
+    const res = await fetch('/api/auth/check-phone', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ phone: normalizedPhone, currentUserId }),
+    });
+    if (res.ok) {
+      const data = await res.json();
+      if (data?.taken) {
+        return true;
+      }
+    }
+  } catch {
+    // fallback to Firestore check
+  }
+
+  try {
     const q = query(collection(db, 'users'), where('phone', '==', normalizedPhone));
     const snapshot = await getDocs(q);
     for (const docSnap of snapshot.docs) {
