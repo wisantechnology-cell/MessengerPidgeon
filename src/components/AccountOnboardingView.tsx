@@ -79,6 +79,52 @@ function cropAvatarToSquare(dataUrl: string, size = 400): Promise<string> {
   });
 }
 
+async function postAuthJson(
+  url: string,
+  payload: Record<string, any>
+): Promise<{ ok: boolean; status: number; data: any; nonJsonText?: string }> {
+  const bodyStr = JSON.stringify(payload);
+  let lastError: any = null;
+
+  for (let attempt = 0; attempt < 2; attempt++) {
+    try {
+      const res = await fetch(url, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: bodyStr,
+      });
+
+      if ((res.status === 502 || res.status === 503 || res.status === 504) && attempt === 0) {
+        await new Promise((r) => setTimeout(r, 1100));
+        continue;
+      }
+
+      const rawText = await res.text();
+      let parsed: any = null;
+      try {
+        parsed = rawText ? JSON.parse(rawText) : null;
+      } catch {
+        parsed = null;
+      }
+
+      return {
+        ok: res.ok && parsed !== null,
+        status: res.status,
+        data: parsed,
+        nonJsonText: parsed === null ? rawText.slice(0, 200) : undefined,
+      };
+    } catch (err) {
+      lastError = err;
+      if (attempt === 0) {
+        await new Promise((r) => setTimeout(r, 900));
+        continue;
+      }
+    }
+  }
+
+  throw lastError || new Error('Network error');
+}
+
 export const AccountOnboardingView: React.FC<AccountOnboardingViewProps> = ({
   onCompleteCreate,
   onCompleteExisting,
@@ -212,16 +258,22 @@ export const AccountOnboardingView: React.FC<AccountOnboardingViewProps> = ({
 
     setIsCheckingExisting(true);
     try {
-      const res = await fetch('/api/auth/login', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ password: existingPassword }),
+      const { ok, status, data } = await postAuthJson('/api/auth/login', {
+        password: existingPassword,
       });
-      const data = await res.json();
-      if (!res.ok || !data?.ok || !data?.account) {
-        setExistingError(
-          data?.error || 'Esa contraseña no existe en PidgeX. Verifica tu contraseña o crea una cuenta en Iniciar sesión.'
-        );
+
+      if (!ok || !data?.ok || !data?.account) {
+        if (data?.error) {
+          setExistingError(data.error);
+        } else if (status === 404 || status >= 500) {
+          setExistingError(
+            `El servidor de PidgeX aún se está iniciando o no respondió (código ${status}). Recarga la página e intenta de nuevo.`
+          );
+        } else {
+          setExistingError(
+            'Esa contraseña no existe en PidgeX. Verifica tu contraseña o crea una cuenta en Iniciar sesión.'
+          );
+        }
         setIsCheckingExisting(false);
         return;
       }
@@ -237,7 +289,7 @@ export const AccountOnboardingView: React.FC<AccountOnboardingViewProps> = ({
         savedState: data.savedState || null,
       });
     } catch {
-      setExistingError('No se pudo verificar la contraseña con el servidor. Intenta de nuevo.');
+      setExistingError('No se pudo conectar con el servidor para verificar tu contraseña. Intenta de nuevo en unos segundos.');
     } finally {
       setIsCheckingExisting(false);
     }
@@ -320,35 +372,27 @@ export const AccountOnboardingView: React.FC<AccountOnboardingViewProps> = ({
 
       const finalPhone = ensurePhoneStartsWith16(phoneInput);
 
-      const authRes = await fetch('/api/auth/register', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          password,
-          name: name.trim(),
-          username: normalizedUsername,
-          bio: bio.trim(),
-          phone: finalPhone,
-          avatarUrl: finalAvatar,
-          initialChats: Array.isArray(currentChats) ? currentChats : undefined,
-          initialUser: currentUser
-            ? {
-                ...currentUser,
-                email: '',
-                name: name.trim(),
-                username: normalizedUsername,
-                bio: bio.trim(),
-                phone: finalPhone,
-                avatarUrl: finalAvatar,
-                accountCreated: true,
-              }
-            : undefined,
-        }),
+      const { ok, status, data: authData } = await postAuthJson('/api/auth/register', {
+        password,
+        name: name.trim(),
+        username: normalizedUsername,
+        bio: bio.trim(),
+        phone: finalPhone,
+        avatarUrl: finalAvatar,
       });
 
-      const authData = await authRes.json();
-      if (!authRes.ok || !authData?.ok || !authData?.account) {
-        setSubmitError(authData?.error || 'No se pudo crear la cuenta. Verifica tus datos.');
+      if (!ok || !authData?.ok || !authData?.account) {
+        if (authData?.error) {
+          setSubmitError(authData.error);
+        } else if (status === 413) {
+          setSubmitError('La foto de perfil es demasiado pesada. Elige un avatar rápido o una foto más ligera.');
+        } else if (status === 404 || status >= 500) {
+          setSubmitError(
+            `El servidor de PidgeX aún se está iniciando o no respondió (código ${status}). Recarga la página e intenta de nuevo.`
+          );
+        } else {
+          setSubmitError('No se pudo crear la cuenta. Verifica tus datos e intenta de nuevo.');
+        }
         setIsSubmitting(false);
         return;
       }
@@ -365,7 +409,7 @@ export const AccountOnboardingView: React.FC<AccountOnboardingViewProps> = ({
       });
     } catch (err) {
       console.error('Error creating account:', err);
-      setSubmitError('No se pudo conectar para crear la cuenta. Intenta de nuevo.');
+      setSubmitError('No se pudo conectar con el servidor de PidgeX. Recarga la página e intenta de nuevo.');
     } finally {
       setIsSubmitting(false);
     }

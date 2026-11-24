@@ -490,6 +490,34 @@ export default function App() {
     }
   };
 
+  const buildCompactSyncPayload = (targetUser: UserProfile, targetChats: Chat[]) => {
+    const safeUser: UserProfile = {
+      ...targetUser,
+      email: '',
+      customWallpaperUrl:
+        targetUser.customWallpaperUrl && targetUser.customWallpaperUrl.length > 400000
+          ? ''
+          : targetUser.customWallpaperUrl,
+      customCallRingtoneUrl:
+        targetUser.customCallRingtoneUrl && targetUser.customCallRingtoneUrl.length > 400000
+          ? ''
+          : targetUser.customCallRingtoneUrl,
+      customMessageToneUrl:
+        targetUser.customMessageToneUrl && targetUser.customMessageToneUrl.length > 400000
+          ? ''
+          : targetUser.customMessageToneUrl,
+    };
+    const safeChats = (targetChats || []).map((c) => ({
+      ...c,
+      messages: (c.messages || []).map((m) =>
+        m.mediaUrl && m.mediaUrl.startsWith('data:') && m.mediaUrl.length > 400000
+          ? { ...m, mediaUrl: undefined }
+          : m
+      ),
+    }));
+    return { user: safeUser, chats: safeChats };
+  };
+
   // Iniciar sesión = Crear una cuenta nueva
   const handleCompleteCreateAccount = async (payload: AccountRegistrationPayload) => {
     const newId =
@@ -546,7 +574,7 @@ export default function App() {
           'Content-Type': 'application/json',
           Authorization: `Bearer ${sessionTokenRef.current}`,
         },
-        body: JSON.stringify({ user: updatedUser, chats: accountChats }),
+        body: JSON.stringify(buildCompactSyncPayload(updatedUser, accountChats)),
       }).catch(() => {});
     }
 
@@ -1458,10 +1486,7 @@ export default function App() {
               'Content-Type': 'application/json',
               Authorization: `Bearer ${currentToken}`,
             },
-            body: JSON.stringify({
-              user: userRef.current,
-              chats: chatsRef.current,
-            }),
+            body: JSON.stringify(buildCompactSyncPayload(userRef.current, chatsRef.current)),
           });
         } catch {
           // ignore network errors
@@ -1633,7 +1658,7 @@ export default function App() {
           'Content-Type': 'application/json',
           Authorization: `Bearer ${token}`,
         },
-        body: JSON.stringify({ user, chats }),
+        body: JSON.stringify(buildCompactSyncPayload(user, chats)),
       }).catch(() => {});
     }, 650);
     return () => clearTimeout(timer);

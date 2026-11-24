@@ -2033,6 +2033,20 @@ app.delete('/api/auth/account', (req, res) => {
   return res.json({ ok: true });
 });
 
+app.use('/api', (_req, res) => {
+  return res.status(404).json({ error: 'Ruta de API no encontrada en el servidor.' });
+});
+
+app.use((err: any, req: express.Request, res: express.Response, next: express.NextFunction) => {
+  if (req.path.startsWith('/api')) {
+    if (err?.type === 'entity.too.large' || err?.status === 413) {
+      return res.status(413).json({ error: 'Los datos son demasiado pesados para enviarlos de una vez.' });
+    }
+    return res.status(err?.status || 500).json({ error: err?.message || 'Error interno del servidor.' });
+  }
+  return next(err);
+});
+
 async function startServer() {
   const server = http.createServer(app);
   const wss = new WebSocketServer({ server, path: '/ws' });
