@@ -27,8 +27,7 @@ import { isPhoneTakenByAnotherUser } from '../utils/phoneValidation';
 import {
   auth,
   db,
-  createUserWithEmailAndPassword,
-  signInWithEmailAndPassword,
+  signInAnonymously,
   doc,
   setDoc,
   getDoc,
@@ -278,7 +277,7 @@ export const AccountOnboardingView: React.FC<AccountOnboardingViewProps> = ({
     reader.readAsDataURL(file);
   };
 
-  // Registrarse = entrar a una cuenta ya existente usando SOLO Contraseña (vía Firebase)
+  // Registrarse = entrar a una cuenta ya existente usando SOLO Contraseña (vía Firestore)
   const handleExistingSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setExistingError(null);
@@ -302,10 +301,11 @@ export const AccountOnboardingView: React.FC<AccountOnboardingViewProps> = ({
       }
 
       const credData = credsSnap.docs[0].data();
-      const email = credData.email;
       const userId = credData.userId;
 
-      await signInWithEmailAndPassword(auth, email, existingPassword);
+      try {
+        await signInAnonymously(auth);
+      } catch {}
 
       let userProfile: any = null;
       let savedState: any = null;
@@ -394,7 +394,7 @@ export const AccountOnboardingView: React.FC<AccountOnboardingViewProps> = ({
     return true;
   };
 
-  // Iniciar sesión = crear una cuenta nueva (vía Firebase Auth & Firestore)
+  // Iniciar sesión = crear una cuenta nueva (vía Firebase Firestore)
   const handleCreateSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setSubmitError(null);
@@ -457,11 +457,12 @@ export const AccountOnboardingView: React.FC<AccountOnboardingViewProps> = ({
         } catch {}
       }
 
-      const finalBio = bio.trim() || 'Disponible en PidgeX';
-      const pseudoEmail = `pidgex_${finalPhone.replace(/\D/g, '')}_${Date.now()}@pidgex.internal`;
+      try {
+        await signInAnonymously(auth);
+      } catch {}
 
-      const userCredential = await createUserWithEmailAndPassword(auth, pseudoEmail, password);
-      const userId = userCredential.user.uid;
+      const userId = `user_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`;
+      const finalBio = bio.trim() || 'Disponible en PidgeX';
 
       const newUserProfile = {
         id: userId,
@@ -476,7 +477,6 @@ export const AccountOnboardingView: React.FC<AccountOnboardingViewProps> = ({
 
       await setDoc(doc(db, 'accountCredentials', userId), {
         userId,
-        email: pseudoEmail,
         password,
         phone: finalPhone,
         username: normUsername,
@@ -497,12 +497,7 @@ export const AccountOnboardingView: React.FC<AccountOnboardingViewProps> = ({
       });
     } catch (err: any) {
       console.error('Error creating account with Firebase:', err);
-      const msg = err?.message || '';
-      if (msg.includes('email-already-in-use')) {
-        setSubmitError('Ese teléfono o usuario ya tiene una cuenta registrada.');
-      } else {
-        setSubmitError('No se pudo conectar con Firebase para crear la cuenta. Verifica tu conexión e intenta de nuevo.');
-      }
+      setSubmitError('No se pudo conectar con Firebase para crear la cuenta. Verifica tu conexión e intenta de nuevo.');
     } finally {
       setIsSubmitting(false);
     }
