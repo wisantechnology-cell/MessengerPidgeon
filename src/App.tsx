@@ -80,6 +80,7 @@ import {
 import { NotificationPermissionBanner } from './components/NotificationPermissionBanner';
 import {
   registerKnownUser,
+  unregisterKnownUser,
   broadcastUserPresence,
   initPresenceListener,
   registerChatsContacts,
@@ -570,6 +571,7 @@ export default function App() {
     if (sessionTokenRef.current) {
       fetch('/api/auth/state', {
         method: 'PUT',
+        credentials: 'same-origin',
         headers: {
           'Content-Type': 'application/json',
           Authorization: `Bearer ${sessionTokenRef.current}`,
@@ -580,7 +582,11 @@ export default function App() {
 
     try {
       const userRefDoc = doc(db, 'users', newId);
-      await setDoc(userRefDoc, updatedUser, { merge: true });
+      setDoc(userRefDoc, updatedUser, { merge: true }).catch((err) => {
+        console.warn('Firestore profile save notice (continuing locally):', err);
+      });
+      const stateRefDoc = doc(db, 'userStates', newId);
+      setDoc(stateRefDoc, buildCompactSyncPayload(updatedUser, accountChats), { merge: true }).catch(() => {});
     } catch (err) {
       console.warn('Firestore profile save notice (continuing locally):', err);
     }
@@ -600,10 +606,20 @@ export default function App() {
     sessionSignedOutRef.current = false;
 
     let cloudData: Partial<UserProfile> = {};
+    let cloudState: { user?: Partial<UserProfile>; chats?: Chat[] } | null = null;
     try {
-      const userSnap = await getDoc(doc(db, 'users', finalId));
-      if (userSnap.exists()) {
+      const [userSnap, stateSnap] = await Promise.race([
+        Promise.all([
+          getDoc(doc(db, 'users', finalId)),
+          getDoc(doc(db, 'userStates', finalId)),
+        ]),
+        new Promise<any>((resolve) => setTimeout(() => resolve([null, null]), 1800)),
+      ]);
+      if (userSnap && userSnap.exists()) {
         cloudData = userSnap.data() as Partial<UserProfile>;
+      }
+      if (stateSnap && stateSnap.exists()) {
+        cloudState = stateSnap.data() as any;
       }
     } catch {
       // continue with server snapshot / payload if Firestore is unavailable
@@ -619,8 +635,8 @@ export default function App() {
       // ignore
     }
 
-    const serverUser = payload.savedState?.user;
-    const serverChats = payload.savedState?.chats;
+    const serverUser = payload.savedState?.user || cloudState?.user;
+    const serverChats = payload.savedState?.chats || cloudState?.chats;
 
     const restoredUser: UserProfile = {
       ...INITIAL_USER,
@@ -664,7 +680,10 @@ export default function App() {
     broadcastUserPresence(restoredUser);
 
     try {
-      await setDoc(doc(db, 'users', finalId), restoredUser, { merge: true });
+      setDoc(doc(db, 'users', finalId), restoredUser, { merge: true }).catch((err) => {
+        console.warn('Firestore profile sync notice (continuing locally):', err);
+      });
+      setDoc(doc(db, 'userStates', finalId), buildCompactSyncPayload(restoredUser, restoredChats), { merge: true }).catch(() => {});
     } catch (err) {
       console.warn('Firestore profile sync notice (continuing locally):', err);
     }
@@ -1478,21 +1497,24 @@ export default function App() {
     const currentToken = sessionTokenRef.current;
     if (currentId && currentId !== 'user_me') {
       saveAccountSnapshotLocal(currentId, userRef.current, chatsRef.current);
-      if (currentToken) {
-        try {
-          await fetch('/api/auth/state', {
+      try {
+        const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+        if (currentToken) headers.Authorization = `Bearer ${currentToken}`;
+        await Promise.race([
+          fetch('/api/auth/state', {
             method: 'PUT',
-            headers: {
-              'Content-Type': 'application/json',
-              Authorization: `Bearer ${currentToken}`,
-            },
+            credentials: 'same-origin',
+            headers,
             body: JSON.stringify(buildCompactSyncPayload(userRef.current, chatsRef.current)),
-          });
-        } catch {
-          // ignore network errors
-        }
+          }),
+          new Promise((resolve) => setTimeout(resolve, 1500)),
+        ]);
+      } catch {
+        // ignore network errors
       }
     }
+
+    fetch('/api/auth/logout', { method: 'POST', credentials: 'same-origin' }).catch(() => {});
 
     sessionTokenRef.current = null;
     sessionSignedOutRef.current = true;
@@ -1513,17 +1535,28 @@ export default function App() {
 
   // Delete account completely (local data, server auth record, and cloud data)
   const handleDeleteAccount = async () => {
+    const deletedId = userRef.current?.id;
+    const deletedPhone = userRef.current?.phone;
     const token = sessionTokenRef.current;
     sessionTokenRef.current = null;
-    if (token) {
+    unregisterKnownUser(deletedId, deletedPhone);
+
+    try {
+      const headers: Record<string, string> = {};
+      if (token) headers.Authorization = `Bearer ${token}`;
+      await fetch('/api/auth/account', {
+        method: 'DELETE',
+        credentials: 'same-origin',
+        headers,
+      });
+    } catch {
+      // ignore server delete errors
+    }
+
+    if (deletedId && deletedId !== 'user_me') {
       try {
-        await fetch('/api/auth/account', {
-          method: 'DELETE',
-          headers: { Authorization: `Bearer ${token}` },
-        });
-      } catch {
-        // ignore server delete errors
-      }
+        deleteDoc(doc(db, 'users', deletedId)).catch(() => {});
+      } catch {}
     }
 
     const currentFbUser = auth.currentUser || firebaseUser;
@@ -1650,14 +1683,13 @@ export default function App() {
     if (!isAccountRegistered || !user?.id || user.id === 'user_me') return;
     saveAccountSnapshotLocal(user.id, user, chats);
     const token = sessionTokenRef.current;
-    if (!token) return;
     const timer = setTimeout(() => {
+      const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+      if (token) headers.Authorization = `Bearer ${token}`;
       fetch('/api/auth/state', {
         method: 'PUT',
-        headers: {
-          'Content-Type': 'application/json',
-          Authorization: `Bearer ${token}`,
-        },
+        credentials: 'same-origin',
+        headers,
         body: JSON.stringify(buildCompactSyncPayload(user, chats)),
       }).catch(() => {});
     }, 650);

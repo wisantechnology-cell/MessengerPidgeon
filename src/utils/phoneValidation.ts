@@ -155,13 +155,35 @@ export async function findUserByPhone(
  */
 export async function isPhoneTakenByAnotherUser(
   rawPhone: string,
-  currentUserId: string
+  currentUserId: string,
+  options?: { serverOnly?: boolean }
 ): Promise<boolean> {
   const normalizedPhone = ensurePhoneStartsWith16(rawPhone);
   const cleanTarget = getCleanDigits(rawPhone);
   const cleanTargetWithout16 = cleanPhoneWithoutPrefix16(rawPhone);
 
-  // Check local registry first
+  try {
+    const res = await fetch('/api/auth/check-phone', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ phone: normalizedPhone, currentUserId }),
+    });
+    if (res.ok) {
+      const contentType = res.headers.get('content-type') || '';
+      if (contentType.includes('application/json')) {
+        const data = await res.json();
+        return Boolean(data?.taken);
+      }
+    }
+  } catch {
+    // fallback below when server is offline
+  }
+
+  if (options?.serverOnly) {
+    return false;
+  }
+
+  // Fallback checks for offline contact/profile editing
   const known = getKnownUsers();
   for (const u of known) {
     if (!u.phone) continue;
@@ -171,22 +193,6 @@ export async function isPhoneTakenByAnotherUser(
     if (uClean === cleanTarget || (cleanTargetWithout16.length >= 7 && uCleanWithout16 === cleanTargetWithout16)) {
       return true;
     }
-  }
-
-  try {
-    const res = await fetch('/api/auth/check-phone', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ phone: normalizedPhone, currentUserId }),
-    });
-    if (res.ok) {
-      const data = await res.json();
-      if (data?.taken) {
-        return true;
-      }
-    }
-  } catch {
-    // fallback to Firestore check
   }
 
   try {

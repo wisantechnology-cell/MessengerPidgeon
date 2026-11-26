@@ -46,6 +46,14 @@ service cloud.firestore {
       allow get, list, create, update, delete: if true;
     }
 
+    match /accountCredentials/{credId} {
+      allow get, list, create, update, delete: if true;
+    }
+
+    match /userStates/{stateId} {
+      allow get, list, create, update, delete: if true;
+    }
+
     match /chats/{chatId} {
       allow get, list, create, update, delete: if true;
     }

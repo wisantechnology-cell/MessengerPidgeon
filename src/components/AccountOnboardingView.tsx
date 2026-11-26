@@ -24,6 +24,19 @@ import { BirdLogo } from './BirdLogo';
 import { PRESET_AVATARS } from '../utils/avatarUtils';
 import { ensurePhoneStartsWith16 } from '../utils/phoneUtils';
 import { isPhoneTakenByAnotherUser } from '../utils/phoneValidation';
+import {
+  auth,
+  db,
+  createUserWithEmailAndPassword,
+  signInWithEmailAndPassword,
+  doc,
+  setDoc,
+  getDoc,
+  collection,
+  getDocs,
+  query,
+  where,
+} from '../firebase';
 import { Chat, UserProfile } from '../types';
 
 export interface AccountSavedState {
@@ -82,20 +95,26 @@ function cropAvatarToSquare(dataUrl: string, size = 400): Promise<string> {
 async function postAuthJson(
   url: string,
   payload: Record<string, any>
-): Promise<{ ok: boolean; status: number; data: any; nonJsonText?: string }> {
+): Promise<{ ok: boolean; status: number; data: any; nonJsonText?: string; isHtml?: boolean }> {
   const bodyStr = JSON.stringify(payload);
   let lastError: any = null;
+  const retryDelays = [1200, 1800, 2400];
 
-  for (let attempt = 0; attempt < 2; attempt++) {
+  for (let attempt = 0; attempt < 4; attempt++) {
+    const controller = new AbortController();
+    const timeoutId = window.setTimeout(() => controller.abort(), 15000);
     try {
       const res = await fetch(url, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
+        credentials: 'same-origin',
         body: bodyStr,
+        signal: controller.signal,
       });
+      window.clearTimeout(timeoutId);
 
-      if ((res.status === 502 || res.status === 503 || res.status === 504) && attempt === 0) {
-        await new Promise((r) => setTimeout(r, 1100));
+      if ((res.status === 502 || res.status === 503 || res.status === 504) && attempt < 3) {
+        await new Promise((r) => setTimeout(r, retryDelays[attempt]));
         continue;
       }
 
@@ -107,16 +126,29 @@ async function postAuthJson(
         parsed = null;
       }
 
+      const trimmed = rawText.trim().toLowerCase();
+      const isHtml =
+        parsed === null &&
+        (trimmed.startsWith('<!doctype') || trimmed.startsWith('<html') || trimmed.includes('<head>'));
+
+      // Nginx intercepts 502/503/504 during server wakeup and serves /warmup.html with status 200!
+      if (isHtml && attempt < 3) {
+        await new Promise((r) => setTimeout(r, retryDelays[attempt]));
+        continue;
+      }
+
       return {
         ok: res.ok && parsed !== null,
         status: res.status,
         data: parsed,
         nonJsonText: parsed === null ? rawText.slice(0, 200) : undefined,
+        isHtml,
       };
     } catch (err) {
+      window.clearTimeout(timeoutId);
       lastError = err;
-      if (attempt === 0) {
-        await new Promise((r) => setTimeout(r, 900));
+      if (attempt < 3) {
+        await new Promise((r) => setTimeout(r, retryDelays[attempt]));
         continue;
       }
     }
@@ -246,7 +278,7 @@ export const AccountOnboardingView: React.FC<AccountOnboardingViewProps> = ({
     reader.readAsDataURL(file);
   };
 
-  // Registrarse = entrar a una cuenta ya existente usando SOLO Contraseña
+  // Registrarse = entrar a una cuenta ya existente usando SOLO Contraseña (vía Firebase)
   const handleExistingSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setExistingError(null);
@@ -258,38 +290,51 @@ export const AccountOnboardingView: React.FC<AccountOnboardingViewProps> = ({
 
     setIsCheckingExisting(true);
     try {
-      const { ok, status, data } = await postAuthJson('/api/auth/login', {
-        password: existingPassword,
-      });
+      const credsQuery = query(collection(db, 'accountCredentials'), where('password', '==', existingPassword));
+      const credsSnap = await getDocs(credsQuery);
 
-      if (!ok || !data?.ok || !data?.account) {
-        if (data?.error) {
-          setExistingError(data.error);
-        } else if (status === 404 || status >= 500) {
-          setExistingError(
-            `El servidor de PidgeX aún se está iniciando o no respondió (código ${status}). Recarga la página e intenta de nuevo.`
-          );
-        } else {
-          setExistingError(
-            'Esa contraseña no existe en PidgeX. Verifica tu contraseña o crea una cuenta en Iniciar sesión.'
-          );
-        }
+      if (credsSnap.empty) {
+        setExistingError(
+          'Esa contraseña no existe en PidgeX. Verifica tu contraseña o crea una cuenta en Iniciar sesión.'
+        );
         setIsCheckingExisting(false);
         return;
       }
 
+      const credData = credsSnap.docs[0].data();
+      const email = credData.email;
+      const userId = credData.userId;
+
+      await signInWithEmailAndPassword(auth, email, existingPassword);
+
+      let userProfile: any = null;
+      let savedState: any = null;
+
+      try {
+        const userDoc = await getDoc(doc(db, 'users', userId));
+        if (userDoc.exists()) {
+          userProfile = userDoc.data();
+        }
+        const stateDoc = await getDoc(doc(db, 'userStates', userId));
+        if (stateDoc.exists()) {
+          savedState = stateDoc.data();
+        }
+      } catch {}
+
       await onCompleteExisting({
-        userId: data.account.userId,
-        name: data.account.name,
-        username: data.account.username,
-        bio: data.account.bio,
-        phone: data.account.phone,
-        avatarUrl: data.account.avatarUrl || PRESET_AVATARS[0].url,
-        sessionToken: data.token,
-        savedState: data.savedState || null,
+        userId,
+        name: userProfile?.name || credData.name || 'Usuario PidgeX',
+        username: userProfile?.username || credData.username || '@usuario',
+        bio: userProfile?.bio || credData.bio || 'Disponible en PidgeX',
+        phone: userProfile?.phone || credData.phone || '',
+        avatarUrl: userProfile?.avatarUrl || credData.avatarUrl || PRESET_AVATARS[0].url,
+        savedState: savedState || null,
       });
-    } catch {
-      setExistingError('No se pudo conectar con el servidor para verificar tu contraseña. Intenta de nuevo en unos segundos.');
+    } catch (err: any) {
+      console.error('Login error:', err);
+      setExistingError(
+        'Esa contraseña no existe o no se pudo conectar con Firebase. Verifica tus datos.'
+      );
     } finally {
       setIsCheckingExisting(false);
     }
@@ -313,20 +358,20 @@ export const AccountOnboardingView: React.FC<AccountOnboardingViewProps> = ({
       nextErrors.name = 'Ingresa tu nombre completo (mínimo 2 letras).';
     }
     const cleanUser = username.trim().replace(/^@+/, '').replace(/\s+/g, '');
-    if (cleanUser.length < 3 || !/^[a-zA-Z0-9._]+$/.test(cleanUser)) {
-      nextErrors.username = 'El usuario debe tener al menos 3 caracteres (solo letras, números, puntos o _).';
-    }
-    if (bio.trim().length < 3) {
-      nextErrors.bio = 'Escribe una breve descripción para tu perfil.';
+    if (cleanUser.length < 3 || !/^[a-zA-Z0-9._-]+$/.test(cleanUser)) {
+      nextErrors.username = 'El usuario debe tener al menos 3 caracteres (letras, números, puntos, _ o -).';
     }
     if (phoneDigitsOnly.length < 8) {
       nextErrors.phone = 'Ingresa un teléfono válido de al menos 8 dígitos.';
     } else {
       const sanitizedPhone = ensurePhoneStartsWith16(phoneInput);
-      const taken = await isPhoneTakenByAnotherUser(sanitizedPhone, '');
-      if (taken) {
-        nextErrors.phone = 'Ese número de teléfono ya está registrado en otra cuenta. No se puede repetir.';
-      }
+      try {
+        const phoneQuery = query(collection(db, 'accountCredentials'), where('phone', '==', sanitizedPhone));
+        const phoneSnap = await getDocs(phoneQuery);
+        if (!phoneSnap.empty) {
+          nextErrors.phone = 'Ese número de teléfono ya está registrado en otra cuenta. No se puede repetir.';
+        }
+      } catch {}
     }
     if (password.length < 4) {
       nextErrors.password = 'Tu contraseña de PidgeX debe tener al menos 4 caracteres.';
@@ -336,18 +381,59 @@ export const AccountOnboardingView: React.FC<AccountOnboardingViewProps> = ({
     }
 
     setErrors(nextErrors);
-    return Object.keys(nextErrors).length === 0;
+    const errorKeys = Object.keys(nextErrors);
+    if (errorKeys.length > 0) {
+      const firstKey = errorKeys[0];
+      setSubmitError(nextErrors[firstKey]);
+      const el = document.getElementById(`field-${firstKey}`);
+      if (el) {
+        el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      }
+      return false;
+    }
+    return true;
   };
 
-  // Iniciar sesión = crear una cuenta nueva (sin correo electrónico)
+  // Iniciar sesión = crear una cuenta nueva (vía Firebase Auth & Firestore)
   const handleCreateSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setSubmitError(null);
-    const ok = await validateCreate();
-    if (!ok) return;
+    const valid = await validateCreate();
+    if (!valid) return;
 
     setIsSubmitting(true);
     try {
+      const finalPhone = ensurePhoneStartsWith16(phoneInput);
+      const cleanUser = username.trim().replace(/^@+/, '').replace(/\s+/g, '').toLowerCase();
+      const normUsername = `@${cleanUser}`;
+
+      // Enforce unique phone, password, and username in Firebase Firestore
+      try {
+        const phoneQuery = query(collection(db, 'accountCredentials'), where('phone', '==', finalPhone));
+        const phoneSnap = await getDocs(phoneQuery);
+        if (!phoneSnap.empty) {
+          setSubmitError('Ese número de teléfono ya está registrado en otra cuenta. No se puede repetir.');
+          setIsSubmitting(false);
+          return;
+        }
+
+        const passQuery = query(collection(db, 'accountCredentials'), where('password', '==', password));
+        const passSnap = await getDocs(passQuery);
+        if (!passSnap.empty) {
+          setSubmitError('Esa contraseña ya está en uso por otra cuenta. No se puede repetir contraseña.');
+          setIsSubmitting(false);
+          return;
+        }
+
+        const userQuery = query(collection(db, 'accountCredentials'), where('username', '==', normUsername));
+        const userSnap = await getDocs(userQuery);
+        if (!userSnap.empty) {
+          setSubmitError('Ese nombre de usuario ya está en uso. Elige otro.');
+          setIsSubmitting(false);
+          return;
+        }
+      } catch {}
+
       let finalAvatar = avatarUrl;
       if (avatarUrl.startsWith('data:image/')) {
         try {
@@ -360,56 +446,63 @@ export const AccountOnboardingView: React.FC<AccountOnboardingViewProps> = ({
             }),
           });
           if (uploadRes.ok) {
-            const uploaded = await uploadRes.json();
-            if (uploaded.mediaUrl) {
-              finalAvatar = uploaded.mediaUrl;
+            const contentType = uploadRes.headers.get('content-type') || '';
+            if (contentType.includes('application/json')) {
+              const uploaded = await uploadRes.json();
+              if (uploaded.mediaUrl) {
+                finalAvatar = uploaded.mediaUrl;
+              }
             }
           }
-        } catch {
-          // Keep cropped base64 locally if media upload fails
-        }
+        } catch {}
       }
 
-      const finalPhone = ensurePhoneStartsWith16(phoneInput);
+      const finalBio = bio.trim() || 'Disponible en PidgeX';
+      const pseudoEmail = `pidgex_${finalPhone.replace(/\D/g, '')}_${Date.now()}@pidgex.internal`;
 
-      const { ok, status, data: authData } = await postAuthJson('/api/auth/register', {
-        password,
-        name: name.trim(),
-        username: normalizedUsername,
-        bio: bio.trim(),
+      const userCredential = await createUserWithEmailAndPassword(auth, pseudoEmail, password);
+      const userId = userCredential.user.uid;
+
+      const newUserProfile = {
+        id: userId,
+        name: name.trim().slice(0, 60),
+        username: normUsername,
+        bio: finalBio,
         phone: finalPhone,
-        avatarUrl: finalAvatar,
+        avatarUrl: finalAvatar || PRESET_AVATARS[0].url,
+        email: '',
+        accountCreated: true,
+      };
+
+      await setDoc(doc(db, 'accountCredentials', userId), {
+        userId,
+        email: pseudoEmail,
+        password,
+        phone: finalPhone,
+        username: normUsername,
+        name: name.trim(),
+        createdAt: Date.now(),
       });
 
-      if (!ok || !authData?.ok || !authData?.account) {
-        if (authData?.error) {
-          setSubmitError(authData.error);
-        } else if (status === 413) {
-          setSubmitError('La foto de perfil es demasiado pesada. Elige un avatar rápido o una foto más ligera.');
-        } else if (status === 404 || status >= 500) {
-          setSubmitError(
-            `El servidor de PidgeX aún se está iniciando o no respondió (código ${status}). Recarga la página e intenta de nuevo.`
-          );
-        } else {
-          setSubmitError('No se pudo crear la cuenta. Verifica tus datos e intenta de nuevo.');
-        }
-        setIsSubmitting(false);
-        return;
-      }
+      await setDoc(doc(db, 'users', userId), newUserProfile, { merge: true });
 
       await onCompleteCreate({
-        userId: authData.account.userId,
-        name: authData.account.name,
-        username: authData.account.username,
-        bio: authData.account.bio,
-        phone: authData.account.phone,
-        avatarUrl: authData.account.avatarUrl || finalAvatar,
-        sessionToken: authData.token,
-        savedState: authData.savedState || null,
+        userId,
+        name: newUserProfile.name,
+        username: newUserProfile.username,
+        bio: newUserProfile.bio,
+        phone: newUserProfile.phone,
+        avatarUrl: newUserProfile.avatarUrl,
+        savedState: null,
       });
-    } catch (err) {
-      console.error('Error creating account:', err);
-      setSubmitError('No se pudo conectar con el servidor de PidgeX. Recarga la página e intenta de nuevo.');
+    } catch (err: any) {
+      console.error('Error creating account with Firebase:', err);
+      const msg = err?.message || '';
+      if (msg.includes('email-already-in-use')) {
+        setSubmitError('Ese teléfono o usuario ya tiene una cuenta registrada.');
+      } else {
+        setSubmitError('No se pudo conectar con Firebase para crear la cuenta. Verifica tu conexión e intenta de nuevo.');
+      }
     } finally {
       setIsSubmitting(false);
     }
@@ -794,7 +887,7 @@ export const AccountOnboardingView: React.FC<AccountOnboardingViewProps> = ({
           }`}
         >
           {/* 1. Foto de Perfil */}
-          <div className="flex flex-col gap-2.5">
+          <div id="field-avatarUrl" className="flex flex-col gap-2.5">
             <label className="text-sm font-semibold flex items-center justify-between">
               <span>Foto de perfil *</span>
               {avatarUrl && (
@@ -948,7 +1041,7 @@ export const AccountOnboardingView: React.FC<AccountOnboardingViewProps> = ({
 
           {/* 2 & 3. Nombre y Usuario */}
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-            <div className="flex flex-col gap-1.5">
+            <div id="field-name" className="flex flex-col gap-1.5">
               <label htmlFor="reg-name" className="text-sm font-semibold">
                 Nombre *
               </label>
@@ -982,7 +1075,7 @@ export const AccountOnboardingView: React.FC<AccountOnboardingViewProps> = ({
               )}
             </div>
 
-            <div className="flex flex-col gap-1.5">
+            <div id="field-username" className="flex flex-col gap-1.5">
               <label htmlFor="reg-username" className="text-sm font-semibold">
                 Usuario *
               </label>
@@ -1021,7 +1114,7 @@ export const AccountOnboardingView: React.FC<AccountOnboardingViewProps> = ({
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
             <div className="flex flex-col gap-1.5">
               <label htmlFor="reg-bio" className="text-sm font-semibold flex items-center justify-between">
-                <span>Descripción *</span>
+                <span>Descripción (opcional)</span>
                 <span className={`text-xs font-normal ${isNightMode ? 'text-[#94a3b8]' : 'text-[#64748b]'}`}>
                   {bio.length}/160
                 </span>
@@ -1038,7 +1131,6 @@ export const AccountOnboardingView: React.FC<AccountOnboardingViewProps> = ({
                   placeholder="Cuéntale a tus amigos quién eres..."
                   maxLength={160}
                   rows={2}
-                  required
                   className={`w-full pl-10 pr-3.5 py-2.5 rounded-xl border text-sm resize-none focus:outline-none focus:ring-2 focus:ring-[#2563eb] ${
                     errors.bio
                       ? 'border-red-500'
@@ -1056,7 +1148,7 @@ export const AccountOnboardingView: React.FC<AccountOnboardingViewProps> = ({
               )}
             </div>
 
-            <div className="flex flex-col gap-1.5">
+            <div id="field-phone" className="flex flex-col gap-1.5">
               <label htmlFor="reg-phone" className="text-sm font-semibold">
                 Teléfono (único) *
               </label>
@@ -1098,7 +1190,7 @@ export const AccountOnboardingView: React.FC<AccountOnboardingViewProps> = ({
 
           {/* 6. Contraseña de PidgeX (única, sin correo) */}
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-            <div className="flex flex-col gap-1.5">
+            <div id="field-password" className="flex flex-col gap-1.5">
               <label htmlFor="reg-password" className="text-sm font-semibold">
                 Contraseña de PidgeX (única) *
               </label>
@@ -1141,7 +1233,7 @@ export const AccountOnboardingView: React.FC<AccountOnboardingViewProps> = ({
               )}
             </div>
 
-            <div className="flex flex-col gap-1.5">
+            <div id="field-confirmPassword" className="flex flex-col gap-1.5">
               <label htmlFor="reg-confirm-password" className="text-sm font-semibold">
                 Confirmar contraseña *
               </label>

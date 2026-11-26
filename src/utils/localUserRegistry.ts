@@ -66,6 +66,21 @@ export function registerKnownUser(u: Partial<UserProfile>): void {
   }
 }
 
+export function unregisterKnownUser(userId?: string, phone?: string): void {
+  try {
+    const list = getKnownUsers();
+    const phoneClean = getCleanDigits(phone);
+    const filtered = list.filter((item) => {
+      if (userId && item.id === userId) return false;
+      if (phoneClean && getCleanDigits(item.phone) === phoneClean) return false;
+      return true;
+    });
+    localStorage.setItem(KNOWN_USERS_KEY, JSON.stringify(filtered));
+  } catch {
+    // ignore
+  }
+}
+
 /**
  * Registers contacts from existing chats so they are instantly searchable.
  */

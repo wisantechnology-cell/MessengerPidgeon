@@ -1,5 +1,5 @@
 // PidgeX Progressive Web App Service Worker with Native Push & Call Notifications
-const CACHE_NAME = 'pidgex-pwa-v6';
+const CACHE_NAME = 'pidgex-pwa-v7';
 
 self.addEventListener('install', (event) => {
   self.skipWaiting();

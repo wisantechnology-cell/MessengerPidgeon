@@ -1637,7 +1637,23 @@ try {
   }
 } catch {}
 
-const SESSION_SECRET = process.env.SESSION_SECRET || crypto.randomBytes(32).toString("hex");
+const SESSION_SECRET_FILE = path.join(MEDIA_CACHE_DIR, ".session_secret");
+function getOrCreateSessionSecret(): string {
+  if (process.env.SESSION_SECRET) return process.env.SESSION_SECRET;
+  try {
+    if (fs.existsSync(SESSION_SECRET_FILE)) {
+      const saved = fs.readFileSync(SESSION_SECRET_FILE, "utf-8").trim();
+      if (saved.length >= 32) return saved;
+    }
+    const generated = crypto.randomBytes(32).toString("hex");
+    fs.writeFileSync(SESSION_SECRET_FILE, generated, "utf-8");
+    return generated;
+  } catch {
+    return crypto.randomBytes(32).toString("hex");
+  }
+}
+const SESSION_SECRET = getOrCreateSessionSecret();
+const SESSION_COOKIE_NAME = "pidgex_session";
 
 interface StoredAuthAccount {
   userId: string;
@@ -1794,10 +1810,9 @@ function signSessionToken(userId: string): string {
   return `${payload}.${sig}`;
 }
 
-function verifySessionToken(authHeader?: string): string | null {
-  if (!authHeader || !authHeader.startsWith("Bearer ")) return null;
-  const token = authHeader.slice(7).trim();
-  const parts = token.split(".");
+function verifyRawToken(token: string): string | null {
+  if (!token) return null;
+  const parts = token.trim().split(".");
   if (parts.length !== 2) return null;
   const [payload, sig] = parts;
   const expectedSig = crypto.createHmac("sha256", SESSION_SECRET).update(payload).digest("base64url");
@@ -1812,6 +1827,59 @@ function verifySessionToken(authHeader?: string): string | null {
   } catch {
     return null;
   }
+}
+
+function readCookieValue(cookieHeader: string | undefined, name: string): string | null {
+  if (!cookieHeader) return null;
+  const parts = cookieHeader.split(";");
+  for (const part of parts) {
+    const idx = part.indexOf("=");
+    if (idx <= 0) continue;
+    const k = part.slice(0, idx).trim();
+    if (k === name) {
+      return decodeURIComponent(part.slice(idx + 1).trim());
+    }
+  }
+  return null;
+}
+
+function verifySessionFromRequest(req: express.Request): string | null {
+  const authHeader = req.headers.authorization;
+  if (authHeader && authHeader.startsWith("Bearer ")) {
+    const uid = verifyRawToken(authHeader.slice(7));
+    if (uid) return uid;
+  }
+  const cookieToken = readCookieValue(req.headers.cookie, SESSION_COOKIE_NAME);
+  if (cookieToken) {
+    return verifyRawToken(cookieToken);
+  }
+  return null;
+}
+
+function isHttpsRequest(req: express.Request): boolean {
+  const proto = String(req.headers["x-forwarded-proto"] || "").toLowerCase();
+  return req.secure || proto.includes("https");
+}
+
+function setSessionCookie(req: express.Request, res: express.Response, token: string) {
+  const isHttps = isHttpsRequest(req);
+  res.cookie(SESSION_COOKIE_NAME, token, {
+    httpOnly: true,
+    path: "/",
+    maxAge: 30 * 24 * 60 * 60 * 1000,
+    sameSite: isHttps ? "none" : "lax",
+    secure: isHttps,
+  });
+}
+
+function clearSessionCookie(req: express.Request, res: express.Response) {
+  const isHttps = isHttpsRequest(req);
+  res.clearCookie(SESSION_COOKIE_NAME, {
+    httpOnly: true,
+    path: "/",
+    sameSite: isHttps ? "none" : "lax",
+    secure: isHttps,
+  });
 }
 
 function sanitizePublicAccount(acc: StoredAuthAccount) {
@@ -1889,11 +1957,13 @@ app.post('/api/auth/register', (req, res) => {
     const cleanId = `user_${Date.now()}_${crypto.randomBytes(4).toString('hex')}`;
     const { salt, hash } = hashPasswordScrypt(password);
 
+    const cleanBio = typeof bio === 'string' && bio.trim() ? bio.trim().slice(0, 160) : 'Disponible en PidgeX';
+
     const newAccount: StoredAuthAccount = {
       userId: cleanId,
       username: normUsername,
       name: name.trim().slice(0, 60),
-      bio: typeof bio === 'string' ? bio.trim().slice(0, 160) : 'Soy nuevo en PidgeX',
+      bio: cleanBio,
       phone: phone.trim(),
       avatarUrl: typeof avatarUrl === 'string' ? avatarUrl : '',
       salt,
@@ -1912,6 +1982,7 @@ app.post('/api/auth/register', (req, res) => {
     }
 
     const token = signSessionToken(cleanId);
+    setSessionCookie(req, res, token);
     return res.status(201).json({
       ok: true,
       token,
@@ -1947,6 +2018,7 @@ app.post('/api/auth/login', (req, res) => {
     }
 
     const token = signSessionToken(matched.userId);
+    setSessionCookie(req, res, token);
     const savedState = loadAccountState(matched.userId);
     return res.json({
       ok: true,
@@ -1960,8 +2032,13 @@ app.post('/api/auth/login', (req, res) => {
   }
 });
 
+app.post('/api/auth/logout', (req, res) => {
+  clearSessionCookie(req, res);
+  return res.json({ ok: true });
+});
+
 app.get('/api/auth/state', (req, res) => {
-  const uid = verifySessionToken(req.headers.authorization);
+  const uid = verifySessionFromRequest(req);
   if (!uid) {
     return res.status(401).json({ error: 'Sesión no autorizada.' });
   }
@@ -1977,7 +2054,7 @@ app.get('/api/auth/state', (req, res) => {
 });
 
 app.put('/api/auth/state', (req, res) => {
-  const uid = verifySessionToken(req.headers.authorization);
+  const uid = verifySessionFromRequest(req);
   if (!uid) {
     return res.status(401).json({ error: 'Sesión no autorizada.' });
   }
@@ -2023,13 +2100,14 @@ app.put('/api/auth/state', (req, res) => {
 });
 
 app.delete('/api/auth/account', (req, res) => {
-  const uid = verifySessionToken(req.headers.authorization);
+  const uid = verifySessionFromRequest(req);
   if (!uid) {
     return res.status(401).json({ error: 'Sesión no autorizada.' });
   }
   authAccountsById.delete(uid);
   saveAuthAccounts();
   deleteAccountState(uid);
+  clearSessionCookie(req, res);
   return res.json({ ok: true });
 });
 
