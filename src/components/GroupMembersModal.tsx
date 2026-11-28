@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   X,
   Users,
@@ -24,6 +24,7 @@ import { AvatarCaptureModal } from './AvatarCaptureModal';
 
 interface GroupMembersModalProps {
   isOpen: boolean;
+  initialShowAddMember?: boolean;
   onClose: () => void;
   chat: Chat;
   user: UserProfile;
@@ -47,6 +48,7 @@ const COUNTRY_CODES = [
 
 export const GroupMembersModal: React.FC<GroupMembersModalProps> = ({
   isOpen,
+  initialShowAddMember = false,
   onClose,
   chat,
   user,
@@ -56,7 +58,7 @@ export const GroupMembersModal: React.FC<GroupMembersModalProps> = ({
   onLeaveGroup,
   onStartPrivateChat,
 }) => {
-  const [showAddMemberSection, setShowAddMemberSection] = useState<boolean>(false);
+  const [showAddMemberSection, setShowAddMemberSection] = useState<boolean>(initialShowAddMember);
   const [showAvatarModal, setShowAvatarModal] = useState<boolean>(false);
   const [countryCode, setCountryCode] = useState<string>('16');
   const [phoneInput, setPhoneInput] = useState<string>('');
@@ -64,6 +66,14 @@ export const GroupMembersModal: React.FC<GroupMembersModalProps> = ({
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [successMessage, setSuccessMessage] = useState<string | null>(null);
   const [showLeaveConfirmation, setShowLeaveConfirmation] = useState<boolean>(false);
+
+  useEffect(() => {
+    if (isOpen) {
+      setShowAddMemberSection(Boolean(initialShowAddMember));
+      setErrorMessage(null);
+      setSuccessMessage(null);
+    }
+  }, [isOpen, initialShowAddMember]);
 
   if (!isOpen || chat.type !== 'group') return null;
 
@@ -104,11 +114,20 @@ export const GroupMembersModal: React.FC<GroupMembersModalProps> = ({
     return undefined;
   };
 
-  // Available contacts not yet in group
+  // Available contacts not yet in group (deduplicated by phone)
+  const seenContactPhones = new Set<string>();
   const availableContacts = contacts.filter((c) => {
     if (c.isBlocked || c.isFriend === false || c.type !== 'direct') return false;
     const contactPhone = resolveContactPhone(c);
-    return !groupMembers.some((m) => m.id === c.id || samePhone(m.phone, contactPhone));
+    if (groupMembers.some((m) => m.id === c.id || samePhone(m.phone, contactPhone))) {
+      return false;
+    }
+    const cleanP = cleanDigits(contactPhone);
+    if (cleanP) {
+      if (seenContactPhones.has(cleanP)) return false;
+      seenContactPhones.add(cleanP);
+    }
+    return true;
   });
 
   // Function to Add Member by Contact Selection
@@ -276,41 +295,50 @@ export const GroupMembersModal: React.FC<GroupMembersModalProps> = ({
           </div>
         )}
 
-        {/* Action Bar for Leaders */}
+        {/* Action Bar: Add People (always accessible in existing groups) */}
         {isCurrentUserLeader ? (
           <div className="p-3 rounded-xl bg-[#262a33] border border-sky-500/20 flex flex-col gap-2">
-            <div className="flex items-center justify-between">
+            <div className="flex items-center justify-between gap-2">
               <div className="flex items-center gap-1.5 text-xs font-bold text-[#7bd0ff]">
                 <Crown className="w-4 h-4 text-amber-400" />
                 <span>Eres Líder de este Grupo</span>
               </div>
               <button
                 onClick={() => setShowAddMemberSection(!showAddMemberSection)}
-                className="px-3 py-1.5 rounded-xl bg-[#2563eb] hover:bg-[#1d4ed8] text-white text-xs font-bold flex items-center gap-1.5 transition-all shadow-md cursor-pointer"
+                className="px-3 py-1.5 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold flex items-center gap-1.5 transition-all shadow-md cursor-pointer"
               >
                 <UserPlus className="w-3.5 h-3.5" />
-                <span>{showAddMemberSection ? 'Cerrar Añadir' : '+ Incluir Gente'}</span>
+                <span>{showAddMemberSection ? 'Cerrar' : '+ Agregar gente'}</span>
               </button>
             </div>
             <p className="text-[11px] text-[#8d90a0]">
-              Como líder puedes añadir miembros, promover a otros miembros como nuevos líderes o eliminarlos del grupo.
+              Como líder puedes agregar miembros, promover a otros como líderes o retirarlos del grupo.
             </p>
           </div>
         ) : (
-          <div className="p-3 rounded-xl bg-[#262a33] border border-white/5 flex items-center gap-2">
-            <ShieldCheck className="w-4 h-4 text-[#38bdf8] shrink-0" />
-            <span className="text-xs text-[#8d90a0]">
-              Eres miembro de este grupo. Los líderes pueden administrar integrantes.
-            </span>
+          <div className="p-3 rounded-xl bg-[#262a33] border border-white/5 flex items-center justify-between gap-2">
+            <div className="flex items-center gap-2 min-w-0">
+              <ShieldCheck className="w-4 h-4 text-[#38bdf8] shrink-0" />
+              <span className="text-xs text-[#8d90a0] truncate">
+                Eres miembro de este grupo.
+              </span>
+            </div>
+            <button
+              onClick={() => setShowAddMemberSection(!showAddMemberSection)}
+              className="px-3 py-1.5 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold flex items-center gap-1.5 transition-all shadow-md cursor-pointer shrink-0"
+            >
+              <UserPlus className="w-3.5 h-3.5" />
+              <span>{showAddMemberSection ? 'Cerrar' : '+ Agregar gente'}</span>
+            </button>
           </div>
         )}
 
-        {/* Section: Add Members (If Leader expanded) */}
-        {showAddMemberSection && isCurrentUserLeader && (
+        {/* Section: Add Members */}
+        {showAddMemberSection && (
           <div className="p-3.5 rounded-xl bg-[#181c24] border border-white/10 flex flex-col gap-3 animate-in slide-in-from-top-2 duration-150">
             <h4 className="text-xs font-bold text-[#dfe2ee] flex items-center gap-1.5">
               <UserPlus className="w-4 h-4 text-[#38bdf8]" />
-              <span>Incluir Gente al Grupo</span>
+              <span>Agregar gente al grupo</span>
             </h4>
 
             {/* Add by phone input */}

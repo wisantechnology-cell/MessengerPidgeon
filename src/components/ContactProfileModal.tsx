@@ -1,5 +1,5 @@
 import React from 'react';
-import { X, Shield, Phone, Mail, MessageCircle, UserCheck, Star } from 'lucide-react';
+import { X, Shield, Phone, Mail, MessageCircle, UserCheck, UserMinus, Star } from 'lucide-react';
 import { Chat, UserProfile } from '../types';
 
 interface ContactProfileModalProps {
@@ -9,6 +9,7 @@ interface ContactProfileModalProps {
   user: UserProfile;
   isNightMode?: boolean;
   onStartChat?: (contact: Chat) => void;
+  onRemoveFriend?: (chatId: string) => void;
 }
 
 export const ContactProfileModal: React.FC<ContactProfileModalProps> = ({
@@ -18,6 +19,7 @@ export const ContactProfileModal: React.FC<ContactProfileModalProps> = ({
   user,
   isNightMode = false,
   onStartChat,
+  onRemoveFriend,
 }) => {
   if (!isOpen || !contact) return null;
 
@@ -77,7 +79,7 @@ export const ContactProfileModal: React.FC<ContactProfileModalProps> = ({
         )}
 
         {/* Actions */}
-        <div className="mt-6 flex items-center gap-3 w-full">
+        <div className="mt-6 flex items-center gap-2.5 w-full">
           <button
             onClick={() => {
               onClose();
@@ -88,6 +90,19 @@ export const ContactProfileModal: React.FC<ContactProfileModalProps> = ({
             <MessageCircle className="w-4 h-4" />
             <span>Enviar Mensaje</span>
           </button>
+          {contact.type !== 'group' && contact.isFriend !== false && onRemoveFriend && (
+            <button
+              onClick={() => {
+                onRemoveFriend(contact.id);
+                onClose();
+              }}
+              title="Quitar de mis amigos y borrar historial"
+              className="px-3.5 py-2.5 rounded-xl bg-amber-500/15 hover:bg-amber-500/25 text-amber-500 border border-amber-500/30 text-xs font-bold flex items-center justify-center gap-1.5 active:scale-95 transition-all cursor-pointer"
+            >
+              <UserMinus className="w-4 h-4" />
+              <span>Quitar</span>
+            </button>
+          )}
         </div>
       </div>
     </div>

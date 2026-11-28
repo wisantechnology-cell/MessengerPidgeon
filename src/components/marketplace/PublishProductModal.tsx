@@ -189,7 +189,7 @@ export const PublishProductModal: React.FC<PublishProductModalProps> = ({
       sellerName: user.name || 'Tú',
       sellerAvatarUrl: user.avatarUrl || DEFAULT_PIDGEON_AVATAR,
       sellerUsername: user.username || '@yo',
-      sellerPhone: ensurePhoneStartsWith16(user.phone || '16 600 000 000'),
+      sellerPhone: user.phone ? ensurePhoneStartsWith16(user.phone) : '',
       isAvailable: true,
     });
 

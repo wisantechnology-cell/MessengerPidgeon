@@ -37,8 +37,36 @@ import { INITIAL_MARKETPLACE_PRODUCTS } from '../../data/marketplaceData';
 import { PublishProductModal } from './PublishProductModal';
 import { ProductDetailModal } from './ProductDetailModal';
 import { db, doc, deleteDoc, setDoc, collection, onSnapshot } from '../../firebase';
+import { phonesMatch } from '../../utils/phoneUtils';
+import { createSvgAvatar } from '../../utils/avatarUtils';
 
 const STORAGE_KEY = 'birdmessage_marketplace_products_v3';
+
+const uploadMarketplaceMediaIfDataUrl = async (
+  rawUrl: string | undefined,
+  prefix: string,
+  fallbackUrl = ''
+): Promise<string> => {
+  if (!rawUrl || typeof rawUrl !== 'string') return fallbackUrl;
+  if (!rawUrl.startsWith('data:image/')) return rawUrl;
+  try {
+    const res = await fetch('/api/media/upload', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        dataUrl: rawUrl,
+        filename: `${prefix}_${Date.now()}.jpg`,
+      }),
+    });
+    if (res.ok) {
+      const data = await res.json();
+      if (data?.mediaUrl) return data.mediaUrl;
+    }
+  } catch (err) {
+    console.warn('Could not upload marketplace media:', err);
+  }
+  return rawUrl.length > 180000 && fallbackUrl ? fallbackUrl : rawUrl;
+};
 
 interface MarketplaceViewProps {
   user: UserProfile;
@@ -97,15 +125,12 @@ export const MarketplaceView: React.FC<MarketplaceViewProps> = ({
   const [productToDelete, setProductToDelete] = useState<MarketplaceProduct | null>(null);
   const [toastMessage, setToastMessage] = useState<string | null>(null);
 
-  // Helper to determine if current user owns a listing
+  // Helper to determine if current user owns a listing (never match on display name since names can repeat)
   const isUserOwner = (item: MarketplaceProduct) => {
     return (
-      item.sellerId === user.id ||
-      item.sellerUsername === user.username ||
+      (Boolean(user.id) && item.sellerId === user.id) ||
       item.sellerId === 'current_user' ||
-      item.sellerName === user.name ||
-      Boolean(user.username && item.sellerUsername?.toLowerCase() === user.username?.toLowerCase()) ||
-      Boolean(user.name && item.sellerName?.toLowerCase() === user.name?.toLowerCase())
+      (Boolean(item.sellerPhone && user.phone) && phonesMatch(item.sellerPhone, user.phone))
     );
   };
 
@@ -199,24 +224,51 @@ export const MarketplaceView: React.FC<MarketplaceViewProps> = ({
 
   const handlePublishProduct = async (newProductData: Omit<MarketplaceProduct, 'id' | 'createdAt'>) => {
     const timestampMs = Date.now();
-    const newProduct: MarketplaceProduct & { createdAtMs: number } = {
+    const productId = `prod_${timestampMs}_${Math.random().toString(36).substring(2, 7)}`;
+    const optimisticProduct: MarketplaceProduct & { createdAtMs: number } = {
       ...newProductData,
-      id: `prod_${timestampMs}_${Math.random().toString(36).substring(2, 7)}`,
+      id: productId,
       createdAt: 'Hace un momento',
       createdAtMs: timestampMs,
     };
 
     // Optimistic UI update
-    setProducts((prev) => [newProduct, ...prev.filter((p) => p.id !== newProduct.id)]);
+    setProducts((prev) => [optimisticProduct, ...prev.filter((p) => p.id !== productId)]);
     setToastMessage('¡Artículo publicado en PidgeX Market!');
     setTimeout(() => {
       setToastMessage(null);
     }, 2800);
 
+    // Upload large data URLs first so Firestore setDoc never fails the 1MB document limit
+    const uploadedImageUrl = await uploadMarketplaceMediaIfDataUrl(
+      newProductData.imageUrl,
+      'market_prod',
+      newProductData.imageUrl
+    );
+    const uploadedSellerAvatar = await uploadMarketplaceMediaIfDataUrl(
+      newProductData.sellerAvatarUrl,
+      'market_seller',
+      createSvgAvatar(newProductData.sellerName || user.name || 'Vendedor')
+    );
+
+    const cloudProduct: MarketplaceProduct & { createdAtMs: number } = {
+      ...optimisticProduct,
+      imageUrl: uploadedImageUrl || optimisticProduct.imageUrl,
+      sellerAvatarUrl: uploadedSellerAvatar || createSvgAvatar(newProductData.sellerName || 'Vendedor'),
+      sellerPhone: newProductData.sellerPhone || '',
+      sellerId: newProductData.sellerId || user.id || 'current_user',
+      sellerUsername: newProductData.sellerUsername || '',
+      location: newProductData.location || '',
+    };
+
+    setProducts((prev) =>
+      prev.map((p) => (p.id === productId ? cloudProduct : p))
+    );
+
     // Save to Firestore so every user, account and device receives it in real time
     try {
       if (db) {
-        await setDoc(doc(db, 'marketplaceProducts', newProduct.id), newProduct);
+        await setDoc(doc(db, 'marketplaceProducts', productId), cloudProduct);
       }
     } catch (err) {
       console.error('Error saving product to Firestore:', err);
@@ -569,10 +621,10 @@ export const MarketplaceView: React.FC<MarketplaceViewProps> = ({
                               ? 'bg-[#0084ff]/20 hover:bg-[#0084ff] text-[#7bd0ff] hover:text-white border border-[#0084ff]/30'
                               : 'bg-sky-50 hover:bg-[#0084ff] text-[#0084ff] hover:text-white border border-sky-200 hover:border-transparent'
                           }`}
-                          title="Preguntar por el producto y abrir chat con el vendedor"
+                          title="Comprar o preguntar por el producto en un nuevo chat"
                         >
-                          <MessageSquare className="w-3 h-3" />
-                          <span>Preguntar por el producto</span>
+                          <ShoppingBag className="w-3 h-3" />
+                          <span>Comprar</span>
                         </button>
                       )}
                     </div>

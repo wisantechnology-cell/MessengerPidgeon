@@ -1433,8 +1433,6 @@ interface RealtimeRoom {
   createdAt: number;
   messages: any[];
   users: Map<string, RealtimeUser>;
-  room3dConfig?: any;
-  room3dAvatars?: Record<string, any>;
   gameState?: any;
 }
 
@@ -2169,7 +2167,7 @@ async function startServer() {
             lastActive: Date.now(),
           });
 
-          // Send init payload with history, online users, 3D room & active game state
+          // Send init payload with history, online users & active game state
           ws.send(
             JSON.stringify({
               type: 'init',
@@ -2180,10 +2178,6 @@ async function startServer() {
                 name: u.name,
                 avatarUrl: u.avatarUrl,
               })),
-              room3dState: {
-                config: room.room3dConfig || null,
-                avatars: room.room3dAvatars || {},
-              },
               gameState: room.gameState || null,
             })
           );
@@ -2197,9 +2191,6 @@ async function startServer() {
             if (room) {
               room.users.delete(getRoomMemberKey(roomId));
               room.users.delete(currentUserId);
-              if (room.room3dAvatars) {
-                delete room.room3dAvatars[currentUserId];
-              }
               broadcastPresence(roomId);
             }
           }
@@ -2233,32 +2224,6 @@ async function startServer() {
               reactions: msg.reactions,
             });
           }
-        } else if (data.type === 'room_3d_update') {
-          const { roomId, avatarState, roomConfig } = data;
-          const room = getOrCreateRoom(roomId);
-          if (roomConfig) {
-            room.room3dConfig = roomConfig;
-          }
-          if (avatarState) {
-            room.room3dAvatars = room.room3dAvatars || {};
-            room.room3dAvatars[currentUserId] = {
-              ...avatarState,
-              userId: currentUserId,
-              userName: currentUserData?.name || avatarState.userName || 'Usuario',
-              updatedAt: Date.now(),
-            };
-          }
-          broadcastToRoom(
-            roomId,
-            {
-              type: 'room_3d_state',
-              roomId,
-              config: room.room3dConfig || null,
-              avatars: room.room3dAvatars || {},
-              senderId: currentUserId,
-            },
-            ws
-          );
         } else if (data.type === 'game_event') {
           const { roomId, gameType, action, payload, gameState } = data;
           const room = getOrCreateRoom(roomId);

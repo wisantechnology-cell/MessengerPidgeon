@@ -35,32 +35,24 @@ export const BottomNav: React.FC<BottomNavProps> = ({
       }`}
     >
       <div className="h-16 max-w-[680px] mx-auto px-2 sm:px-4 flex items-center justify-around">
-        {/* M.A.P.J STUDIOS Logo + Chats */}
-        <div className="flex items-center gap-2">
-          <img
-            src="/assets/aistudio/M.A.P.J_STUDIOS_Logo_c7c7d920.PNG"
-            alt="M.A.P.J STUDIOS"
-            title="M.A.P.J STUDIOS"
-            className="w-9 h-9 rounded-lg object-contain bg-[#ff7a00] border border-orange-400/40 shadow-sm shrink-0 select-none"
-          />
-          <button
-            onClick={() => onSelectTab('chats')}
-            aria-current={activeTab === 'chats' ? 'page' : undefined}
-            className={`relative flex flex-col items-center justify-center min-w-[52px] min-h-[48px] transition-colors cursor-pointer ${
-              activeTab === 'chats' ? activeClass : inactiveClass
-            }`}
-          >
-            <div className="relative flex items-center justify-center">
-              <MessageSquare className="w-5 h-5" />
-              {unreadTotal > 0 && (
-                <span className="absolute -top-1.5 -right-2.5 min-w-[17px] h-[17px] px-1 rounded-full bg-[#0284c7] text-white text-[10px] font-semibold flex items-center justify-center tabular-nums">
-                  {unreadTotal}
-                </span>
-              )}
-            </div>
-            <span className="text-[11px] mt-1">Chats</span>
-          </button>
-        </div>
+        {/* Chats */}
+        <button
+          onClick={() => onSelectTab('chats')}
+          aria-current={activeTab === 'chats' ? 'page' : undefined}
+          className={`relative flex flex-col items-center justify-center min-w-[52px] min-h-[48px] transition-colors cursor-pointer ${
+            activeTab === 'chats' ? activeClass : inactiveClass
+          }`}
+        >
+          <div className="relative flex items-center justify-center">
+            <MessageSquare className="w-5 h-5" />
+            {unreadTotal > 0 && (
+              <span className="absolute -top-1.5 -right-2.5 min-w-[17px] h-[17px] px-1 rounded-full bg-[#0284c7] text-white text-[10px] font-semibold flex items-center justify-center tabular-nums">
+                {unreadTotal}
+              </span>
+            )}
+          </div>
+          <span className="text-[11px] mt-1">Chats</span>
+        </button>
 
         {!isClassicMode && (
           <>

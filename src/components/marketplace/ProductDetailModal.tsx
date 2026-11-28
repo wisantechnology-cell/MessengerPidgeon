@@ -16,8 +16,10 @@ import {
   ExternalLink,
   Phone,
   Trash2,
+  ShoppingBag,
 } from 'lucide-react';
 import { MarketplaceProduct, UserProfile } from '../../types';
+import { phonesMatch } from '../../utils/phoneUtils';
 
 interface ProductDetailModalProps {
   product: MarketplaceProduct | null;
@@ -60,12 +62,10 @@ export const ProductDetailModal: React.FC<ProductDetailModalProps> = ({
   if (!product) return null;
 
   const isOwner =
-    product.sellerId === currentUser.id ||
-    product.sellerUsername === currentUser.username ||
+    (Boolean(currentUser.id) && product.sellerId === currentUser.id) ||
     product.sellerId === 'current_user' ||
-    product.sellerName === currentUser.name ||
-    Boolean(currentUser.username && product.sellerUsername?.toLowerCase() === currentUser.username.toLowerCase()) ||
-    Boolean(currentUser.name && product.sellerName?.toLowerCase() === currentUser.name.toLowerCase());
+    (Boolean(product.sellerPhone && currentUser.phone) &&
+      phonesMatch(product.sellerPhone, currentUser.phone));
 
   const handleSendInquiry = (e: React.FormEvent) => {
     e.preventDefault();
@@ -322,6 +322,22 @@ export const ProductDetailModal: React.FC<ProductDetailModalProps> = ({
                   </span>
                 </div>
 
+                {/* Botón principal de compra directa */}
+                <button
+                  type="button"
+                  onClick={(e) => {
+                    e.preventDefault();
+                    const sellerFirstName = product.sellerName ? product.sellerName.split(' ')[0] : 'vendedor';
+                    const buyMessage = `🛒 ¡Hola ${sellerFirstName}! Quiero comprar tu producto "${product.title}" por $${product.price}. ¿Cómo coordinamos el pago y la entrega?`;
+                    onAskAboutProduct(product, buyMessage);
+                    onClose();
+                  }}
+                  className="w-full py-3 px-4 rounded-xl bg-gradient-to-r from-emerald-500 via-emerald-600 to-teal-500 hover:from-emerald-600 hover:to-teal-600 active:scale-[0.98] text-white font-extrabold text-xs sm:text-sm shadow-lg shadow-emerald-500/25 flex items-center justify-center gap-2 transition-all cursor-pointer"
+                >
+                  <ShoppingBag className="w-4 h-4" />
+                  <span>Comprar producto y abrir chat</span>
+                </button>
+
                 {/* Botón de acceso directo "Preguntar por el producto" */}
                 <button
                   type="button"
@@ -331,7 +347,7 @@ export const ProductDetailModal: React.FC<ProductDetailModalProps> = ({
                     onAskAboutProduct(product, textToSend);
                     onClose();
                   }}
-                  className="w-full py-3 px-4 rounded-xl bg-gradient-to-r from-[#0084ff] via-sky-600 to-cyan-500 hover:from-[#0074e0] hover:to-cyan-600 active:scale-[0.98] text-white font-extrabold text-xs sm:text-sm shadow-lg shadow-sky-500/25 flex items-center justify-center gap-2 transition-all cursor-pointer"
+                  className="w-full py-2.5 px-4 rounded-xl bg-gradient-to-r from-[#0084ff] via-sky-600 to-cyan-500 hover:from-[#0074e0] hover:to-cyan-600 active:scale-[0.98] text-white font-bold text-xs sm:text-sm shadow-md shadow-sky-500/20 flex items-center justify-center gap-2 transition-all cursor-pointer"
                 >
                   <MessageSquare className="w-4 h-4" />
                   <span>Preguntar por el producto y abrir chat</span>

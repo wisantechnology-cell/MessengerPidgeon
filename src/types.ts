@@ -37,22 +37,6 @@ export interface ChatPersonalityTheme {
   animatedBg?: 'none' | 'aurora' | 'stars' | 'particles';
 }
 
-export interface VirtualRoomFurniture {
-  id: string;
-  kind: 'sofa' | 'table' | 'lamp' | 'plant' | 'screen' | 'disco';
-  x: number;
-  z: number;
-  rotation: number;
-  color: string;
-}
-
-export interface VirtualRoomConfig {
-  theme: 'futuristic_lounge' | 'cozy_cabin' | 'neon_terrace' | 'space_studio';
-  ambientLight: string;
-  musicMode: 'ambient' | 'lofi' | 'synth' | 'off';
-  furniture: VirtualRoomFurniture[];
-}
-
 export interface TimeCapsuleAttachment {
   type: 'image' | 'video' | 'voice';
   url: string;
@@ -194,7 +178,7 @@ export interface Message {
   };
   capsuleData?: TimeCapsuleData;
   gameData?: {
-    gameType: 'trivia' | 'draw' | 'memory' | 'room3d';
+    gameType: 'trivia' | 'draw' | 'memory';
     title: string;
     scoreSummary?: string;
   };
@@ -241,7 +225,6 @@ export interface Chat {
   headerGradient?: string;
   personalityTheme?: ChatPersonalityTheme;
   emotionalMode?: EmotionalMode;
-  virtualRoomConfig?: VirtualRoomConfig;
   aiAssistantEnabled?: boolean;
   messages: Message[];
   // Group Specific Properties

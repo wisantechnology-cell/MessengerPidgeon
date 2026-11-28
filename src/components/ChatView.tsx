@@ -22,6 +22,7 @@ import {
   Copy,
   Users,
   UserPlus,
+  UserMinus,
   UserCheck,
   Wallpaper as WallpaperIcon,
   Moon,
@@ -40,7 +41,6 @@ import {
   MoreVertical,
   Maximize2,
   Sparkles,
-  Box,
   Image as ImageIcon,
   Wand2,
   Trophy,
@@ -55,7 +55,6 @@ import {
   GroupMember,
   ChatPersonalityTheme,
   EmotionalMode,
-  VirtualRoomConfig,
 } from '../types';
 import { PrivateMessageModal } from './PrivateMessageModal';
 import { PrivateMessageView } from './PrivateMessageView';
@@ -115,7 +114,6 @@ import { AnimatedAvatarMessageCard } from './AnimatedAvatarMessageCard';
 import { CapsuleMessageCard } from './CapsuleMessageCard';
 import { EmotionalAmbienceOverlay } from './EmotionalAmbienceOverlay';
 import { ChatMediaGalleryModal } from './ChatMediaGalleryModal';
-import { VirtualRoom3DModal } from './VirtualRoom3DModal';
 import { EMOTIONAL_MODES, playThemeSoundEffect } from '../utils/chatThemes';
 import { applyAutoCorrect } from '../utils/autocorrectUtils';
 
@@ -137,6 +135,7 @@ interface ChatViewProps {
   onToggleDoNotDisturb?: (duration?: string) => void;
   onOpenWaitingRoom?: () => void;
   onAddContactAsFriend?: (chatId: string) => void;
+  onRemoveFriend?: (chatId: string) => void;
   onOpenAddFriend?: () => void;
   onDeleteMessage?: (chatId: string, messageId: string) => void;
   onClearChatMessages?: (chatId: string) => void;
@@ -148,7 +147,6 @@ interface ChatViewProps {
   onSelectGradient?: (chatId: string, gradient: string) => void;
   onUpdatePersonalityTheme?: (chatId: string, theme: ChatPersonalityTheme) => void;
   onUpdateEmotionalMode?: (chatId: string, mode: EmotionalMode) => void;
-  onSaveVirtualRoomConfig?: (chatId: string, config: VirtualRoomConfig) => void;
   onUnlockCapsuleMessage?: (chatId: string, messageId: string) => void;
   onStartPrivateChat?: (memberId: string, memberName: string) => void;
   onForwardMessage?: (targetChatId: string, message: Message) => void;
@@ -235,6 +233,7 @@ export const ChatView: React.FC<ChatViewProps> = ({
   onToggleDoNotDisturb,
   onOpenWaitingRoom,
   onAddContactAsFriend,
+  onRemoveFriend,
   onOpenAddFriend,
   onDeleteMessage,
   onClearChatMessages,
@@ -246,7 +245,6 @@ export const ChatView: React.FC<ChatViewProps> = ({
   onSelectGradient,
   onUpdatePersonalityTheme,
   onUpdateEmotionalMode,
-  onSaveVirtualRoomConfig,
   onUnlockCapsuleMessage,
   onStartPrivateChat,
   onForwardMessage,
@@ -260,7 +258,6 @@ export const ChatView: React.FC<ChatViewProps> = ({
   const [showAvatarStudio, setShowAvatarStudio] = useState<boolean>(false);
   const [showStickerFactory, setShowStickerFactory] = useState<boolean>(false);
   const [showMediaGallery, setShowMediaGallery] = useState<boolean>(false);
-  const [showVirtualRoom3D, setShowVirtualRoom3D] = useState<boolean>(false);
   const [burstTrigger, setBurstTrigger] = useState<{
     id: number;
     effect: NonNullable<ChatPersonalityTheme['sendEffect']>;
@@ -270,8 +267,10 @@ export const ChatView: React.FC<ChatViewProps> = ({
   const [copiedRoomLink, setCopiedRoomLink] = useState<boolean>(false);
   const [showSecurityPopover, setShowSecurityPopover] = useState<boolean>(false);
   const [showBlockModal, setShowBlockModal] = useState<boolean>(false);
+  const [showRemoveFriendModal, setShowRemoveFriendModal] = useState<boolean>(false);
   const [showClearChatModal, setShowClearChatModal] = useState<boolean>(false);
   const [showGroupMembersModal, setShowGroupMembersModal] = useState<boolean>(false);
+  const [openGroupAddMember, setOpenGroupAddMember] = useState<boolean>(false);
   const [showGroupAvatarModal, setShowGroupAvatarModal] = useState<boolean>(false);
   const [showVideoLinkModal, setShowVideoLinkModal] = useState<boolean>(false);
   const [videoLinkInput, setVideoLinkInput] = useState<string>('');
@@ -609,18 +608,6 @@ export const ChatView: React.FC<ChatViewProps> = ({
                       <button
                         type="button"
                         onClick={() => {
-                          setShowVirtualRoom3D(true);
-                          setShowMobileMoreMenu(false);
-                        }}
-                        className="w-full px-3 py-2.5 rounded-xl text-xs font-medium text-sky-300 hover:text-white hover:bg-sky-500/20 flex items-center gap-2.5 text-left cursor-pointer"
-                      >
-                        <Box className="w-4 h-4 text-sky-400" />
-                        <span>Habitación Virtual 3D</span>
-                      </button>
-
-                      <button
-                        type="button"
-                        onClick={() => {
                           setShowMediaGallery(true);
                           setShowMobileMoreMenu(false);
                         }}
@@ -829,6 +816,17 @@ export const ChatView: React.FC<ChatViewProps> = ({
             {chat.type === 'group' && (
               <>
                 <button
+                  onClick={() => {
+                    setOpenGroupAddMember(true);
+                    setShowGroupMembersModal(true);
+                  }}
+                  title="Agregar gente al grupo"
+                  className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg bg-emerald-500/15 hover:bg-emerald-500/25 border border-emerald-500/30 text-emerald-400 text-xs font-semibold transition-colors cursor-pointer"
+                >
+                  <UserPlus className="w-3.5 h-3.5" />
+                  <span className="hidden sm:inline">Agregar</span>
+                </button>
+                <button
                   onClick={() => setShowGroupAvatarModal(true)}
                   title="Personalizar foto del grupo"
                   className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg bg-sky-500/15 hover:bg-sky-500/25 border border-sky-500/30 text-sky-400 text-xs font-semibold transition-colors cursor-pointer"
@@ -837,7 +835,10 @@ export const ChatView: React.FC<ChatViewProps> = ({
                   <span className="hidden sm:inline">Foto</span>
                 </button>
                 <button
-                  onClick={() => setShowGroupMembersModal(true)}
+                  onClick={() => {
+                    setOpenGroupAddMember(false);
+                    setShowGroupMembersModal(true);
+                  }}
                   title="Ver integrantes del grupo"
                   className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-[#0284c7] hover:bg-[#0369a1] text-white text-xs font-semibold transition-colors cursor-pointer"
                 >
@@ -859,14 +860,6 @@ export const ChatView: React.FC<ChatViewProps> = ({
               </button>
             )}
 
-            <button
-              onClick={() => setShowVirtualRoom3D(true)}
-              aria-label="Habitación Virtual 3D"
-              title="Habitación Virtual 3D"
-              className="w-9 h-9 rounded-full bg-sky-500/15 border border-sky-500/30 flex items-center justify-center text-sky-400 hover:bg-sky-500/25 transition-colors cursor-pointer"
-            >
-              <Box className="w-4 h-4" />
-            </button>
             <button
               onClick={() => setShowMediaGallery(true)}
               aria-label="Álbum de Recuerdos"
@@ -1069,6 +1062,18 @@ export const ChatView: React.FC<ChatViewProps> = ({
                       <span>Agregar otro amigo (+)</span>
                     </button>
                   )}
+                  {chat.type !== 'group' && chat.isFriend !== false && onRemoveFriend && (
+                    <button
+                      onClick={() => {
+                        setShowSecurityPopover(false);
+                        setShowRemoveFriendModal(true);
+                      }}
+                      className="w-full text-left px-2 py-1.5 rounded-lg text-xs text-amber-300 hover:bg-amber-500/15 flex items-center gap-2 cursor-pointer font-medium"
+                    >
+                      <UserMinus className="w-3.5 h-3.5 text-amber-400" />
+                      <span>Quitar de mis amigos</span>
+                    </button>
+                  )}
                   {chat.isBlocked ? (
                     <button
                       onClick={() => {
@@ -1203,6 +1208,25 @@ export const ChatView: React.FC<ChatViewProps> = ({
 
         {/* Messages List */}
         {chat.messages.map((msg) => {
+          if (msg.senderId === 'system') {
+            return (
+              <div key={msg.id} className="w-full flex justify-center my-1.5 px-3">
+                <div
+                  className={`px-3.5 py-1.5 rounded-xl text-[11px] font-medium text-center border backdrop-blur-sm shadow-xs max-w-[90%] ${
+                    isNightMode
+                      ? 'bg-white/10 border-white/10 text-[#cbd5e1]'
+                      : 'bg-sky-100/90 border-sky-200/80 text-slate-700'
+                  }`}
+                >
+                  <span>{msg.text}</span>
+                  {msg.timestamp && (
+                    <span className="ml-2 text-[10px] opacity-65">{msg.timestamp}</span>
+                  )}
+                </div>
+              </div>
+            );
+          }
+
           const isMe = msg.senderId === 'me' || msg.senderId === user.id;
 
           return (
@@ -1649,33 +1673,6 @@ export const ChatView: React.FC<ChatViewProps> = ({
                 </div>
               )}
 
-              {msg.type === 'game_invite' && msg.gameData?.gameType === 'room3d' && (
-                <div
-                  className={`rounded-2xl p-3.5 border shadow-md max-w-[300px] flex flex-col gap-2.5 ${
-                    isMe
-                      ? 'bg-gradient-to-br from-indigo-700 to-sky-700 border-sky-400/30 text-white'
-                      : 'bg-[#1a2233] border-white/10 text-white'
-                  }`}
-                >
-                  <div className="flex items-center gap-2">
-                    <Box className="w-5 h-5 text-sky-300 shrink-0" />
-                    <div className="min-w-0">
-                      <div className="text-xs font-bold truncate">{msg.gameData.title}</div>
-                      {msg.gameData.scoreSummary && (
-                        <div className="text-[11px] opacity-85">{msg.gameData.scoreSummary}</div>
-                      )}
-                    </div>
-                  </div>
-                  <button
-                    type="button"
-                    onClick={() => setShowVirtualRoom3D(true)}
-                    className="w-full py-2 rounded-xl bg-white/15 hover:bg-white/25 text-white text-xs font-bold cursor-pointer transition-colors"
-                  >
-                    Entrar a la Sala 3D
-                  </button>
-                </div>
-              )}
-
               {/* Message Reactions Badge */}
               {msg.reactions && Object.keys(msg.reactions).length > 0 && (
                 <div
@@ -1822,21 +1819,6 @@ export const ChatView: React.FC<ChatViewProps> = ({
                 <Wand2 className="w-5 h-5" />
               </div>
               <span className="text-xs font-medium">Stickers IA</span>
-            </button>
-
-            <button
-              onClick={() => {
-                setShowAttachSheet(false);
-                setShowVirtualRoom3D(true);
-              }}
-              className={`flex flex-col items-center gap-1.5 p-2.5 rounded-xl transition-colors cursor-pointer ${
-                isNightMode ? 'bg-[#202838] hover:bg-[#273145]' : 'bg-slate-50 hover:bg-slate-100'
-              }`}
-            >
-              <div className="w-10 h-10 rounded-full bg-emerald-600 flex items-center justify-center text-white">
-                <Box className="w-5 h-5" />
-              </div>
-              <span className="text-xs font-medium">Sala 3D</span>
             </button>
 
             <button
@@ -2334,6 +2316,55 @@ export const ChatView: React.FC<ChatViewProps> = ({
         </div>
       )}
 
+      {/* 13b. Remove Friend Confirmation Modal */}
+      {showRemoveFriendModal && (
+        <div
+          className="fixed inset-0 z-50 bg-black/80 backdrop-blur-sm flex items-center justify-center p-4 animate-in fade-in duration-150"
+          onClick={() => setShowRemoveFriendModal(false)}
+        >
+          <div
+            className="w-full max-w-sm bg-[#1c2028] border border-amber-500/25 rounded-2xl p-5 shadow-2xl flex flex-col gap-4 animate-in zoom-in-95 duration-150"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="flex items-center gap-3">
+              <div className="w-11 h-11 rounded-full bg-amber-500/15 text-amber-400 flex items-center justify-center shrink-0">
+                <UserMinus className="w-6 h-6" />
+              </div>
+              <div className="flex flex-col">
+                <h3 className="font-bold text-base text-[#dfe2ee]">¿Quitar a {chat.name} de tus amigos?</h3>
+                <span className="text-xs text-amber-400 font-medium">Se borrará el historial de chat</span>
+              </div>
+            </div>
+
+            <p className="text-xs text-[#8d90a0] leading-relaxed">
+              Si quitas a <strong className="text-white">{chat.name}</strong> de tus amigos, se borrarán todos los mensajes anteriores. Si lo vuelves a agregar después, empezarán desde cero.
+            </p>
+
+            <div className="flex items-center justify-end gap-2 pt-2">
+              <button
+                onClick={() => setShowRemoveFriendModal(false)}
+                className="px-4 py-2 rounded-xl text-xs font-semibold text-[#8d90a0] hover:text-white hover:bg-white/5 transition-colors cursor-pointer"
+              >
+                Cancelar
+              </button>
+              <button
+                onClick={() => {
+                  setShowRemoveFriendModal(false);
+                  if (onRemoveFriend) {
+                    onRemoveFriend(chat.id);
+                  }
+                  onBack();
+                }}
+                className="px-4 py-2 rounded-xl text-xs font-bold bg-amber-600 hover:bg-amber-500 text-white shadow-lg flex items-center gap-1.5 transition-all cursor-pointer active:scale-95"
+              >
+                <UserMinus className="w-3.5 h-3.5" />
+                <span>Quitar Amigo</span>
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* 14. Clear Chat Messages Confirmation Modal */}
       {showClearChatModal && (
         <div
@@ -2372,7 +2403,19 @@ export const ChatView: React.FC<ChatViewProps> = ({
                 <span>Vaciar Mensajes (Conservar contacto)</span>
               </button>
 
-              {onDeleteChat && (
+              {chat.type === 'group' && onLeaveGroup ? (
+                <button
+                  onClick={() => {
+                    setShowClearChatModal(false);
+                    onLeaveGroup(chat.id);
+                    onBack();
+                  }}
+                  className="w-full py-2.5 rounded-xl text-xs font-bold bg-red-600 hover:bg-red-700 text-white shadow-lg shadow-red-900/30 flex items-center justify-center gap-1.5 transition-all cursor-pointer active:scale-95"
+                >
+                  <Ban className="w-3.5 h-3.5" />
+                  <span>Salirse del Grupo</span>
+                </button>
+              ) : onDeleteChat ? (
                 <button
                   onClick={() => {
                     setShowClearChatModal(false);
@@ -2383,7 +2426,7 @@ export const ChatView: React.FC<ChatViewProps> = ({
                   <Ban className="w-3.5 h-3.5" />
                   <span>Eliminar Conversación Permanentemente</span>
                 </button>
-              )}
+              ) : null}
 
               <button
                 onClick={() => setShowClearChatModal(false)}
@@ -2401,7 +2444,11 @@ export const ChatView: React.FC<ChatViewProps> = ({
         <>
           <GroupMembersModal
             isOpen={showGroupMembersModal}
-            onClose={() => setShowGroupMembersModal(false)}
+            initialShowAddMember={openGroupAddMember}
+            onClose={() => {
+              setShowGroupMembersModal(false);
+              setOpenGroupAddMember(false);
+            }}
             chat={chat}
             user={user}
             contacts={allContacts}
@@ -2596,27 +2643,6 @@ export const ChatView: React.FC<ChatViewProps> = ({
           });
           setShowMediaGallery(false);
           triggerChatEffects();
-        }}
-      />
-
-      {/* 3D Virtual Room Modal */}
-      <VirtualRoom3DModal
-        isOpen={showVirtualRoom3D}
-        onClose={() => setShowVirtualRoom3D(false)}
-        chat={chat}
-        user={user}
-        onSaveRoomConfig={(chatId, cfg) => onSaveVirtualRoomConfig?.(chatId, cfg)}
-        onShareInviteToChat={(title) => {
-          onSendMessage(chat.id, {
-            senderId: 'me',
-            senderName: user.name,
-            senderAvatar: user.avatarUrl,
-            type: 'game_invite',
-            text: title,
-            gameData: { gameType: 'room3d', title },
-            timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
-            isRead: true,
-          });
         }}
       />
 
