@@ -462,6 +462,7 @@ export const AccountOnboardingView: React.FC<AccountOnboardingViewProps> = ({
         username: normUsername,
         bio: finalBio,
         phone: finalPhone,
+        phoneClean: finalPhone.replace(/\D/g, ''),
         avatarUrl: finalAvatar || PRESET_AVATARS[0].url,
         email: '',
         accountCreated: true,

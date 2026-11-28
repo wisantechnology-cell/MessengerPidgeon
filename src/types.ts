@@ -178,9 +178,10 @@ export interface Message {
   };
   capsuleData?: TimeCapsuleData;
   gameData?: {
-    gameType: 'trivia' | 'draw' | 'memory';
+    gameType: 'trivia' | 'draw' | 'memory' | 'truth_dare' | 'group_hub';
     title: string;
     scoreSummary?: string;
+    gameId?: string;
   };
   emotionTag?: EmotionalMode;
 }
@@ -236,6 +237,77 @@ export interface Chat {
   disappearingMessages?: boolean;
   countdownEvent?: { title: string; targetDate: string } | null;
   streakDays?: number;
+  lastMessageId?: string;
+  friendAddedAt?: number;
+  addedByUserId?: string;
+  addedByPhone?: string;
+  addedByName?: string;
+  activeGroupGame?: {
+    gameId: string;
+    gameType: 'trivia' | 'draw' | 'truth_dare';
+    title: string;
+    hostName: string;
+    status: 'lobby' | 'active' | 'finished';
+    playerCount: number;
+    updatedAt: number;
+  } | null;
+}
+
+export type GroupGameType = 'trivia' | 'draw' | 'truth_dare';
+
+export interface GroupGamePlayer {
+  id: string;
+  name: string;
+  avatarUrl: string;
+  phone?: string;
+  score: number;
+  joinedAt: number;
+}
+
+export interface DrawStroke {
+  points: { x: number; y: number }[];
+  color: string;
+  width: number;
+}
+
+export interface GroupGameTriviaQuestion {
+  id: string;
+  category: string;
+  question: string;
+  options: string[];
+  correctIndex: number;
+}
+
+export interface GroupGameState {
+  gameId: string;
+  chatId: string;
+  gameType: GroupGameType;
+  title: string;
+  status: 'lobby' | 'active' | 'finished';
+  hostId: string;
+  hostName: string;
+  players: GroupGamePlayer[];
+  round: number;
+  totalRounds: number;
+  updatedAt: number;
+  // Trivia
+  triviaQuestions?: GroupGameTriviaQuestion[];
+  triviaAnswers?: Record<number, Record<string, { optionIndex: number; isCorrect: boolean; points: number }>>;
+  roundStartedAt?: number;
+  // Draw & Guess
+  drawerId?: string;
+  drawerName?: string;
+  secretWord?: string;
+  maskedWord?: string;
+  strokes?: DrawStroke[];
+  guesses?: { id: string; userId: string; userName: string; text: string; isCorrect: boolean; timestamp: number }[];
+  roundWinners?: string[];
+  // Truth or Dare
+  selectedPlayerId?: string;
+  selectedPlayerName?: string;
+  truthOrDareMode?: 'truth' | 'dare' | null;
+  truthOrDarePrompt?: string | null;
+  truthOrDareHistory?: { id: string; playerName: string; mode: 'truth' | 'dare'; prompt: string; completed: boolean }[];
 }
 
 export interface Wallpaper {

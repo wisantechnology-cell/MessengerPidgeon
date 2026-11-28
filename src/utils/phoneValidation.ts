@@ -59,55 +59,77 @@ export async function findUserByPhoneDetailed(
     };
   }
 
-  // 2. Check local cross-tab / cross-session registry (instant, 0 Firestore reads)
-  const localMatch = findKnownUserByPhone(rawPhone);
-  if (localMatch) {
-    const isSelfMatch = Boolean(
-      (currentUserId && localMatch.id === currentUserId) ||
-        (cleanMyPhone && getCleanDigits(localMatch.phone) === cleanMyPhone)
-    );
-    if (isSelfMatch) {
-      return { user: localMatch, isSelf: true };
+  // 2. Ask server auth directory first (handles all phone formatting/spacing differences)
+  try {
+    const res = await fetch('/api/auth/find-user', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ phone: normalizedPhone, currentUserId }),
+    });
+    if (res.ok) {
+      const contentType = res.headers.get('content-type') || '';
+      if (contentType.includes('application/json')) {
+        const data = await res.json();
+        if (data?.found && data?.user) {
+          registerKnownUser(data.user);
+          return { user: data.user, isSelf: Boolean(data.isSelf) };
+        }
+      }
     }
-    return { user: localMatch, isSelf: false };
+  } catch {
+    // continue to Firestore / local fallback
   }
 
-  // 3. Query Firestore
+  // 3. Query Firestore (exact formatted, phoneClean, raw digits, plus flexible phonesMatch fallback)
   let isQuotaExceeded = false;
   try {
-    // 3a. Search exact normalized phone in Firestore
-    const q1 = query(collection(db, 'users'), where('phone', '==', normalizedPhone));
-    const snap1 = await getDocs(q1);
-    if (!snap1.empty) {
-      for (const docSnap of snap1.docs) {
-        const docData = docSnap.data() as UserProfile;
-        if (docData && docData.phone) {
-          registerKnownUser(docData);
-          const isDocSelf = Boolean(
-            (currentUserId && (docData.id === currentUserId || docSnap.id === currentUserId)) ||
-              (cleanMyPhone && getCleanDigits(docData.phone) === cleanMyPhone)
-          );
-          return { user: docData, isSelf: isDocSelf };
+    const usersCol = collection(db, 'users');
+    const queries = [
+      query(usersCol, where('phone', '==', normalizedPhone)),
+      query(usersCol, where('phoneClean', '==', cleanTarget)),
+    ];
+    if (cleanTarget !== normalizedPhone) {
+      queries.push(query(usersCol, where('phone', '==', cleanTarget)));
+    }
+
+    for (const qItem of queries) {
+      const snap = await getDocs(qItem);
+      if (!snap.empty) {
+        for (const docSnap of snap.docs) {
+          const docData = docSnap.data() as UserProfile;
+          if (docData && docData.phone) {
+            const normalizedDocUser = { ...docData, id: docData.id || docSnap.id };
+            registerKnownUser(normalizedDocUser);
+            const isDocSelf = Boolean(
+              (currentUserId && (normalizedDocUser.id === currentUserId || docSnap.id === currentUserId)) ||
+                (cleanMyPhone && getCleanDigits(normalizedDocUser.phone) === cleanMyPhone)
+            );
+            return { user: normalizedDocUser, isSelf: isDocSelf };
+          }
         }
       }
     }
 
-    // 3b. Search clean unspaced digits in Firestore
-    if (cleanTarget !== normalizedPhone) {
-      const q2 = query(collection(db, 'users'), where('phone', '==', cleanTarget));
-      const snap2 = await getDocs(q2);
-      if (!snap2.empty) {
-        for (const docSnap of snap2.docs) {
-          const docData = docSnap.data() as UserProfile;
-          if (docData && docData.phone) {
-            registerKnownUser(docData);
-            const isDocSelf = Boolean(
-              (currentUserId && (docData.id === currentUserId || docSnap.id === currentUserId)) ||
-                (cleanMyPhone && getCleanDigits(docData.phone) === cleanMyPhone)
-            );
-            return { user: docData, isSelf: isDocSelf };
-          }
-        }
+    // Flexible scan in Firestore users collection for spaced vs unspaced phone differences
+    const allUsersSnap = await getDocs(usersCol);
+    for (const docSnap of allUsersSnap.docs) {
+      const docData = docSnap.data() as UserProfile;
+      if (!docData?.phone) continue;
+      const docClean = getCleanDigits(docData.phone);
+      const docWithout16 = cleanPhoneWithoutPrefix16(docData.phone);
+      const matched =
+        docClean === cleanTarget ||
+        (cleanTargetWithout16.length >= 6 &&
+          docWithout16.length >= 6 &&
+          docWithout16 === cleanTargetWithout16);
+      if (matched) {
+        const normalizedDocUser = { ...docData, id: docData.id || docSnap.id };
+        registerKnownUser(normalizedDocUser);
+        const isDocSelf = Boolean(
+          (currentUserId && (normalizedDocUser.id === currentUserId || docSnap.id === currentUserId)) ||
+            (cleanMyPhone && docClean === cleanMyPhone)
+        );
+        return { user: normalizedDocUser, isSelf: isDocSelf };
       }
     }
   } catch (err: any) {
@@ -124,6 +146,16 @@ export async function findUserByPhoneDetailed(
     } else {
       console.warn('Firestore user lookup error:', err);
     }
+  }
+
+  // 4. Fallback to local cross-tab / cross-session registry
+  const localMatch = findKnownUserByPhone(rawPhone);
+  if (localMatch) {
+    const isSelfMatch = Boolean(
+      (currentUserId && localMatch.id === currentUserId) ||
+        (cleanMyPhone && getCleanDigits(localMatch.phone) === cleanMyPhone)
+    );
+    return { user: localMatch, isSelf: isSelfMatch };
   }
 
   if (isQuotaExceeded) {

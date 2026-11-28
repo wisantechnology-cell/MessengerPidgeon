@@ -73,8 +73,7 @@ import { AccountOnboardingView, AccountRegistrationPayload } from './components/
 import {
   sendNativeCallNotification,
   sendNativeMessageNotification,
-  sendNativeSystemNotification,
-  requestNotificationPermission,
+  closeNativeCallNotification,
 } from './utils/nativeNotifications';
 import { NotificationPermissionBanner } from './components/NotificationPermissionBanner';
 import {
@@ -114,6 +113,30 @@ const sanitizeAvatarForFirestore = (
     return createSvgAvatar(fallbackName, color);
   }
   return avatarUrl;
+};
+
+const buildCompactUserForFirestore = (u: UserProfile): Record<string, any> => {
+  const normalizedPhone = u.phone ? ensurePhoneStartsWith16(u.phone) : '';
+  const phoneClean = getCleanPhone(normalizedPhone) || '';
+  const safeUser: Record<string, any> = {
+    id: u.id || '',
+    name: u.name || 'Usuario PidgeX',
+    username: u.username || '@usuario',
+    bio: u.bio || 'Disponible en PidgeX',
+    email: '',
+    phone: normalizedPhone,
+    phoneClean,
+    avatarUrl: sanitizeAvatarForFirestore(u.avatarUrl, u.name || 'Usuario PidgeX'),
+    status: u.status || 'online',
+    wallpaperId: u.wallpaperId || 'wp_default',
+    nightMode: Boolean(u.nightMode),
+    accountCreated: Boolean(u.accountCreated),
+    updatedAt: Date.now(),
+  };
+  if (u.customWallpaperUrl && u.customWallpaperUrl.length <= 120000) {
+    safeUser.customWallpaperUrl = u.customWallpaperUrl;
+  }
+  return safeUser;
 };
 
 const uploadAvatarIfLargeDataUrl = async (
@@ -480,18 +503,36 @@ export default function App() {
         });
     }
 
-    requestNotificationPermission();
+    const handleVisibilityClearBadge = () => {
+      if (document.visibilityState === 'visible') {
+        try {
+          (navigator as any).clearAppBadge?.().catch?.(() => {});
+        } catch {}
+      }
+    };
+    document.addEventListener('visibilitychange', handleVisibilityClearBadge);
+    handleVisibilityClearBadge();
 
-    return () => clearTimeout(timer);
+    return () => {
+      clearTimeout(timer);
+      document.removeEventListener('visibilitychange', handleVisibilityClearBadge);
+    };
   }, []);
 
-  // Connect realtime WebSocket client and register Web Push for background calls
+  // Connect realtime WebSocket client and silently sync Web Push subscription once user identity is ready
   useEffect(() => {
     if (user && user.id) {
       realtimeClient.connect(user);
-      registerPushSubscription(user.phone, user.id);
+      if (
+        isAccountRegistered &&
+        user.phone &&
+        typeof Notification !== 'undefined' &&
+        Notification.permission === 'granted'
+      ) {
+        registerPushSubscription(user.phone, user.id, false).catch(() => {});
+      }
     }
-  }, [user.id, user.phone]);
+  }, [user.id, user.phone, isAccountRegistered]);
 
   const [firebaseUser, setFirebaseUser] = useState<any>(null);
   const [isCloudSynced, setIsCloudSynced] = useState<boolean>(false);
@@ -514,6 +555,39 @@ export default function App() {
   const sessionTokenRef = useRef<string | null>(null);
   const sessionSignedOutRef = useRef<boolean>(false);
   const [inAppNotification, setInAppNotification] = useState<BirdNotification | null>(null);
+
+  const notifyIncomingMessage = useCallback(
+    (opts: {
+      title: string;
+      body: string;
+      avatarUrl?: string;
+      chatId: string;
+      showToast?: boolean;
+    }) => {
+      const currentUser = userRef.current;
+      if (currentUser?.doNotDisturb) return;
+
+      ringtoneManager.playIncomingMessageAlert(currentUser);
+      sendNativeMessageNotification(
+        opts.title,
+        opts.body,
+        opts.avatarUrl,
+        opts.chatId,
+        currentUser
+      );
+
+      if (opts.showToast) {
+        setInAppNotification({
+          id: `notif_${opts.chatId}_${Date.now()}`,
+          title: opts.title,
+          body: opts.body,
+          avatarUrl: opts.avatarUrl,
+          chatId: opts.chatId,
+        });
+      }
+    },
+    []
+  );
 
   useEffect(() => {
     try {
@@ -542,7 +616,7 @@ export default function App() {
     if (user.id && user.phone) {
       try {
         const userRef = doc(db, 'users', user.id);
-        setDoc(userRef, user, { merge: true }).catch(() => {});
+        setDoc(userRef, buildCompactUserForFirestore(user), { merge: true }).catch(() => {});
       } catch (e) {
         console.warn('Error saving user to Firestore:', e);
       }
@@ -668,7 +742,7 @@ export default function App() {
 
     try {
       const userRefDoc = doc(db, 'users', newId);
-      setDoc(userRefDoc, updatedUser, { merge: true }).catch((err) => {
+      setDoc(userRefDoc, buildCompactUserForFirestore(updatedUser), { merge: true }).catch((err) => {
         console.warn('Firestore profile save notice (continuing locally):', err);
       });
       const stateRefDoc = doc(db, 'userStates', newId);
@@ -766,7 +840,7 @@ export default function App() {
     broadcastUserPresence(restoredUser);
 
     try {
-      setDoc(doc(db, 'users', finalId), restoredUser, { merge: true }).catch((err) => {
+      setDoc(doc(db, 'users', finalId), buildCompactUserForFirestore(restoredUser), { merge: true }).catch((err) => {
         console.warn('Firestore profile sync notice (continuing locally):', err);
       });
       setDoc(doc(db, 'userStates', finalId), buildCompactSyncPayload(restoredUser, restoredChats), { merge: true }).catch(() => {});
@@ -936,33 +1010,37 @@ export default function App() {
               (Boolean(user.id) && data.createdBy === user.id) ||
               phonesMatch(data.createdByPhone, myPhoneClean);
 
+            const incomingGame = data.activeGroupGame ?? undefined;
+
             setChats((prev) => {
               const existing = prev.find((c) => c.id === d.id);
               const currentActiveId = activeChatIdRef.current;
 
               if (existing) {
                 const textChanged = Boolean(data.lastMessageText && data.lastMessageText !== existing.lastMessageText);
+                const lastMsgIdChanged = Boolean(data.lastMessageId && data.lastMessageId !== existing.lastMessageId);
                 const nameChanged = groupName !== existing.name;
                 const avatarChanged = Boolean(data.avatarUrl && data.avatarUrl !== existing.avatarUrl);
                 const descChanged = groupDesc !== existing.description;
                 const membersChanged =
                   rawGroupMembers.length > 0 &&
                   JSON.stringify(rawGroupMembers) !== JSON.stringify(existing.groupMembers || []);
+                const gameChanged =
+                  JSON.stringify(incomingGame || null) !== JSON.stringify(existing.activeGroupGame || null);
 
-                if (!textChanged && !nameChanged && !avatarChanged && !descChanged && !membersChanged) {
+                if (!textChanged && !lastMsgIdChanged && !nameChanged && !avatarChanged && !descChanged && !membersChanged && !gameChanged) {
                   return prev;
                 }
 
-                if (textChanged && isIncoming && currentActiveId !== d.id) {
-                  ringtoneManager.playIncomingMessageAlert(userRef.current);
-                  soundEffects.playReceive();
-                  setInAppNotification({
-                    id: `notif_${Date.now()}`,
+                if ((textChanged || lastMsgIdChanged) && isIncoming && currentActiveId !== d.id) {
+                  notifyIncomingMessage({
                     title: groupName,
                     body: data.lastMessageSenderName
                       ? `${data.lastMessageSenderName}: ${data.lastMessageText}`
                       : data.lastMessageText,
+                    avatarUrl: data.avatarUrl || existing.avatarUrl,
                     chatId: d.id,
+                    showToast: true,
                   });
                 }
 
@@ -974,15 +1052,17 @@ export default function App() {
                         avatarUrl: data.avatarUrl || c.avatarUrl,
                         description: groupDesc,
                         groupMembers: rawGroupMembers.length > 0 ? rawGroupMembers : c.groupMembers,
+                        activeGroupGame: incomingGame !== undefined ? incomingGame : c.activeGroupGame,
                         type: 'group',
                         categories: ['all', 'groups'],
+                        lastMessageId: data.lastMessageId || c.lastMessageId,
                         lastMessageText: data.lastMessageText || c.lastMessageText,
                         lastMessageTime: data.lastMessageTime || c.lastMessageTime,
-                        lastMessageRead: textChanged ? currentActiveId === d.id : c.lastMessageRead,
+                        lastMessageRead: (textChanged || lastMsgIdChanged) ? currentActiveId === d.id : c.lastMessageRead,
                         unreadCount:
                           currentActiveId === d.id
                             ? 0
-                            : textChanged && isIncoming
+                            : (textChanged || lastMsgIdChanged) && isIncoming
                             ? (c.unreadCount || 0) + 1
                             : c.unreadCount,
                       }
@@ -992,13 +1072,12 @@ export default function App() {
 
               // Newly discovered group on this member's device!
               if (!isCreatedByMe && currentActiveId !== d.id) {
-                ringtoneManager.playIncomingMessageAlert(userRef.current);
-                soundEffects.playReceive();
-                setInAppNotification({
-                  id: `notif_group_${d.id}_${Date.now()}`,
+                notifyIncomingMessage({
                   title: groupName,
                   body: data.lastMessageText || `Te han agregado al grupo "${groupName}"`,
+                  avatarUrl: groupAvatar,
                   chatId: d.id,
+                  showToast: true,
                 });
               }
 
@@ -1013,7 +1092,9 @@ export default function App() {
                 categories: ['all', 'groups'],
                 description: groupDesc,
                 groupMembers: rawGroupMembers,
+                activeGroupGame: incomingGame ?? null,
                 unreadCount: isCreatedByMe ? 0 : 1,
+                lastMessageId: data.lastMessageId || undefined,
                 lastMessageText: data.lastMessageText || `Grupo "${groupName}" creado`,
                 lastMessageTime:
                   data.lastMessageTime ||
@@ -1058,6 +1139,9 @@ export default function App() {
 
             const friendName =
               otherUserInfo?.name ||
+              (data.addedByName && data.addedByUserId !== user.id && !phonesMatch(data.addedByPhone, myPhoneClean)
+                ? data.addedByName
+                : '') ||
               (data.lastMessageSenderName && data.lastMessageSenderName !== user.name
                 ? data.lastMessageSenderName
                 : '') ||
@@ -1069,7 +1153,13 @@ export default function App() {
               (data.lastMessageSenderPhone && myPhoneClean && phonesMatch(data.lastMessageSenderPhone, myPhoneClean)) ||
               (data.lastMessageSenderId && user.id && data.lastMessageSenderId === user.id)
             );
-            const isIncoming = !isLastFromMe;
+            const addedTs = Number(data.friendAddedAt || 0);
+            const addedByOther = Boolean(
+              addedTs > 0 &&
+              (!data.addedByUserId || data.addedByUserId !== user.id) &&
+              (!data.addedByPhone || !myPhoneClean || !phonesMatch(data.addedByPhone, myPhoneClean))
+            );
+            const isIncoming = !isLastFromMe || addedByOther;
             const resolvedStatusText =
               data.statusText ||
               (data.marketplaceProductTitle
@@ -1084,70 +1174,101 @@ export default function App() {
               cutoffs.byChatId[d.id] || 0,
               peerClean ? (cutoffs.byPeerPhone[peerClean] || 0) : 0
             );
+            const effectiveRemoteTs = Math.max(Number(data.updatedAt || 0), addedTs);
 
-            let isBrandNewDiscoveredChat = false;
+            let shouldHydrateMessages = false;
 
             setChats((prev) => {
               const existing = prev.find((c) => c.id === d.id);
               const currentActiveId = activeChatIdRef.current;
               if (existing) {
                 const textChanged = Boolean(data.lastMessageText && data.lastMessageText !== existing.lastMessageText);
-                const isAfterCutoff = !chatCutoffMs || (data.updatedAt || 0) > chatCutoffMs;
-                if (textChanged && isAfterCutoff) {
+                const lastMsgIdChanged = Boolean(data.lastMessageId && data.lastMessageId !== existing.lastMessageId);
+                const friendAddedChanged = addedByOther && addedTs > (existing.friendAddedAt || 0);
+                const isAfterCutoff = !chatCutoffMs || effectiveRemoteTs > chatCutoffMs;
+                const infoChanged =
+                  (friendName && friendName !== existing.name && existing.name === 'Contacto PidgeX') ||
+                  Boolean(friendPhone && !existing.phone);
+
+                if ((textChanged || lastMsgIdChanged || friendAddedChanged) && isAfterCutoff) {
+                  shouldHydrateMessages = true;
+                  const notifBody = friendAddedChanged
+                    ? (data.lastMessageText || `👋 ${friendName} te agregó a sus amigos en PidgeX.`)
+                    : (data.lastMessageText || '¡Nuevo mensaje!');
+
                   if (isIncoming && currentActiveId !== d.id) {
-                    ringtoneManager.playIncomingMessageAlert(userRef.current);
-                    soundEffects.playReceive();
-                    sendNativeMessageNotification(friendName, data.lastMessageText, d.id);
-                    setInAppNotification({
-                      id: `notif_${d.id}_${Date.now()}`,
-                      title: friendName,
-                      body: data.lastMessageText,
+                    notifyIncomingMessage({
+                      title: friendAddedChanged ? `¡${friendName} te agregó!` : friendName,
+                      body: notifBody,
+                      avatarUrl: friendAvatar,
                       chatId: d.id,
+                      showToast: true,
                     });
                   }
                   const updatedExisting: Chat = {
                     ...existing,
                     name: friendName || existing.name,
+                    phone: friendPhone ? ensurePhoneStartsWith16(friendPhone) : existing.phone,
                     avatarUrl: otherUserInfo?.avatarUrl || existing.avatarUrl,
-                    statusText: data.statusText || existing.statusText,
-                    lastMessageText: data.lastMessageText,
+                    isFriend: true,
+                    categories: Array.from(new Set([...(existing.categories || ['all']), 'friends' as ChatCategory])),
+                    statusText: data.statusText || resolvedStatusText || existing.statusText,
+                    friendAddedAt: addedTs || existing.friendAddedAt,
+                    lastMessageId: data.lastMessageId || existing.lastMessageId,
+                    lastMessageText: data.lastMessageText || existing.lastMessageText,
                     lastMessageTime: data.lastMessageTime || existing.lastMessageTime,
-                    lastMessageRead: isLastFromMe || currentActiveId === d.id,
+                    lastMessageRead: (!isIncoming) || currentActiveId === d.id,
                     unreadCount:
-                      currentActiveId === d.id || isLastFromMe
+                      currentActiveId === d.id || !isIncoming
                         ? 0
                         : (existing.unreadCount || 0) + 1,
                   };
                   return [updatedExisting, ...prev.filter((c) => c.id !== d.id)];
                 }
+                if (infoChanged) {
+                  return prev.map((c) =>
+                    c.id === d.id
+                      ? {
+                          ...c,
+                          name: friendName || c.name,
+                          phone: friendPhone ? ensurePhoneStartsWith16(friendPhone) : c.phone,
+                          avatarUrl: otherUserInfo?.avatarUrl || c.avatarUrl,
+                        }
+                      : c
+                  );
+                }
                 return prev;
               }
 
-              // Skip resurrecting a deleted/unfriended chat unless there is a brand-new message after cutoff
+              // Skip resurrecting a deleted/unfriended chat unless there is a brand-new message or friend addition after cutoff
               try {
                 const deletedIds: string[] = JSON.parse(
                   localStorage.getItem('birdmessage_deleted_chat_ids') || '[]'
                 );
-                if (deletedIds.includes(d.id) && (data.updatedAt || 0) <= chatCutoffMs) {
-                  return prev;
+                if (deletedIds.includes(d.id)) {
+                  if (effectiveRemoteTs <= chatCutoffMs) {
+                    return prev;
+                  }
+                  localStorage.setItem(
+                    'birdmessage_deleted_chat_ids',
+                    JSON.stringify(deletedIds.filter((id) => id !== d.id))
+                  );
                 }
               } catch {}
 
-              isBrandNewDiscoveredChat = true;
-              const unreadForNew = currentActiveId === d.id || isLastFromMe ? 0 : 1;
+              shouldHydrateMessages = true;
+              const unreadForNew = currentActiveId === d.id || !isIncoming ? 0 : 1;
+              const newChatNotifBody = addedByOther
+                ? (data.lastMessageText || `👋 ${friendName} te agregó a sus amigos en PidgeX.`)
+                : (data.lastMessageText || '¡Nuevo mensaje!');
+
               if (isIncoming && currentActiveId !== d.id) {
-                ringtoneManager.playIncomingMessageAlert(userRef.current);
-                soundEffects.playReceive();
-                sendNativeMessageNotification(
-                  friendName,
-                  data.lastMessageText || '¡Nuevo mensaje!',
-                  d.id
-                );
-                setInAppNotification({
-                  id: `notif_newchat_${d.id}_${Date.now()}`,
-                  title: friendName,
-                  body: data.lastMessageText || '¡Nuevo mensaje!',
+                notifyIncomingMessage({
+                  title: addedByOther ? `¡${friendName} te agregó!` : friendName,
+                  body: newChatNotifBody,
+                  avatarUrl: friendAvatar,
                   chatId: d.id,
+                  showToast: true,
                 });
               }
 
@@ -1163,18 +1284,20 @@ export default function App() {
                 type: 'direct',
                 categories: ['all', 'friends'],
                 unreadCount: unreadForNew,
-                lastMessageText: data.lastMessageText || '¡Nuevo mensaje!',
+                friendAddedAt: addedTs || undefined,
+                lastMessageId: data.lastMessageId || undefined,
+                lastMessageText: data.lastMessageText || (addedByOther ? `👋 ${friendName} te agregó a sus amigos` : '¡Nuevo mensaje!'),
                 lastMessageTime:
                   data.lastMessageTime ||
                   new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
-                lastMessageRead: currentActiveId === d.id || isLastFromMe,
+                lastMessageRead: currentActiveId === d.id || !isIncoming,
                 messages: [],
               };
               return [newChat, ...prev];
             });
 
-            // Immediately hydrate initial messages for newly discovered chats so seller sees the message right away
-            if (isBrandNewDiscoveredChat) {
+            // Immediately hydrate messages for newly discovered or newly re-added/updated chats
+            if (shouldHydrateMessages) {
               getDocs(collection(db, 'chats', d.id, 'messages'))
                 .then((msgsSnap) => {
                   if (msgsSnap.empty) return;
@@ -1398,20 +1521,35 @@ export default function App() {
               const currentList = Array.isArray(c.messages) ? c.messages : [];
               const existingMap = new Map(currentList.map((m) => [m.id, m]));
               let hasNew = false;
-              let hasNewIncoming = false;
+              let latestIncomingMsg: Message | null = null;
               cloudMessages.forEach((cm) => {
                 if (!existingMap.has(cm.id)) {
                   existingMap.set(cm.id, cm);
                   hasNew = true;
                   if (cm.senderId !== 'me' && cm.senderId !== 'system') {
-                    hasNewIncoming = true;
+                    latestIncomingMsg = cm;
                   }
                 }
               });
 
-              if (hasNewIncoming) {
-                ringtoneManager.playIncomingMessageAlert(user);
-                soundEffects.playReceive();
+              if (latestIncomingMsg) {
+                const msgRef = latestIncomingMsg as Message;
+                const preview =
+                  msgRef.text ||
+                  (msgRef.type === 'voice'
+                    ? '🎙️ Mensaje de voz'
+                    : msgRef.type === 'image'
+                    ? '📷 Foto'
+                    : msgRef.type === 'video'
+                    ? '🎥 Video'
+                    : 'Nuevo mensaje');
+                notifyIncomingMessage({
+                  title: c.name,
+                  body: preview,
+                  avatarUrl: c.avatarUrl,
+                  chatId: c.id,
+                  showToast: false,
+                });
               }
 
               if (!hasNew && existingMap.size === currentList.length) {
@@ -1452,10 +1590,19 @@ export default function App() {
         const myPhoneClean = getCleanPhone(user.phone);
         const myUserId = user.id || 'me';
         const recPhone = getCleanPhone(payload.receiverPhone);
+        const recipientsList: Array<{ id?: string; phone?: string }> = Array.isArray(payload.recipients)
+          ? payload.recipients
+          : [];
+        const matchedInRecipients = recipientsList.some(
+          (r) =>
+            (r?.phone && myPhoneClean && phonesMatch(r.phone, myPhoneClean)) ||
+            (r?.id && myUserId && r.id === myUserId)
+        );
         const isTargetedToMe =
-          (recPhone && myPhoneClean && recPhone === myPhoneClean) ||
+          (recPhone && myPhoneClean && phonesMatch(recPhone, myPhoneClean)) ||
           (payload.receiverId && payload.receiverId === myUserId) ||
-          (payload.receiverPhone && user.phone && payload.receiverPhone === user.phone);
+          (payload.receiverPhone && user.phone && payload.receiverPhone === user.phone) ||
+          matchedInRecipients;
 
         if (isTargetedToMe && payload.callerId !== myUserId) {
           const incomingId = payload.callId || `call_${Date.now()}`;
@@ -1539,11 +1686,13 @@ export default function App() {
       );
 
       let targetChatName = '';
+      let targetChatAvatar: string | undefined;
       let updatedChats: Chat[];
 
       if (existingIndex >= 0) {
         const existingChat = prev[existingIndex];
         targetChatName = existingChat.name;
+        targetChatAvatar = existingChat.avatarUrl;
         const currentList = Array.isArray(existingChat.messages) ? existingChat.messages : [];
         if (currentList.some((m) => m.id === incomingMsg.id)) {
           return prev;
@@ -1585,6 +1734,7 @@ export default function App() {
           : undefined;
         const senderAvatar =
           incomingMsg.senderAvatar || createSvgAvatar(senderName, '#0284c7');
+        targetChatAvatar = senderAvatar;
 
         const newChat: Chat = {
           id: roomId,
@@ -1621,25 +1771,26 @@ export default function App() {
         updatedChats = [newChat, ...prev];
       }
 
-      // Audible chime & visual toast for incoming message
-      soundEffects.playReceive();
       const senderDisplayName = targetChatName || incomingMsg.senderName || 'Contacto PidgeX';
       const previewText =
         incomingMsg.text ||
-        (incomingMsg.type === 'voice' ? '🎙️ Mensaje de voz' : `📎 ${incomingMsg.type}`);
+        (incomingMsg.type === 'voice'
+          ? '🎙️ Mensaje de voz'
+          : incomingMsg.type === 'image'
+          ? '📷 Foto'
+          : incomingMsg.type === 'video'
+          ? '🎥 Video'
+          : incomingMsg.type === 'game_invite'
+          ? incomingMsg.gameData?.title || '🎮 Invitación a jugar'
+          : `📎 ${incomingMsg.type}`);
 
-      // Native device vibration and screen wake lock notification (even when screen is off)
-      sendNativeMessageNotification(senderDisplayName, previewText, roomId);
-
-      if (currentActiveId !== roomId) {
-        ringtoneManager.playIncomingMessageAlert(user);
-        setInAppNotification({
-          id: `notif_${Date.now()}`,
-          title: senderDisplayName,
-          body: previewText,
-          chatId: roomId,
-        });
-      }
+      notifyIncomingMessage({
+        title: senderDisplayName,
+        body: previewText,
+        avatarUrl: targetChatAvatar || incomingMsg.senderAvatar,
+        chatId: roomId,
+        showToast: currentActiveId !== roomId,
+      });
 
       return updatedChats;
     });
@@ -1682,9 +1833,60 @@ export default function App() {
         handleIncomingLiveMessage(data.chatId, data.message);
       } else if (data.type === 'NEW_CHAT' && data.chat) {
         if (!isMeTargeted(data.participantPhones, data.participants)) return;
+        const sender = data.senderUser as { id?: string; name?: string; phone?: string; avatarUrl?: string } | undefined;
+        const isSenderMe =
+          Boolean(sender?.id && user.id && sender.id === user.id) ||
+          Boolean(sender?.phone && myPhoneClean && phonesMatch(sender.phone, myPhoneClean));
+        if (isSenderMe) return;
+
+        const peerChat: Chat = sender
+          ? {
+              ...data.chat,
+              name: sender.name || data.chat.name,
+              phone: sender.phone ? ensurePhoneStartsWith16(sender.phone) : data.chat.phone,
+              avatarUrl: sender.avatarUrl || data.chat.avatarUrl,
+              statusText: sender.phone ? `Amigo • ${ensurePhoneStartsWith16(sender.phone)}` : 'Amigo en PidgeX',
+              unreadCount: activeChatIdRef.current === data.chat.id ? 0 : 1,
+              lastMessageRead: activeChatIdRef.current === data.chat.id,
+            }
+          : data.chat;
+
+        if (activeChatIdRef.current !== peerChat.id) {
+          notifyIncomingMessage({
+            title: sender?.name ? `¡${sender.name} te agregó!` : peerChat.name,
+            body: peerChat.lastMessageText || `👋 ${peerChat.name} te agregó a sus amigos en PidgeX.`,
+            avatarUrl: peerChat.avatarUrl,
+            chatId: peerChat.id,
+            showToast: true,
+          });
+        }
+
         setChats((prev) => {
-          if (prev.some((c) => c.id === data.chat.id)) return prev;
-          return [data.chat, ...prev];
+          const existing = prev.find((c) => c.id === peerChat.id);
+          if (existing) {
+            if (!data.forceUpdate) return prev;
+            const currentMsgs = Array.isArray(existing.messages) ? existing.messages : [];
+            const incomingMsgs = Array.isArray(peerChat.messages) ? peerChat.messages : [];
+            const map = new Map(currentMsgs.map((m) => [m.id, m]));
+            incomingMsgs.forEach((m) => {
+              if (!map.has(m.id)) map.set(m.id, m);
+            });
+            return [
+              {
+                ...existing,
+                isFriend: true,
+                name: peerChat.name || existing.name,
+                phone: peerChat.phone || existing.phone,
+                avatarUrl: peerChat.avatarUrl || existing.avatarUrl,
+                lastMessageText: peerChat.lastMessageText || existing.lastMessageText,
+                lastMessageTime: peerChat.lastMessageTime || existing.lastMessageTime,
+                unreadCount: activeChatIdRef.current === peerChat.id ? 0 : (existing.unreadCount || 0) + 1,
+                messages: Array.from(map.values()),
+              },
+              ...prev.filter((c) => c.id !== peerChat.id),
+            ];
+          }
+          return [peerChat, ...prev];
         });
       } else if (data.type === 'UPDATE_GROUP' && data.chatId) {
         const stillInGroup = isMeTargeted(data.participantPhones, data.participants);
@@ -1732,7 +1934,25 @@ export default function App() {
 
   const handleStartCall = async (chat: Chat, isVideo: boolean) => {
     const callerPhoneClean = getCleanPhone(user.phone);
-    const receiverPhoneClean = getCleanPhone(chat.phone);
+    let receiverPhoneClean = getCleanPhone(chat.phone);
+
+    // Fallback: extract peer phone from direct_<a>_<b> room ID if chat.phone wasn't hydrated yet
+    if (!receiverPhoneClean && chat.id && chat.id.startsWith('direct_')) {
+      const parts = chat.id.replace('direct_', '').split('_').map((p) => getCleanPhone(p)).filter(Boolean);
+      const otherPart = parts.find((p) => !phonesMatch(p, callerPhoneClean));
+      if (otherPart) receiverPhoneClean = otherPart;
+    }
+
+    const isGroupCall = chat.type === 'group';
+    const groupRecipients = isGroupCall
+      ? (chat.groupMembers || [])
+          .filter((m) => m && m.id !== user.id && !phonesMatch(m.phone, callerPhoneClean))
+          .map((m) => ({
+            id: m.id || '',
+            phone: getCleanPhone(m.phone),
+          }))
+          .filter((r) => Boolean(r.id || r.phone))
+      : undefined;
 
     // Synchronously unlock persistent AudioContext inside the user's tap gesture (critical for mobile Safari/Chrome)
     unlockCallAudio().catch(() => {});
@@ -1757,7 +1977,7 @@ export default function App() {
     try {
       await setDoc(callDocRef, {
         callerId: user.id || 'me',
-        callerName: user.name,
+        callerName: isGroupCall ? `${user.name} (${chat.name})` : user.name,
         callerAvatar: safeCallerAvatar,
         callerPhone: callerPhoneClean,
         callerTabSessionId: tabSessionIdRef.current,
@@ -1766,7 +1986,7 @@ export default function App() {
         receiverName: chat.name,
         receiverAvatar: safeReceiverAvatar,
         isVideo,
-        isGroup: chat.type === 'group',
+        isGroup: isGroupCall,
         chatId: chat.id,
         status: 'ringing', // STRICTLY ringing - caller timer will NOT start until receiver answers!
         createdAt: Date.now(),
@@ -1780,12 +2000,14 @@ export default function App() {
       const callRingingPayload = {
         callId: realCallId,
         callerId: user.id || 'me',
-        callerName: user.name,
+        callerName: isGroupCall ? `${user.name} (${chat.name})` : user.name,
         callerAvatar: safeCallerAvatar,
         callerPhone: callerPhoneClean,
         receiverId: chat.id || '',
         receiverPhone: receiverPhoneClean,
+        recipients: groupRecipients,
         isVideo,
+        isGroup: isGroupCall,
         chatId: chat.id,
       };
       const ringingMsg: Message = {
@@ -1812,19 +2034,21 @@ export default function App() {
       console.warn('Error broadcasting call ringing signal:', e);
     }
 
-    // Wake up receiver phone via OS Web Push notification even if app is closed or screen is off
+    // Wake up receiver phone(s) via OS Web Push notification even if app is closed or screen is off (WhatsApp-style repeated ringing)
     try {
       fetch('/api/calls/trigger', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           callId: realCallId,
-          callerName: user.name,
+          callerName: isGroupCall ? `${user.name} (${chat.name})` : user.name,
           callerPhone: callerPhoneClean,
           callerAvatar: safeCallerAvatar,
           receiverId: chat.id || '',
           receiverPhone: receiverPhoneClean,
+          recipients: groupRecipients,
           isVideo,
+          isGroup: isGroupCall,
           chatId: chat.id,
         }),
       }).catch((err) => console.warn('Push call trigger network err:', err));
@@ -1834,6 +2058,7 @@ export default function App() {
   const handleAcceptIncomingCall = async (call: IncomingCallData) => {
     dismissedCallIdsRef.current.add(call.id);
     ringtoneManager.stopIncomingCallAlert();
+    closeNativeCallNotification(call.id).catch(() => {});
     // Synchronously unlock persistent AudioContext inside the user's "Contestar" tap gesture
     unlockCallAudio().catch(() => {});
 
@@ -1855,9 +2080,10 @@ export default function App() {
       console.error('Error accepting call:', e);
     }
 
-    let matchingChat = chats.find(
+    let matchingChat = chatsRef.current.find(
       (c) =>
-        (c.phone && getCleanPhone(c.phone) === getCleanPhone(call.callerPhone)) ||
+        (call.chatId && c.id === call.chatId) ||
+        (c.phone && call.callerPhone && phonesMatch(c.phone, call.callerPhone)) ||
         c.name === call.callerName ||
         c.id === call.callerId
     );
@@ -1897,6 +2123,7 @@ export default function App() {
   const handleDeclineIncomingCall = async (call: IncomingCallData) => {
     dismissedCallIdsRef.current.add(call.id);
     ringtoneManager.stopIncomingCallAlert();
+    closeNativeCallNotification(call.id).catch(() => {});
     try {
       fetch('/api/calls/end', {
         method: 'POST',
@@ -1921,6 +2148,14 @@ export default function App() {
     const current = activeCallSessionRef.current;
     if (current?.callId) {
       dismissedCallIdsRef.current.add(current.callId);
+      closeNativeCallNotification(current.callId).catch(() => {});
+      try {
+        fetch('/api/calls/end', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ callId: current.callId, status: 'ended' }),
+        }).catch(() => {});
+      } catch {}
       try {
         const callRef = doc(db, 'calls', current.callId);
         updateDoc(callRef, { status: 'ended', endedAt: Date.now() }).catch(() => {});
@@ -1939,28 +2174,128 @@ export default function App() {
   useEffect(() => {
     if (typeof navigator === 'undefined' || !('serviceWorker' in navigator)) return;
 
+    const hydrateAndHandleCall = async (
+      callId: string,
+      autoAnswer: boolean,
+      fallbackPayload?: Partial<IncomingCallData>
+    ) => {
+      if (!callId || dismissedCallIdsRef.current.has(callId)) return;
+
+      let callInfo: any =
+        incomingCallRef.current && incomingCallRef.current.id === callId
+          ? incomingCallRef.current
+          : null;
+
+      if (!callInfo) {
+        try {
+          const resp = await fetch(`/api/calls/check?callId=${encodeURIComponent(callId)}`);
+          if (resp.ok) {
+            const resJson = await resp.json();
+            if (resJson.call) callInfo = resJson.call;
+          }
+        } catch {}
+      }
+
+      if (!callInfo && !callId.startsWith('test_call_')) {
+        try {
+          const snap = await getDoc(doc(db, 'calls', callId));
+          if (snap.exists()) {
+            callInfo = { id: snap.id, ...snap.data() };
+          }
+        } catch {}
+      }
+
+      const status = callInfo?.status;
+      if (status && status !== 'ringing' && status !== 'calling') {
+        return;
+      }
+
+      const incoming: IncomingCallData = {
+        id: callId,
+        callerId: callInfo?.callerId || fallbackPayload?.callerId || '',
+        callerName: callInfo?.callerName || fallbackPayload?.callerName || 'Contacto PidgeX',
+        callerAvatar: callInfo?.callerAvatar || fallbackPayload?.callerAvatar,
+        callerPhone: callInfo?.callerPhone || fallbackPayload?.callerPhone,
+        isVideo: Boolean(callInfo?.isVideo ?? fallbackPayload?.isVideo),
+        isGroup: Boolean(callInfo?.isGroup ?? fallbackPayload?.isGroup),
+        chatId: callInfo?.chatId || fallbackPayload?.chatId || '',
+      };
+
+      if (autoAnswer) {
+        handleAcceptIncomingCall(incoming);
+      } else {
+        setIncomingCallData(incoming);
+      }
+    };
+
     const handleSWMessage = (event: MessageEvent) => {
-      const { type, callId } = event.data || {};
-      if (type === 'ANSWER_CALL') {
-        if (incomingCallData && (!callId || incomingCallData.id === callId)) {
-          handleAcceptIncomingCall(incomingCallData);
+      const payload = event.data || {};
+      const { type, callId, chatId, autoAnswer, call } = payload;
+
+      if (type === 'INCOMING_CALL_PUSH' && call?.id) {
+        if (
+          !dismissedCallIdsRef.current.has(call.id) &&
+          activeCallSessionRef.current?.callId !== call.id &&
+          incomingCallRef.current?.id !== call.id
+        ) {
+          setIncomingCallData({
+            id: call.id,
+            callerId: call.callerId || '',
+            callerName: call.callerName || 'Contacto PidgeX',
+            callerAvatar: call.callerAvatar,
+            callerPhone: call.callerPhone,
+            isVideo: Boolean(call.isVideo),
+            isGroup: Boolean(call.isGroup),
+            chatId: call.chatId || '',
+          });
+        }
+      } else if (type === 'ANSWER_CALL' || type === 'OPEN_OR_ANSWER_CALL') {
+        const targetCallId = callId || call?.id || incomingCallRef.current?.id;
+        if (targetCallId) {
+          hydrateAndHandleCall(
+            targetCallId,
+            type === 'ANSWER_CALL' || Boolean(autoAnswer),
+            call
+          );
         }
       } else if (type === 'DECLINE_CALL') {
-        if (incomingCallData && (!callId || incomingCallData.id === callId)) {
-          handleDeclineIncomingCall(incomingCallData);
+        const currentIncoming = incomingCallRef.current;
+        if (currentIncoming && (!callId || currentIncoming.id === callId)) {
+          handleDeclineIncomingCall(currentIncoming);
+        } else if (callId) {
+          dismissedCallIdsRef.current.add(callId);
+          ringtoneManager.stopIncomingCallAlert();
+          closeNativeCallNotification(callId).catch(() => {});
+          fetch('/api/calls/end', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ callId, status: 'declined' }),
+          }).catch(() => {});
         }
+      } else if (type === 'CALL_ENDED_PUSH') {
+        if (!callId || incomingCallRef.current?.id === callId) {
+          ringtoneManager.stopIncomingCallAlert();
+          closeNativeCallNotification(callId).catch(() => {});
+          setIncomingCallData(null);
+        }
+      } else if (type === 'OPEN_CHAT' && chatId) {
+        setActiveTab('chats');
+        setActiveChatId(chatId);
       }
     };
 
     navigator.serviceWorker.addEventListener('message', handleSWMessage);
 
-    // Check URL parameters when opened from notification or when phone is locked/app was closed
+    // Check URL parameters when opened from notification or when phone was locked/app was closed
     try {
       const urlParams = new URLSearchParams(window.location.search);
       const openChatId = urlParams.get('chatId');
       if (openChatId) {
         setActiveChatId(openChatId);
         setActiveTab('chats');
+        try {
+          window.history.replaceState({}, document.title, window.location.pathname);
+        } catch {}
       }
 
       const autoAnswerCallId = urlParams.get('autoAnswerCall') || urlParams.get('callId');
@@ -1968,57 +2303,16 @@ export default function App() {
 
       if (autoAnswerCallId) {
         try {
-          const cleanUrl = window.location.pathname;
-          window.history.replaceState({}, document.title, cleanUrl);
+          window.history.replaceState({}, document.title, window.location.pathname);
         } catch {}
-
-        const wakeUpAndShowCall = async () => {
-          let callInfo: any = null;
-          try {
-            const resp = await fetch(`/api/calls/check?callId=${autoAnswerCallId}`);
-            if (resp.ok) {
-              const resJson = await resp.json();
-              if (resJson.call) callInfo = resJson.call;
-            }
-          } catch {}
-
-          if (!callInfo) {
-            try {
-              const snap = await getDoc(doc(db, 'calls', autoAnswerCallId));
-              if (snap.exists()) {
-                callInfo = { id: snap.id, ...snap.data() };
-              }
-            } catch {}
-          }
-
-          if (callInfo && (callInfo.status === 'ringing' || callInfo.status === 'calling')) {
-            const incoming: IncomingCallData = {
-              id: autoAnswerCallId,
-              callerId: callInfo.callerId || '',
-              callerName: callInfo.callerName || 'Contacto PidgeX',
-              callerAvatar: callInfo.callerAvatar,
-              callerPhone: callInfo.callerPhone,
-              isVideo: Boolean(callInfo.isVideo),
-              isGroup: Boolean(callInfo.isGroup),
-              chatId: callInfo.chatId || '',
-            };
-
-            if (shouldAutoAnswer) {
-              handleAcceptIncomingCall(incoming);
-            } else {
-              setIncomingCallData(incoming);
-            }
-          }
-        };
-
-        wakeUpAndShowCall();
+        hydrateAndHandleCall(autoAnswerCallId, shouldAutoAnswer);
       }
     } catch {}
 
     return () => {
       navigator.serviceWorker.removeEventListener('message', handleSWMessage);
     };
-  }, [incomingCallData]);
+  }, []);
 
   const handleSignOutSession = async () => {
     // Save current account contacts and conversations before signing out
@@ -2225,42 +2519,6 @@ export default function App() {
     return () => clearTimeout(timer);
   }, [user, chats, isAccountRegistered]);
 
-  // Play notification sound & show toast when receiving a new message
-  const prevMessageCountsRef = useRef<Record<string, number>>({});
-  useEffect(() => {
-    chats.forEach((c) => {
-      const prevCount = prevMessageCountsRef.current[c.id] || c.messages.length;
-      if (c.messages.length > prevCount) {
-        const latestMsg = c.messages[c.messages.length - 1];
-        if (latestMsg && latestMsg.senderId !== 'me') {
-          const notifText =
-            latestMsg.text ||
-            (latestMsg.type === 'voice'
-              ? 'Mensaje de voz'
-              : latestMsg.type === 'video'
-              ? 'Video adjunto'
-              : latestMsg.type === 'image'
-              ? 'Foto adjunta'
-              : latestMsg.type === 'gif'
-              ? `GIF${latestMsg.mediaName ? `: ${latestMsg.mediaName}` : ''}`
-              : 'Nuevo mensaje');
-          
-          sendNativeSystemNotification(c.name, notifText, c.avatarUrl, c.id);
-          ringtoneManager.playIncomingMessageAlert(user);
-
-          setInAppNotification({
-            id: `msg_notif_${Date.now()}`,
-            title: c.name,
-            body: notifText,
-            avatarUrl: c.avatarUrl,
-            chatId: c.id,
-          });
-        }
-      }
-      prevMessageCountsRef.current[c.id] = c.messages.length;
-    });
-  }, [chats]);
-
   const activeChat = chats.find((c) => c.id === activeChatId);
 
   // Offline status sync effect & queueing
@@ -2447,8 +2705,10 @@ export default function App() {
 
       const chatDocRef = doc(db, 'chats', chatId);
       setDoc(chatDocRef, {
+        lastMessageId: newMessage.id,
         lastMessageText: lastText,
         lastMessageTime: newMessage.timestamp,
+        lastMessageSenderId: user.id || 'me',
         lastMessageSenderPhone: myPhoneClean,
         lastMessageSenderName: user.name,
         updatedAt: Date.now(),
@@ -2829,31 +3089,71 @@ export default function App() {
   };
 
   // Create new chat
-  const handleCreateChat = (
+  const handleCreateChat = async (
     contactName: string,
     avatarUrl: string,
     initialMessage?: string,
-    phone?: string
+    phone?: string,
+    targetUserId?: string
   ) => {
     const finalPhone = phone ? ensurePhoneStartsWith16(phone) : undefined;
+    const myPhoneNorm = user.phone ? ensurePhoneStartsWith16(user.phone) : '';
+    const userPhoneClean = getCleanPhone(myPhoneNorm) || getCleanPhone(user.phone);
+    const friendPhoneClean = getCleanPhone(finalPhone);
     const newChatId = finalPhone && user.phone
       ? getDirectChatId(user.phone, finalPhone)
       : `chat_${Date.now()}`;
-    const firstMsgTime = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+    const nowMs = Date.now();
+    const firstMsgTime = new Date(nowMs).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
 
-    const initialMsgObj: Message | null = initialMessage
-      ? {
-          id: `msg_init_${Date.now()}`,
-          chatId: newChatId,
-          senderId: 'me',
-          senderName: user.name,
-          type: 'text',
-          text: initialMessage,
-          timestamp: firstMsgTime,
-          timestampMs: Date.now(),
-          isRead: true,
-        }
-      : null;
+    try {
+      const deletedIds: string[] = JSON.parse(
+        localStorage.getItem('birdmessage_deleted_chat_ids') || '[]'
+      );
+      if (deletedIds.includes(newChatId)) {
+        localStorage.setItem(
+          'birdmessage_deleted_chat_ids',
+          JSON.stringify(deletedIds.filter((id) => id !== newChatId))
+        );
+      }
+    } catch {}
+
+    const sysNoticeText = `👋 ${user.name} te agregó a sus amigos en PidgeX.`;
+    const sysMsgId = `msg_friend_${nowMs}`;
+    const initMsgId = `msg_init_${nowMs + 1}`;
+    const trimmedInit = initialMessage?.trim() || '';
+
+    const localMsgs: Message[] = [
+      {
+        id: sysMsgId,
+        chatId: newChatId,
+        senderId: 'system',
+        senderName: 'PidgeX Sistema',
+        type: 'text',
+        text: sysNoticeText,
+        timestamp: firstMsgTime,
+        timestampMs: nowMs,
+        isRead: true,
+      },
+    ];
+    if (trimmedInit) {
+      localMsgs.push({
+        id: initMsgId,
+        chatId: newChatId,
+        senderId: 'me',
+        senderPhone: userPhoneClean || undefined,
+        senderName: user.name,
+        senderAvatar: user.avatarUrl,
+        type: 'text',
+        text: trimmedInit,
+        timestamp: firstMsgTime,
+        timestampMs: nowMs + 1,
+        isRead: true,
+      });
+    }
+
+    const latestMsg = localMsgs[localMsgs.length - 1];
+    const previewText = trimmedInit || sysNoticeText;
 
     const newChat: Chat = {
       id: newChatId,
@@ -2867,10 +3167,12 @@ export default function App() {
       type: 'direct',
       categories: ['all', 'friends'],
       unreadCount: 0,
-      lastMessageText: initialMessage || 'Conversación iniciada',
+      friendAddedAt: nowMs,
+      lastMessageId: latestMsg.id,
+      lastMessageText: previewText,
       lastMessageTime: firstMsgTime,
       lastMessageRead: true,
-      messages: initialMsgObj ? [initialMsgObj] : [],
+      messages: localMsgs,
     };
 
     setChats((prev) => {
@@ -2878,10 +3180,12 @@ export default function App() {
       if (idx >= 0) {
         const copy = [...prev];
         const existingMsgs = copy[idx].messages || [];
+        const map = new Map(existingMsgs.map((m) => [m.id, m]));
+        localMsgs.forEach((m) => map.set(m.id, m));
         copy[idx] = {
           ...copy[idx],
           ...newChat,
-          messages: initialMsgObj ? [...existingMsgs, initialMsgObj] : existingMsgs,
+          messages: Array.from(map.values()),
         };
         return copy;
       }
@@ -2889,60 +3193,154 @@ export default function App() {
     });
     setActiveChatId(newChatId);
 
-    // Broadcast new chat to other tabs
+    const safeUserAvatar = await uploadAvatarIfLargeDataUrl(user.avatarUrl, user.name);
+    const safeFriendAvatar = await uploadAvatarIfLargeDataUrl(avatarUrl, contactName);
+    const participantPhones = Array.from(new Set([userPhoneClean, friendPhoneClean].filter(Boolean)));
+    const participants = Array.from(
+      new Set([user.id || 'me', targetUserId].filter((x): x is string => Boolean(x)))
+    );
+
+    const peerLatestMsg: Message = {
+      ...latestMsg,
+      senderId: latestMsg.senderId === 'system' ? 'system' : (user.id || 'me'),
+      senderPhone: userPhoneClean || undefined,
+      senderName: latestMsg.senderId === 'system' ? 'PidgeX Sistema' : user.name,
+      senderAvatar: latestMsg.senderId === 'system' ? undefined : safeUserAvatar,
+      isRead: false,
+    };
+
+    // Broadcast new chat to other tabs & WebSocket room
     try {
+      realtimeClient.joinRoom(newChatId);
+      realtimeClient.sendMessage(newChatId, peerLatestMsg);
       if (typeof window !== 'undefined' && 'BroadcastChannel' in window) {
         const bus = new BroadcastChannel('pidgex_channel_sync_bus');
-        bus.postMessage({ type: 'NEW_CHAT', chat: newChat });
+        bus.postMessage({
+          type: 'NEW_CHAT',
+          forceUpdate: true,
+          participantPhones,
+          participants,
+          senderUser: {
+            id: user.id || 'me',
+            name: user.name,
+            phone: myPhoneNorm || user.phone || '',
+            avatarUrl: safeUserAvatar,
+          },
+          chat: {
+            ...newChat,
+            name: user.name,
+            phone: myPhoneNorm || user.phone || undefined,
+            avatarUrl: safeUserAvatar,
+            messages: localMsgs.map((m) => ({
+              ...m,
+              senderId: m.senderId === 'system' ? 'system' : 'contact',
+              isRead: false,
+            })),
+          },
+        });
         bus.close();
       }
     } catch {}
 
     // Sync to Firestore
     try {
-      const userPhoneClean = getCleanPhone(user.phone);
-      const friendPhoneClean = getCleanPhone(finalPhone);
+      const usersMap: Record<string, any> = {};
+      if (userPhoneClean) {
+        usersMap[userPhoneClean] = {
+          id: user.id || 'me',
+          name: user.name,
+          avatarUrl: safeUserAvatar,
+          phone: myPhoneNorm || user.phone || '',
+        };
+      }
+      if (friendPhoneClean) {
+        usersMap[friendPhoneClean] = {
+          id: targetUserId || '',
+          name: contactName,
+          avatarUrl: safeFriendAvatar,
+          phone: finalPhone || '',
+        };
+      }
+      const usersById: Record<string, any> = {};
+      if (user.id) {
+        usersById[user.id] = {
+          id: user.id,
+          name: user.name,
+          avatarUrl: safeUserAvatar,
+          phone: myPhoneNorm || user.phone || '',
+        };
+      }
+      if (targetUserId) {
+        usersById[targetUserId] = {
+          id: targetUserId,
+          name: contactName,
+          avatarUrl: safeFriendAvatar,
+          phone: finalPhone || '',
+        };
+      }
 
       const chatDocRef = doc(db, 'chats', newChatId);
-      setDoc(chatDocRef, {
+      await setDoc(chatDocRef, {
         id: newChatId,
         name: contactName,
         type: 'direct',
-        participantPhones: [userPhoneClean, friendPhoneClean].filter(Boolean),
-        participants: [user.id || 'me'],
-        usersMap: {
-          [userPhoneClean]: {
-            id: user.id || 'me',
-            name: user.name,
-            avatarUrl: user.avatarUrl,
-            phone: user.phone,
-          },
-          [friendPhoneClean]: {
-            name: contactName,
-            avatarUrl,
-            phone: finalPhone,
-          },
-        },
-        lastMessageText: newChat.lastMessageText,
-        lastMessageTime: newChat.lastMessageTime,
-        updatedAt: Date.now(),
-      }, { merge: true }).catch((err) => console.warn('Error syncing chat doc:', err));
+        participantPhones,
+        participants,
+        usersMap,
+        usersById,
+        friendAddedAt: nowMs,
+        addedByUserId: user.id || 'me',
+        addedByPhone: userPhoneClean,
+        addedByName: user.name,
+        lastMessageId: latestMsg.id,
+        lastMessageText: previewText,
+        lastMessageTime: firstMsgTime,
+        lastMessageSenderId: user.id || 'me',
+        lastMessageSenderPhone: userPhoneClean,
+        lastMessageSenderName: user.name,
+        updatedAt: nowMs,
+      }, { merge: true });
 
-      if (initialMsgObj) {
-        const msgDocRef = doc(db, 'chats', newChatId, 'messages', initialMsgObj.id);
-        setDoc(msgDocRef, {
-          id: initialMsgObj.id,
+      await setDoc(doc(db, 'chats', newChatId, 'messages', sysMsgId), {
+        id: sysMsgId,
+        chatId: newChatId,
+        senderId: 'system',
+        senderPhone: userPhoneClean,
+        senderName: 'PidgeX Sistema',
+        type: 'text',
+        text: sysNoticeText,
+        timestamp: firstMsgTime,
+        timestampMs: nowMs,
+        isRead: false,
+      });
+
+      if (trimmedInit) {
+        await setDoc(doc(db, 'chats', newChatId, 'messages', initMsgId), {
+          id: initMsgId,
           chatId: newChatId,
           senderId: user.id || 'me',
           senderPhone: userPhoneClean,
           senderName: user.name,
-          senderAvatar: user.avatarUrl,
+          senderAvatar: safeUserAvatar,
           type: 'text',
-          text: initialMessage,
+          text: trimmedInit,
           timestamp: firstMsgTime,
-          timestampMs: Date.now(),
+          timestampMs: nowMs + 1,
           isRead: false,
-        }).catch((err) => console.warn('Error saving initial message doc:', err));
+        });
+      }
+
+      if (friendPhoneClean || targetUserId) {
+        fetch('/api/messages/trigger', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            chatId: newChatId,
+            message: peerLatestMsg,
+            receiverPhone: friendPhoneClean,
+            receiverId: targetUserId,
+          }),
+        }).catch(() => {});
       }
     } catch (e) {
       console.warn('Firestore create chat sync error:', e);
@@ -3457,13 +3855,16 @@ export default function App() {
 
   const handleAddFriendDirect = async (data: AddFriendData) => {
     const finalPhone = data.phone ? ensurePhoneStartsWith16(data.phone) : undefined;
+    const myPhoneNorm = user.phone ? ensurePhoneStartsWith16(user.phone) : '';
+    const userPhoneClean = getCleanPhone(myPhoneNorm) || getCleanPhone(user.phone);
     const friendPhoneClean = getCleanPhone(finalPhone);
     const newChatId = finalPhone && user.phone
       ? getDirectChatId(user.phone, finalPhone)
       : `chat_friend_${Date.now()}`;
     const nowMs = Date.now();
     const firstMsgTime = new Date(nowMs).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
-    const initMsgId = `msg_init_${nowMs}`;
+    const sysMsgId = `msg_friend_${nowMs}`;
+    const initMsgId = `msg_init_${nowMs + 1}`;
 
     // Check if this contact was previously removed, blocked, deleted, or unfriended
     const cutoffs = readClearedCutoffs(userRef.current?.id || user.id);
@@ -3499,21 +3900,40 @@ export default function App() {
       friendCategories.push(data.category);
     }
 
-    const initialMsgs: Message[] = data.initialMessage
-      ? [
-          {
-            id: initMsgId,
-            chatId: newChatId,
-            senderId: 'me',
-            senderName: user.name,
-            type: 'text',
-            text: data.initialMessage,
-            timestamp: firstMsgTime,
-            timestampMs: nowMs,
-            isRead: true,
-          },
-        ]
-      : [];
+    const sysNoticeText = `👋 ${user.name} te agregó a sus amigos en PidgeX.`;
+    const trimmedInit = data.initialMessage?.trim() || '';
+
+    const initialMsgs: Message[] = [
+      {
+        id: sysMsgId,
+        chatId: newChatId,
+        senderId: 'system',
+        senderName: 'PidgeX Sistema',
+        type: 'text',
+        text: sysNoticeText,
+        timestamp: firstMsgTime,
+        timestampMs: nowMs,
+        isRead: true,
+      },
+    ];
+    if (trimmedInit) {
+      initialMsgs.push({
+        id: initMsgId,
+        chatId: newChatId,
+        senderId: 'me',
+        senderPhone: userPhoneClean || undefined,
+        senderName: user.name,
+        senderAvatar: user.avatarUrl,
+        type: 'text',
+        text: trimmedInit,
+        timestamp: firstMsgTime,
+        timestampMs: nowMs + 1,
+        isRead: true,
+      });
+    }
+
+    const latestMsg = initialMsgs[initialMsgs.length - 1];
+    const previewText = trimmedInit || sysNoticeText;
 
     const newChat: Chat = {
       id: newChatId,
@@ -3528,7 +3948,9 @@ export default function App() {
       type: 'direct',
       categories: friendCategories,
       unreadCount: 0,
-      lastMessageText: data.initialMessage || '¡Amigo agregado con éxito!',
+      friendAddedAt: nowMs,
+      lastMessageId: latestMsg.id,
+      lastMessageText: previewText,
       lastMessageTime: firstMsgTime,
       lastMessageRead: true,
       messages: initialMsgs,
@@ -3539,44 +3961,101 @@ export default function App() {
       if (idx >= 0) {
         const copy = [...prev];
         const existingMsgs = shouldResetHistory ? [] : (copy[idx].messages || []);
-        copy[idx] = { ...copy[idx], ...newChat, messages: [...existingMsgs, ...initialMsgs] };
+        const map = new Map(existingMsgs.map((m) => [m.id, m]));
+        initialMsgs.forEach((m) => map.set(m.id, m));
+        copy[idx] = { ...copy[idx], ...newChat, messages: Array.from(map.values()) };
         return copy;
       }
       return [newChat, ...prev];
     });
     setActiveChatId(newChatId);
 
-    // Broadcast new friend chat
-    try {
-      if (typeof window !== 'undefined' && 'BroadcastChannel' in window) {
-        const bus = new BroadcastChannel('pidgex_channel_sync_bus');
-        bus.postMessage({ type: 'NEW_CHAT', chat: newChat });
-        bus.close();
-      }
-    } catch {}
-
     // Purge any stale Firestore messages prior to re-adding so old messages never reappear
     if (shouldResetHistory) {
       await purgeFirestoreChatAndMessages(newChatId, freshCutoffMs);
     }
 
-    // Sync to Firestore with participantPhones and usersMap so contact discovers the fresh chat
-    try {
-      const userPhoneClean = getCleanPhone(user.phone);
-      const safeUserAvatar = sanitizeAvatarForFirestore(user.avatarUrl, user.name);
-      const safeFriendAvatar = sanitizeAvatarForFirestore(data.avatarUrl, data.name);
+    const safeUserAvatar = await uploadAvatarIfLargeDataUrl(user.avatarUrl, user.name);
+    const safeFriendAvatar = await uploadAvatarIfLargeDataUrl(data.avatarUrl, data.name);
+    const participantPhones = Array.from(new Set([userPhoneClean, friendPhoneClean].filter(Boolean)));
+    const participants = Array.from(
+      new Set([user.id || 'me', data.userId].filter((x): x is string => Boolean(x)))
+    );
 
+    const peerLatestMsg: Message = {
+      ...latestMsg,
+      senderId: latestMsg.senderId === 'system' ? 'system' : (user.id || 'me'),
+      senderPhone: userPhoneClean || undefined,
+      senderName: latestMsg.senderId === 'system' ? 'PidgeX Sistema' : user.name,
+      senderAvatar: latestMsg.senderId === 'system' ? undefined : safeUserAvatar,
+      isRead: false,
+    };
+
+    // Broadcast new friend chat in real time via WebSockets & cross-tab BroadcastChannel
+    try {
+      realtimeClient.joinRoom(newChatId);
+      realtimeClient.sendMessage(newChatId, peerLatestMsg);
+      if (typeof window !== 'undefined' && 'BroadcastChannel' in window) {
+        const bus = new BroadcastChannel('pidgex_channel_sync_bus');
+        bus.postMessage({
+          type: 'NEW_CHAT',
+          forceUpdate: true,
+          participantPhones,
+          participants,
+          senderUser: {
+            id: user.id || 'me',
+            name: user.name,
+            phone: myPhoneNorm || user.phone || '',
+            avatarUrl: safeUserAvatar,
+          },
+          chat: {
+            ...newChat,
+            name: user.name,
+            phone: myPhoneNorm || user.phone || undefined,
+            avatarUrl: safeUserAvatar,
+            messages: initialMsgs.map((m) => ({
+              ...m,
+              senderId: m.senderId === 'system' ? 'system' : 'contact',
+              isRead: false,
+            })),
+          },
+        });
+        bus.close();
+      }
+    } catch {}
+
+    // Sync to Firestore with participantPhones, participants, usersMap & usersById so contact discovers immediately
+    try {
       const usersMap: Record<string, any> = {};
       if (userPhoneClean) {
         usersMap[userPhoneClean] = {
           id: user.id || 'me',
           name: user.name,
           avatarUrl: safeUserAvatar,
-          phone: user.phone || '',
+          phone: myPhoneNorm || user.phone || '',
         };
       }
       if (friendPhoneClean) {
         usersMap[friendPhoneClean] = {
+          id: data.userId || '',
+          name: data.name,
+          avatarUrl: safeFriendAvatar,
+          phone: finalPhone || '',
+        };
+      }
+
+      const usersById: Record<string, any> = {};
+      if (user.id) {
+        usersById[user.id] = {
+          id: user.id,
+          name: user.name,
+          avatarUrl: safeUserAvatar,
+          phone: myPhoneNorm || user.phone || '',
+        };
+      }
+      if (data.userId) {
+        usersById[data.userId] = {
+          id: data.userId,
           name: data.name,
           avatarUrl: safeFriendAvatar,
           phone: finalPhone || '',
@@ -3588,19 +4067,38 @@ export default function App() {
         id: newChatId,
         name: data.name,
         type: 'direct',
-        participantPhones: [userPhoneClean, friendPhoneClean].filter(Boolean),
-        participants: [user.id || 'me'].filter(Boolean),
+        participantPhones,
+        participants,
         usersMap,
-        lastMessageText: newChat.lastMessageText,
-        lastMessageTime: newChat.lastMessageTime,
+        usersById,
+        friendAddedAt: nowMs,
+        addedByUserId: user.id || 'me',
+        addedByPhone: userPhoneClean,
+        addedByName: user.name,
+        lastMessageId: latestMsg.id,
+        lastMessageText: previewText,
+        lastMessageTime: firstMsgTime,
+        lastMessageSenderId: user.id || 'me',
         lastMessageSenderPhone: userPhoneClean,
         lastMessageSenderName: user.name,
         updatedAt: nowMs,
       }, { merge: true });
 
-      if (data.initialMessage) {
-        const msgDocRef = doc(db, 'chats', newChatId, 'messages', initMsgId);
-        await setDoc(msgDocRef, {
+      await setDoc(doc(db, 'chats', newChatId, 'messages', sysMsgId), {
+        id: sysMsgId,
+        chatId: newChatId,
+        senderId: 'system',
+        senderPhone: userPhoneClean,
+        senderName: 'PidgeX Sistema',
+        type: 'text',
+        text: sysNoticeText,
+        timestamp: firstMsgTime,
+        timestampMs: nowMs,
+        isRead: false,
+      });
+
+      if (trimmedInit) {
+        await setDoc(doc(db, 'chats', newChatId, 'messages', initMsgId), {
           id: initMsgId,
           chatId: newChatId,
           senderId: user.id || 'me',
@@ -3608,11 +4106,24 @@ export default function App() {
           senderName: user.name,
           senderAvatar: safeUserAvatar,
           type: 'text',
-          text: data.initialMessage,
+          text: trimmedInit,
           timestamp: firstMsgTime,
-          timestampMs: nowMs,
+          timestampMs: nowMs + 1,
           isRead: false,
         });
+      }
+
+      if (friendPhoneClean || data.userId) {
+        fetch('/api/messages/trigger', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            chatId: newChatId,
+            message: peerLatestMsg,
+            receiverPhone: friendPhoneClean,
+            receiverId: data.userId,
+          }),
+        }).catch(() => {});
       }
     } catch (e) {
       console.warn('Firestore direct chat sync error:', e);
@@ -4028,7 +4539,7 @@ export default function App() {
     }
   }, [isNightMode]);
 
-  const handleAddContactAsFriend = (chatId: string) => {
+  const handleAddContactAsFriend = async (chatId: string) => {
     const targetChat = chatsRef.current.find((c) => c.id === chatId);
     const cutoffs = readClearedCutoffs(userRef.current?.id || user.id);
     const peerClean = getCleanPhone(targetChat?.phone);
@@ -4037,15 +4548,36 @@ export default function App() {
       peerClean ? (cutoffs.byPeerPhone[peerClean] || 0) : 0
     );
 
+    const nowMs = Date.now();
+    const noticeTime = new Date(nowMs).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+    const noticeText = `👋 ${user.name} te agregó a sus amigos en PidgeX.`;
+    const sysMsgId = `msg_friend_${nowMs}`;
+    const sysMsg: Message = {
+      id: sysMsgId,
+      chatId,
+      senderId: 'system',
+      senderName: 'PidgeX Sistema',
+      type: 'text',
+      text: noticeText,
+      timestamp: noticeTime,
+      timestampMs: nowMs,
+      isRead: true,
+    };
+
     setChats((prev) =>
       prev.map((c) => {
         if (c.id === chatId) {
+          const baseMsgs = cutoffMs
+            ? (c.messages || []).filter((m) => ((m as any).timestampMs || 0) > cutoffMs)
+            : (c.messages || []);
           return {
             ...c,
             isFriend: true,
-            messages: cutoffMs
-              ? (c.messages || []).filter((m) => ((m as any).timestampMs || 0) > cutoffMs)
-              : c.messages,
+            friendAddedAt: nowMs,
+            lastMessageId: sysMsgId,
+            lastMessageText: noticeText,
+            lastMessageTime: noticeTime,
+            messages: [...baseMsgs, sysMsg],
             statusText: c.phone ? `Amigo • ${c.phone}` : 'Amigo en PidgeX',
             categories: Array.from(new Set([...(c.categories || ['all']), 'friends' as ChatCategory])),
           };
@@ -4053,6 +4585,110 @@ export default function App() {
         return c;
       })
     );
+
+    try {
+      const myPhoneNorm = user.phone ? ensurePhoneStartsWith16(user.phone) : '';
+      const userPhoneClean = getCleanPhone(myPhoneNorm) || getCleanPhone(user.phone);
+      const safeUserAvatar = await uploadAvatarIfLargeDataUrl(user.avatarUrl, user.name);
+      const participantPhones = Array.from(new Set([userPhoneClean, peerClean].filter(Boolean)));
+      const participants = [user.id || 'me'].filter(Boolean);
+
+      realtimeClient.joinRoom(chatId);
+      realtimeClient.sendMessage(chatId, { ...sysMsg, senderPhone: userPhoneClean || undefined, isRead: false });
+
+      if (typeof window !== 'undefined' && 'BroadcastChannel' in window) {
+        const bus = new BroadcastChannel('pidgex_channel_sync_bus');
+        bus.postMessage({
+          type: 'NEW_CHAT',
+          forceUpdate: true,
+          participantPhones,
+          participants,
+          senderUser: {
+            id: user.id || 'me',
+            name: user.name,
+            phone: myPhoneNorm || user.phone || '',
+            avatarUrl: safeUserAvatar,
+          },
+          chat: {
+            id: chatId,
+            name: user.name,
+            phone: myPhoneNorm || user.phone || undefined,
+            avatarUrl: safeUserAvatar,
+            isFriend: true,
+            type: 'direct',
+            categories: ['all', 'friends'],
+            lastMessageText: noticeText,
+            lastMessageTime: noticeTime,
+            unreadCount: 1,
+            messages: [{ ...sysMsg, isRead: false }],
+          },
+        });
+        bus.close();
+      }
+
+      const usersMap: Record<string, any> = {};
+      if (userPhoneClean) {
+        usersMap[userPhoneClean] = {
+          id: user.id || 'me',
+          name: user.name,
+          avatarUrl: safeUserAvatar,
+          phone: myPhoneNorm || user.phone || '',
+        };
+      }
+      if (peerClean && targetChat) {
+        usersMap[peerClean] = {
+          name: targetChat.name,
+          avatarUrl: sanitizeAvatarForFirestore(targetChat.avatarUrl, targetChat.name),
+          phone: targetChat.phone || '',
+        };
+      }
+
+      await setDoc(doc(db, 'chats', chatId), {
+        id: chatId,
+        type: 'direct',
+        participantPhones,
+        participants,
+        usersMap,
+        friendAddedAt: nowMs,
+        addedByUserId: user.id || 'me',
+        addedByPhone: userPhoneClean,
+        addedByName: user.name,
+        lastMessageId: sysMsgId,
+        lastMessageText: noticeText,
+        lastMessageTime: noticeTime,
+        lastMessageSenderId: user.id || 'me',
+        lastMessageSenderPhone: userPhoneClean,
+        lastMessageSenderName: user.name,
+        updatedAt: nowMs,
+      }, { merge: true });
+
+      await setDoc(doc(db, 'chats', chatId, 'messages', sysMsgId), {
+        id: sysMsgId,
+        chatId,
+        senderId: 'system',
+        senderPhone: userPhoneClean,
+        senderName: 'PidgeX Sistema',
+        type: 'text',
+        text: noticeText,
+        timestamp: noticeTime,
+        timestampMs: nowMs,
+        isRead: false,
+      });
+
+      if (peerClean) {
+        fetch('/api/messages/trigger', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            chatId,
+            message: { ...sysMsg, senderName: user.name },
+            receiverPhone: peerClean,
+          }),
+        }).catch(() => {});
+      }
+    } catch (e) {
+      console.warn('Firestore add contact as friend sync error:', e);
+    }
   };
 
   return (
@@ -4231,7 +4867,11 @@ export default function App() {
             {/* Main Tabs with 1 Second Directional Slide Transitions */}
             {activeTab === 'chats' && (
               <div key="tab_chats" className={`w-full h-full flex flex-col overflow-hidden animate-in ${lastTabDirection === 'right' ? 'slide-in-from-right-16' : 'slide-in-from-left-16'} duration-1000 ease-out`}>
-                <NotificationPermissionBanner isNightMode={isNightMode} />
+                <NotificationPermissionBanner
+                  isNightMode={isNightMode}
+                  user={user}
+                  onOpenInstallModal={() => setIsInstallModalOpen(true)}
+                />
                 <div className="flex-1 min-h-0 overflow-hidden">
                   <ChatsListView
                     chats={chats}
@@ -4267,28 +4907,26 @@ export default function App() {
               <LocalRadarView
                 user={user}
                 chats={chats}
-                onStartDirectChat={(target) => {
+                onStartDirectChat={(target: { id: string; name: string; avatarUrl: string; phone?: string; initialMessage?: string }) => {
                   setIsLocalRadarOpen(false);
-                  const existing = chats.find((c) => c.id === target.id || c.name === target.name);
-                  if (existing) {
+                  const existing = chats.find(
+                    (c) =>
+                      c.id === target.id ||
+                      (target.phone && c.phone && phonesMatch(c.phone, target.phone))
+                  );
+                  if (existing && !target.initialMessage) {
                     setActiveChatId(existing.id);
-                  } else {
-                    const newChatId = `chat_${Date.now()}`;
-                    const newChat: Chat = {
-                      id: newChatId,
-                      name: target.name,
-                      type: 'direct',
-                      avatarUrl: target.avatarUrl,
-                      statusText: 'Conectado por Red Mesh P2P',
-                      categories: ['all', 'friends'],
-                      unreadCount: 0,
-                      lastMessageText: '¡Conexión local establecida!',
-                      lastMessageTime: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
-                      messages: [],
-                    };
-                    setChats((prev) => [newChat, ...prev]);
-                    setActiveChatId(newChatId);
+                    return;
                   }
+                  handleAddFriendDirect({
+                    userId: target.id,
+                    name: target.name,
+                    username: '',
+                    phone: target.phone || '',
+                    avatarUrl: target.avatarUrl,
+                    initialMessage: target.initialMessage || '¡Hola! Te encontré en el Radar Local P2P de PidgeX.',
+                    category: 'friends',
+                  });
                 }}
                 onBack={() => setIsLocalRadarOpen(false)}
                 isNightMode={isNightMode}
@@ -4322,6 +4960,27 @@ export default function App() {
                   chats={chats}
                   user={user}
                   isNightMode={isNightMode}
+                  onSendGameInviteToChat={(chatId, gameType, title, summary, gameId) => {
+                    handleSendMessage(chatId, {
+                      senderId: 'me',
+                      senderName: user.name,
+                      senderAvatar: user.avatarUrl,
+                      type: 'game_invite',
+                      text: title,
+                      gameData: {
+                        gameType,
+                        title,
+                        scoreSummary: summary,
+                        gameId,
+                      },
+                      timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+                      isRead: true,
+                    });
+                  }}
+                  onOpenGroupChat={(chatId) => {
+                    setActiveChatId(chatId);
+                    setActiveTab('chats');
+                  }}
                   onSendMemeToChat={(chatId, memeDataUrl, caption) => {
                     handleSendMessage(chatId, {
                       senderId: 'me',

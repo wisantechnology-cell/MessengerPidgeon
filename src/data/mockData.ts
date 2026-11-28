@@ -27,7 +27,7 @@ export const INITIAL_USER: UserProfile = {
   wakeScreenOnCall: true,
   wakeScreenOnMessage: true,
   callRingtoneId: 'pidgex_melody',
-  messageToneId: 'pidgex_chirp',
+  messageToneId: 'system_default',
   pendingFriendRequests: [],
 };
 

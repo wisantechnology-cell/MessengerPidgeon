@@ -11,7 +11,8 @@ interface NewChatModalProps {
     contactName: string,
     avatarUrl: string,
     initialMessage?: string,
-    phone?: string
+    phone?: string,
+    targetUserId?: string
   ) => void;
   currentUserId?: string;
   currentUserPhone?: string;
@@ -88,16 +89,17 @@ export const NewChatModal: React.FC<NewChatModalProps> = ({
     }
 
     const foundUser = lookupResult.user;
+    const canonicalPhone = (foundUser && foundUser.phone) ? ensurePhoneStartsWith16(foundUser.phone) : finalPhone;
     const contactName =
       (customName.trim()) ||
       (foundUser && foundUser.name) ||
-      `Contacto (${finalPhone})`;
+      `Contacto (${canonicalPhone})`;
 
     const avatar =
       (foundUser && foundUser.avatarUrl) ||
       createSvgAvatar(contactName, '#0284c7');
 
-    onCreateChat(contactName, avatar, initialMessage.trim() || undefined, finalPhone);
+    onCreateChat(contactName, avatar, initialMessage.trim() || undefined, canonicalPhone, foundUser?.id);
     setPhone('');
     setCustomName('');
     setErrorMessage(null);

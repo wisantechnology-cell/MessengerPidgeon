@@ -30,6 +30,9 @@ import {
   BookOpen,
   Sparkles,
   Wand2,
+  BellRing,
+  CheckCircle2,
+  Download,
 } from 'lucide-react';
 import { UserProfile, Wallpaper } from '../types';
 import { ensurePhoneStartsWith16 } from '../utils/phoneUtils';
@@ -46,6 +49,13 @@ import {
   MESSAGE_TONE_OPTIONS,
   ringtoneManager,
 } from '../utils/ringtoneAudio';
+import {
+  getPushSubscriptionStatus,
+  PushStatusSummary,
+  registerPushSubscription,
+  sendTestPushNotification,
+} from '../utils/pushManager';
+import { sendNativeMessageNotification } from '../utils/nativeNotifications';
 
 interface SettingsProfileViewProps {
   user: UserProfile;
@@ -106,6 +116,92 @@ export const SettingsProfileView: React.FC<SettingsProfileViewProps> = ({
   const [isTestingCallVibration, setIsTestingCallVibration] = useState<boolean>(false);
   const [isTestingMsgVibration, setIsTestingMsgVibration] = useState<boolean>(false);
   const [isTestingWakeScreen, setIsTestingWakeScreen] = useState<boolean>(false);
+
+  // Push notification status & tests
+  const [pushStatus, setPushStatus] = useState<PushStatusSummary | null>(null);
+  const [isSyncingPush, setIsSyncingPush] = useState<boolean>(false);
+  const [pushFeedback, setPushFeedback] = useState<string | null>(null);
+  const [testCallCountdown, setTestCallCountdown] = useState<number>(0);
+
+  const refreshPushStatus = async () => {
+    const status = await getPushSubscriptionStatus(user.phone, user.id);
+    setPushStatus(status);
+  };
+
+  useEffect(() => {
+    if (activeTab === 'sounds') {
+      refreshPushStatus();
+    }
+  }, [activeTab, user.phone, user.id]);
+
+  useEffect(() => {
+    if (testCallCountdown <= 0) return;
+    const t = setTimeout(() => setTestCallCountdown((c) => Math.max(0, c - 1)), 1000);
+    return () => clearTimeout(t);
+  }, [testCallCountdown]);
+
+  const handleActivatePush = async () => {
+    setIsSyncingPush(true);
+    setPushFeedback(null);
+    try {
+      const res = await registerPushSubscription(user.phone, user.id, true);
+      await refreshPushStatus();
+      if (res.ok && res.permission === 'granted') {
+        ringtoneManager.triggerMessageVibration();
+        setPushFeedback('Notificaciones y llamadas en segundo plano activadas en este celular.');
+      } else if (res.permission === 'denied') {
+        setPushFeedback('El navegador tiene bloqueadas las notificaciones. Habilítalas en Ajustes del sitio.');
+      } else {
+        setPushFeedback('Permiso pendiente. Acepta el aviso de notificaciones o instala la app en Inicio.');
+      }
+    } finally {
+      setIsSyncingPush(false);
+    }
+  };
+
+  const handleTestMessagePush = async () => {
+    setPushFeedback(null);
+    const res = await sendTestPushNotification({
+      kind: 'message',
+      delaySeconds: 0,
+      userPhone: user.phone,
+      userId: user.id,
+      userName: user.name,
+    });
+    // Also trigger immediate native message notification so user hears their phone's own system sound even with app open
+    await sendNativeMessageNotification(
+      'PidgeX • Mensaje de Prueba',
+      'Sonido configurado en tu celular + vibración activos.',
+      undefined,
+      'test_msg_settings',
+      user
+    );
+    await refreshPushStatus();
+    setPushFeedback(
+      res.ok
+        ? 'Prueba enviada: debería vibrar y sonar con el tono de tu celular.'
+        : 'Notificación local enviada. Activa las notificaciones para recibirlas con la app cerrada.'
+    );
+  };
+
+  const handleTestCallPush = async () => {
+    if (testCallCountdown > 0) return;
+    setPushFeedback(null);
+    const res = await sendTestPushNotification({
+      kind: 'call',
+      delaySeconds: 5,
+      userPhone: user.phone,
+      userId: user.id,
+      userName: user.name,
+    });
+    await refreshPushStatus();
+    if (res.ok) {
+      setTestCallCountdown(5);
+      setPushFeedback('Sal de la app o apaga la pantalla ahora: la llamada llegará en 5 segundos.');
+    } else {
+      setPushFeedback(res.error || 'Primero activa las notificaciones para probar la llamada en segundo plano.');
+    }
+  };
 
   useEffect(() => {
     return () => {
@@ -193,7 +289,7 @@ export const SettingsProfileView: React.FC<SettingsProfileViewProps> = ({
         customMessageToneName: file.name,
       });
       ringtoneManager.playTonePreview('message', 'custom', audioUrl);
-      setPlayingPreviewId('msg_custom');
+      setPlayingPreviewId('message_custom');
     } catch (err) {
       console.warn('Message audio upload failed:', err);
     }
@@ -363,8 +459,8 @@ export const SettingsProfileView: React.FC<SettingsProfileViewProps> = ({
                 : 'text-slate-600 hover:text-slate-900'
             }`}
           >
-            <Volume2 className="w-3.5 h-3.5" />
-            <span>Tonos</span>
+            <Bell className="w-3.5 h-3.5" />
+            <span>Notificaciones</span>
           </button>
           <button
             onClick={() => {
@@ -738,6 +834,167 @@ export const SettingsProfileView: React.FC<SettingsProfileViewProps> = ({
               className="hidden"
             />
 
+            {/* 0. CENTRO DE NOTIFICACIONES Y LLAMADAS EN SEGUNDO PLANO (ESTILO WHATSAPP) */}
+            <section className={`rounded-2xl border p-5 flex flex-col gap-4 ${cardCls}`}>
+              <div className="flex items-start justify-between gap-3 pb-3 border-b border-slate-200 dark:border-white/10">
+                <div className="flex items-center gap-2.5">
+                  <div className="w-9 h-9 rounded-xl bg-sky-500/15 text-sky-500 flex items-center justify-center shrink-0">
+                    <BellRing className="w-4 h-4" />
+                  </div>
+                  <div>
+                    <h3 className="text-sm font-bold">Notificaciones y Llamadas en Segundo Plano</h3>
+                    <p className={`text-[11px] ${mutedTextCls}`}>
+                      Enciende tu pantalla, vibra y suena con el tono de tu celular aunque la app esté cerrada.
+                    </p>
+                  </div>
+                </div>
+                <button
+                  onClick={handleActivatePush}
+                  disabled={isSyncingPush}
+                  className="px-3 py-1.5 rounded-xl bg-[#0284c7] hover:bg-[#0369a1] disabled:opacity-60 text-white text-xs font-semibold transition-colors cursor-pointer shrink-0 flex items-center gap-1.5"
+                >
+                  <RefreshCw className={`w-3.5 h-3.5 ${isSyncingPush ? 'animate-spin' : ''}`} />
+                  <span>{pushStatus?.serverSubscribed ? 'Reconectar' : 'Activar ahora'}</span>
+                </button>
+              </div>
+
+              {/* Status grid */}
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5">
+                <div
+                  className={`p-3 rounded-xl border ${
+                    isNightMode ? 'bg-[#0f131c] border-white/10' : 'bg-slate-50 border-slate-200'
+                  }`}
+                >
+                  <p className={`text-[10px] uppercase tracking-wider font-semibold ${mutedTextCls}`}>
+                    Permiso del celular
+                  </p>
+                  <p
+                    className={`text-xs font-bold mt-1 flex items-center gap-1.5 ${
+                      pushStatus?.permission === 'granted'
+                        ? 'text-emerald-500'
+                        : pushStatus?.permission === 'denied'
+                        ? 'text-rose-500'
+                        : 'text-amber-500'
+                    }`}
+                  >
+                    {pushStatus?.permission === 'granted' ? (
+                      <>
+                        <CheckCircle2 className="w-3.5 h-3.5" /> Concedido
+                      </>
+                    ) : pushStatus?.permission === 'denied' ? (
+                      'Bloqueado'
+                    ) : (
+                      'Sin activar'
+                    )}
+                  </p>
+                </div>
+
+                <div
+                  className={`p-3 rounded-xl border ${
+                    isNightMode ? 'bg-[#0f131c] border-white/10' : 'bg-slate-50 border-slate-200'
+                  }`}
+                >
+                  <p className={`text-[10px] uppercase tracking-wider font-semibold ${mutedTextCls}`}>
+                    Llamadas app cerrada
+                  </p>
+                  <p
+                    className={`text-xs font-bold mt-1 flex items-center gap-1.5 ${
+                      pushStatus?.serverSubscribed ? 'text-emerald-500' : 'text-amber-500'
+                    }`}
+                  >
+                    {pushStatus?.serverSubscribed ? (
+                      <>
+                        <CheckCircle2 className="w-3.5 h-3.5" /> Conectado ({pushStatus.devicesCount || 1})
+                      </>
+                    ) : (
+                      'Toca Activar ahora'
+                    )}
+                  </p>
+                </div>
+
+                <div
+                  className={`p-3 rounded-xl border ${
+                    isNightMode ? 'bg-[#0f131c] border-white/10' : 'bg-slate-50 border-slate-200'
+                  }`}
+                >
+                  <p className={`text-[10px] uppercase tracking-wider font-semibold ${mutedTextCls}`}>
+                    App instalada
+                  </p>
+                  <p
+                    className={`text-xs font-bold mt-1 flex items-center gap-1.5 ${
+                      pushStatus?.standalone ? 'text-emerald-500' : 'text-sky-500'
+                    }`}
+                  >
+                    {pushStatus?.standalone ? (
+                      <>
+                        <CheckCircle2 className="w-3.5 h-3.5" /> En pantalla de inicio
+                      </>
+                    ) : (
+                      'Modo navegador'
+                    )}
+                  </p>
+                </div>
+              </div>
+
+              {/* Action / Test buttons */}
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+                <button
+                  onClick={handleTestMessagePush}
+                  className={`py-2.5 px-3.5 rounded-xl border text-xs font-semibold flex items-center justify-center gap-2 transition-colors cursor-pointer ${
+                    isNightMode
+                      ? 'bg-white/5 hover:bg-white/10 border-white/10 text-sky-300'
+                      : 'bg-sky-50 hover:bg-sky-100 border-sky-200 text-sky-800'
+                  }`}
+                >
+                  <MessageSquare className="w-4 h-4 shrink-0" />
+                  <span>Probar mensaje (sonido del celular)</span>
+                </button>
+
+                <button
+                  onClick={handleTestCallPush}
+                  disabled={testCallCountdown > 0}
+                  className={`py-2.5 px-3.5 rounded-xl border text-xs font-semibold flex items-center justify-center gap-2 transition-colors cursor-pointer ${
+                    isNightMode
+                      ? 'bg-emerald-500/15 hover:bg-emerald-500/25 border-emerald-500/30 text-emerald-300'
+                      : 'bg-emerald-50 hover:bg-emerald-100 border-emerald-200 text-emerald-800'
+                  }`}
+                >
+                  <PhoneCall className="w-4 h-4 shrink-0" />
+                  <span>
+                    {testCallCountdown > 0
+                      ? `Bloquea tu pantalla (${testCallCountdown}s)...`
+                      : 'Probar llamada con app cerrada (5s)'}
+                  </span>
+                </button>
+              </div>
+
+              {!pushStatus?.standalone && onOpenInstallModal && (
+                <button
+                  onClick={onOpenInstallModal}
+                  className={`py-2 px-3 rounded-xl border text-xs font-semibold flex items-center justify-center gap-2 transition-colors cursor-pointer ${
+                    isNightMode
+                      ? 'bg-[#0f131c] hover:bg-white/5 border-white/10 text-slate-200'
+                      : 'bg-slate-50 hover:bg-slate-100 border-slate-200 text-slate-700'
+                  }`}
+                >
+                  <Download className="w-3.5 h-3.5 text-[#0284c7]" />
+                  <span>Instalar PidgeX en tu celular para máxima estabilidad</span>
+                </button>
+              )}
+
+              {pushFeedback && (
+                <p
+                  className={`text-xs px-3 py-2 rounded-lg border ${
+                    isNightMode
+                      ? 'bg-sky-950/50 border-sky-500/25 text-sky-200'
+                      : 'bg-sky-50 border-sky-200 text-sky-900'
+                  }`}
+                >
+                  {pushFeedback}
+                </p>
+              )}
+            </section>
+
             {/* 1. SECCIÓN DE LLAMADAS ENTRANTES */}
             <section className={`rounded-2xl border p-5 flex flex-col gap-5 ${cardCls}`}>
               <div className="flex items-center justify-between pb-3 border-b border-slate-200 dark:border-white/10">
@@ -1049,7 +1306,7 @@ export const SettingsProfileView: React.FC<SettingsProfileViewProps> = ({
                         onClick={() => handleTogglePreview('message', 'custom', user.customMessageToneUrl)}
                         className="p-2 rounded-lg bg-[#0284c7] hover:bg-[#0369a1] text-white transition-colors cursor-pointer"
                       >
-                        {playingPreviewId === 'msg_custom' ? (
+                        {playingPreviewId === 'message_custom' ? (
                           <Square className="w-3.5 h-3.5" />
                         ) : (
                           <Play className="w-3.5 h-3.5" />
@@ -1068,7 +1325,7 @@ export const SettingsProfileView: React.FC<SettingsProfileViewProps> = ({
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
                   {MESSAGE_TONE_OPTIONS.map((opt) => {
                     const isSelected =
-                      (user.messageToneId || 'pidgex_chirp') === opt.id;
+                      (user.messageToneId || 'system_default') === opt.id;
                     const isPlaying = playingPreviewId === `message_${opt.id}`;
 
                     return (

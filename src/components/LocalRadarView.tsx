@@ -1,12 +1,19 @@
 import React, { useState, useEffect } from 'react';
 import { Radio, Users, Wifi, Send, X, Sparkles, Shield, RefreshCw } from 'lucide-react';
 import { UserProfile, Chat, Message } from '../types';
-import { db, collection, getDocs, query, where, addDoc, deleteDoc, doc } from '../firebase';
+import { db, collection, getDocs, query } from '../firebase';
+import { phonesMatch } from '../utils/phoneUtils';
 
 interface LocalRadarViewProps {
   user: UserProfile;
   chats: Chat[];
-  onStartDirectChat: (targetUser: { id: string; name: string; avatarUrl: string }) => void;
+  onStartDirectChat: (targetUser: {
+    id: string;
+    name: string;
+    avatarUrl: string;
+    phone?: string;
+    initialMessage?: string;
+  }) => void;
   onBack: () => void;
   isNightMode?: boolean;
 }
@@ -14,6 +21,7 @@ interface LocalRadarViewProps {
 interface NearbyPeer {
   id: string;
   name: string;
+  phone?: string;
   distance: string;
   avatarUrl: string;
   statusText: string;
@@ -43,13 +51,19 @@ export const LocalRadarView: React.FC<LocalRadarViewProps> = ({
 
       snapshot.docs.forEach((d) => {
         const data = d.data();
-        if (data.userId !== user.id) {
+        const peerId = data.id || data.userId || d.id;
+        const isSelf =
+          peerId === user.id ||
+          d.id === user.id ||
+          (data.phone && user.phone && phonesMatch(data.phone, user.phone));
+        if (!isSelf) {
           realPeers.push({
-            id: data.userId || d.id,
+            id: peerId,
             name: data.name || 'Usuario Real PidgeX',
+            phone: data.phone || undefined,
             distance: 'A 2.5 metros (Red Mesh)',
             avatarUrl: data.avatarUrl || 'https://images.unsplash.com/photo-1535713875002-d1d0cf377fde?w=150',
-            statusText: 'Conectado localmente',
+            statusText: data.phone ? `Tel: ${data.phone}` : 'Conectado localmente',
           });
         }
       });
@@ -75,14 +89,17 @@ export const LocalRadarView: React.FC<LocalRadarViewProps> = ({
     e.preventDefault();
     if (!peerMessage.trim() || !selectedPeer) return;
 
+    const msgCopy = peerMessage.trim();
     setSentSuccess(true);
     setTimeout(() => {
       onStartDirectChat({
         id: selectedPeer.id,
         name: selectedPeer.name,
+        phone: selectedPeer.phone,
         avatarUrl: selectedPeer.avatarUrl,
+        initialMessage: msgCopy,
       });
-    }, 1000);
+    }, 600);
   };
 
   return (

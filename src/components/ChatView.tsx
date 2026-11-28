@@ -55,6 +55,7 @@ import {
   GroupMember,
   ChatPersonalityTheme,
   EmotionalMode,
+  GroupGameType,
 } from '../types';
 import { PrivateMessageModal } from './PrivateMessageModal';
 import { PrivateMessageView } from './PrivateMessageView';
@@ -114,8 +115,10 @@ import { AnimatedAvatarMessageCard } from './AnimatedAvatarMessageCard';
 import { CapsuleMessageCard } from './CapsuleMessageCard';
 import { EmotionalAmbienceOverlay } from './EmotionalAmbienceOverlay';
 import { ChatMediaGalleryModal } from './ChatMediaGalleryModal';
+import { GroupGamesModal } from './GroupGamesModal';
 import { EMOTIONAL_MODES, playThemeSoundEffect } from '../utils/chatThemes';
 import { applyAutoCorrect } from '../utils/autocorrectUtils';
+import { realtimeClient } from '../services/realtimeClient';
 
 interface ChatViewProps {
   chat: Chat;
@@ -258,6 +261,8 @@ export const ChatView: React.FC<ChatViewProps> = ({
   const [showAvatarStudio, setShowAvatarStudio] = useState<boolean>(false);
   const [showStickerFactory, setShowStickerFactory] = useState<boolean>(false);
   const [showMediaGallery, setShowMediaGallery] = useState<boolean>(false);
+  const [showGroupGames, setShowGroupGames] = useState<boolean>(false);
+  const [initialGroupGameType, setInitialGroupGameType] = useState<GroupGameType | null>(null);
   const [burstTrigger, setBurstTrigger] = useState<{
     id: number;
     effect: NonNullable<ChatPersonalityTheme['sendEffect']>;
@@ -339,6 +344,59 @@ export const ChatView: React.FC<ChatViewProps> = ({
       : user.wallpaperId === 'custom' && user.customWallpaperUrl
       ? user.customWallpaperUrl
       : activeWallpaper?.url || wallpapers[0]?.url;
+
+  const [liveGroupGame, setLiveGroupGame] = useState<NonNullable<Chat['activeGroupGame']> | null>(
+    chat.activeGroupGame || null
+  );
+
+  useEffect(() => {
+    setLiveGroupGame(chat.activeGroupGame || null);
+  }, [chat.id, chat.activeGroupGame]);
+
+  useEffect(() => {
+    if (chat.type !== 'group') return;
+    let cancelled = false;
+    fetch(`/api/group-games/${encodeURIComponent(chat.id)}`)
+      .then((r) => (r.ok ? r.json() : null))
+      .then((data) => {
+        if (cancelled) return;
+        const gs = data?.gameState;
+        if (gs && gs.status !== 'finished') {
+          setLiveGroupGame({
+            gameId: gs.gameId,
+            gameType: gs.gameType,
+            title: gs.title,
+            hostName: gs.hostName,
+            status: gs.status,
+            playerCount: (gs.players || []).length,
+            updatedAt: gs.updatedAt,
+          });
+        }
+      })
+      .catch(() => {});
+
+    const unsub = realtimeClient.subscribeGame((roomId, event) => {
+      if (roomId !== chat.id) return;
+      const gs = event?.gameState;
+      if (!gs || gs.status === 'finished') {
+        setLiveGroupGame(null);
+      } else {
+        setLiveGroupGame({
+          gameId: gs.gameId,
+          gameType: gs.gameType,
+          title: gs.title,
+          hostName: gs.hostName,
+          status: gs.status,
+          playerCount: (gs.players || []).length,
+          updatedAt: gs.updatedAt,
+        });
+      }
+    });
+    return () => {
+      cancelled = true;
+      unsub();
+    };
+  }, [chat.id, chat.type]);
 
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
@@ -608,6 +666,19 @@ export const ChatView: React.FC<ChatViewProps> = ({
                       <button
                         type="button"
                         onClick={() => {
+                          setInitialGroupGameType(null);
+                          setShowGroupGames(true);
+                          setShowMobileMoreMenu(false);
+                        }}
+                        className="w-full px-3 py-2.5 rounded-xl text-xs font-medium text-emerald-300 hover:text-white hover:bg-emerald-500/20 flex items-center gap-2.5 text-left cursor-pointer"
+                      >
+                        <Gamepad2 className="w-4 h-4 text-emerald-400" />
+                        <span>Juegos Grupales en Vivo</span>
+                      </button>
+
+                      <button
+                        type="button"
+                        onClick={() => {
                           setShowMediaGallery(true);
                           setShowMobileMoreMenu(false);
                         }}
@@ -860,6 +931,18 @@ export const ChatView: React.FC<ChatViewProps> = ({
               </button>
             )}
 
+            <button
+              onClick={() => {
+                setInitialGroupGameType(null);
+                setShowGroupGames(true);
+              }}
+              aria-label="Juegos Grupales"
+              title="Juegos Grupales en Vivo (Trivia, Pictionary, Verdad o Reto)"
+              className="flex items-center gap-1.5 px-2.5 h-9 rounded-full bg-emerald-500/15 border border-emerald-500/35 text-emerald-400 hover:bg-emerald-500/25 text-xs font-bold transition-colors cursor-pointer"
+            >
+              <Gamepad2 className="w-4 h-4" />
+              <span className="hidden sm:inline">Juegos</span>
+            </button>
             <button
               onClick={() => setShowMediaGallery(true)}
               aria-label="Álbum de Recuerdos"
@@ -1177,6 +1260,35 @@ export const ChatView: React.FC<ChatViewProps> = ({
         }`}>
           <span className="text-[11px] font-medium">Hoy</span>
         </div>
+
+        {/* Active Group Game Live Banner */}
+        {chat.type === 'group' && liveGroupGame && liveGroupGame.status !== 'finished' && (
+          <div className="self-center w-full max-w-md my-1 p-3 rounded-2xl bg-gradient-to-r from-indigo-600/90 via-purple-600/90 to-pink-600/90 border border-white/20 text-white shadow-lg backdrop-blur-md flex items-center justify-between gap-3 animate-in fade-in duration-200">
+            <div className="flex items-center gap-2.5 min-w-0">
+              <div className="w-9 h-9 rounded-xl bg-white/15 flex items-center justify-center shrink-0">
+                <Trophy className="w-5 h-5 text-amber-300" />
+              </div>
+              <div className="flex flex-col min-w-0">
+                <span className="text-xs font-extrabold truncate">
+                  {liveGroupGame.title} (En vivo)
+                </span>
+                <span className="text-[11px] text-white/85 truncate">
+                  Host: {liveGroupGame.hostName} • {liveGroupGame.playerCount} jugando
+                </span>
+              </div>
+            </div>
+            <button
+              type="button"
+              onClick={() => {
+                setInitialGroupGameType(liveGroupGame.gameType);
+                setShowGroupGames(true);
+              }}
+              className="px-3.5 py-1.5 rounded-xl bg-white text-indigo-700 hover:bg-indigo-50 text-xs font-extrabold shadow active:scale-95 transition-all cursor-pointer shrink-0"
+            >
+              ¡Unirse!
+            </button>
+          </div>
+        )}
 
         {/* Realtime Live Room Banner */}
         {chat.isRealTime && (
@@ -1673,6 +1785,42 @@ export const ChatView: React.FC<ChatViewProps> = ({
                 </div>
               )}
 
+              {msg.type === 'game_invite' && msg.gameData && (
+                <div
+                  className={`rounded-2xl p-3.5 border shadow-md max-w-[300px] flex flex-col gap-2.5 ${
+                    isMe
+                      ? 'bg-gradient-to-br from-emerald-700 to-sky-700 border-emerald-400/30 text-white'
+                      : 'bg-[#1a2233] border-white/10 text-white'
+                  }`}
+                >
+                  <div className="flex items-center gap-2">
+                    <Gamepad2 className="w-5 h-5 text-emerald-300 shrink-0" />
+                    <div className="min-w-0">
+                      <div className="text-xs font-bold truncate">{msg.gameData.title}</div>
+                      {msg.gameData.scoreSummary && (
+                        <div className="text-[11px] opacity-85">{msg.gameData.scoreSummary}</div>
+                      )}
+                    </div>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const gt = msg.gameData?.gameType;
+                      setInitialGroupGameType(
+                        gt === 'trivia' || gt === 'draw' || gt === 'truth_dare' ? gt : null
+                      );
+                      setShowGroupGames(true);
+                    }}
+                    className="w-full py-2 rounded-xl bg-white/15 hover:bg-white/25 text-white text-xs font-bold cursor-pointer transition-colors"
+                  >
+                    ¡Unirse al Juego!
+                  </button>
+                  <div className="flex items-center justify-end gap-1">
+                    <span className="text-[10px] opacity-75">{msg.timestamp}</span>
+                  </div>
+                </div>
+              )}
+
               {/* Message Reactions Badge */}
               {msg.reactions && Object.keys(msg.reactions).length > 0 && (
                 <div
@@ -1819,6 +1967,22 @@ export const ChatView: React.FC<ChatViewProps> = ({
                 <Wand2 className="w-5 h-5" />
               </div>
               <span className="text-xs font-medium">Stickers IA</span>
+            </button>
+
+            <button
+              onClick={() => {
+                setShowAttachSheet(false);
+                setInitialGroupGameType(null);
+                setShowGroupGames(true);
+              }}
+              className={`flex flex-col items-center gap-1.5 p-2.5 rounded-xl transition-colors cursor-pointer ${
+                isNightMode ? 'bg-[#202838] hover:bg-[#273145]' : 'bg-slate-50 hover:bg-slate-100'
+              }`}
+            >
+              <div className="w-10 h-10 rounded-full bg-emerald-600 flex items-center justify-center text-white">
+                <Gamepad2 className="w-5 h-5" />
+              </div>
+              <span className="text-xs font-medium">Juegos</span>
             </button>
 
             <button
@@ -2676,6 +2840,34 @@ export const ChatView: React.FC<ChatViewProps> = ({
           if (onForwardMessage) {
             onForwardMessage(targetChatId, message);
           }
+        }}
+      />
+      <GroupGamesModal
+        isOpen={showGroupGames}
+        onClose={() => {
+          setShowGroupGames(false);
+          setInitialGroupGameType(null);
+        }}
+        chat={chat}
+        user={user}
+        isNightMode={isNightMode}
+        initialGameType={initialGroupGameType}
+        onSendGameInviteToChat={(gameType, title, summary, gameId) => {
+          onSendMessage(chat.id, {
+            senderId: 'me',
+            senderName: user.name,
+            senderAvatar: user.avatarUrl,
+            type: 'game_invite',
+            text: title,
+            gameData: {
+              gameType,
+              title,
+              scoreSummary: summary,
+              gameId,
+            },
+            timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+            isRead: true,
+          });
         }}
       />
     </div>

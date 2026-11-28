@@ -18,6 +18,7 @@ import { findUserByPhoneDetailed, PhoneLookupResult } from '../utils/phoneValida
 import { CountryFlagBadge } from './CountryFlagBadge';
 
 export interface AddFriendData {
+  userId?: string;
   name: string;
   phone?: string;
   username?: string;
@@ -119,13 +120,15 @@ export const AddFriendModal: React.FC<AddFriendModalProps> = ({
     }
 
     const foundUser = lookupResult.user;
-    const friendName = contactNameInput.trim() || (foundUser && foundUser.name) || `Contacto (${finalPhone})`;
+    const canonicalPhone = (foundUser && foundUser.phone) ? ensurePhoneStartsWith16(foundUser.phone) : finalPhone;
+    const friendName = contactNameInput.trim() || (foundUser && foundUser.name) || `Contacto (${canonicalPhone})`;
     const friendAvatar = (foundUser && foundUser.avatarUrl) || createSvgAvatar(friendName, '#2563eb');
     const friendUsername = (foundUser && foundUser.username) || undefined;
 
     const friendData: AddFriendData = {
+      userId: foundUser?.id,
       name: friendName,
-      phone: finalPhone,
+      phone: canonicalPhone,
       username: friendUsername,
       avatarUrl: friendAvatar,
       initialMessage: initialMessage.trim() || undefined,

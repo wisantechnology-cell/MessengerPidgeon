@@ -261,7 +261,80 @@ function savePushSubscriptions() {
   } catch (e) {}
 }
 
-// Active calls tracking on server
+const DEFAULT_PUSH_ICON = "/assets/aistudio/Logo_de_PidgeX_5e3aa7b3.PNG";
+
+function safePushIconUrl(raw?: string): string {
+  if (!raw || typeof raw !== "string") return DEFAULT_PUSH_ICON;
+  const trimmed = raw.trim();
+  if (!trimmed || trimmed.startsWith("data:") || trimmed.length > 350) {
+    return DEFAULT_PUSH_ICON;
+  }
+  if (trimmed.startsWith("https://") || trimmed.startsWith("http://") || trimmed.startsWith("/")) {
+    return trimmed;
+  }
+  return DEFAULT_PUSH_ICON;
+}
+
+function pushPhonesMatch(a?: string, b?: string): boolean {
+  const ca = cleanPhone(a);
+  const cb = cleanPhone(b);
+  if (!ca || !cb) return false;
+  if (ca === cb) return true;
+  const strip16 = (s: string) => (s.startsWith("16") && s.length > 9 ? s.slice(2) : s);
+  if (strip16(ca) === strip16(cb)) return true;
+  if (ca.length >= 9 && cb.length >= 9 && ca.slice(-9) === cb.slice(-9)) return true;
+  return false;
+}
+
+function findMatchingSubscriptions(
+  recipients: Array<{ phone?: string; id?: string }>
+): PushSubscriptionRecord[] {
+  const matched = new Map<string, PushSubscriptionRecord>();
+  for (const sub of pushSubscriptions.values()) {
+    for (const r of recipients) {
+      const matchPhone = Boolean(r.phone && sub.userPhoneClean && pushPhonesMatch(r.phone, sub.userPhoneClean));
+      const matchId = Boolean(r.id && sub.userId && sub.userId === r.id);
+      if (matchPhone || matchId) {
+        matched.set(sub.endpoint, sub);
+        break;
+      }
+    }
+  }
+  return Array.from(matched.values());
+}
+
+async function sendWebPushBatch(
+  subs: PushSubscriptionRecord[],
+  payloadObj: Record<string, any>,
+  options: { TTL: number; urgency: "very-low" | "low" | "normal" | "high"; topic?: string }
+): Promise<number> {
+  const payload = JSON.stringify(payloadObj);
+  let delivered = 0;
+  const sendPromises = subs.map(async (sub) => {
+    try {
+      await webpush.sendNotification(
+        {
+          endpoint: sub.endpoint,
+          keys: sub.keys,
+        },
+        payload,
+        options
+      );
+      delivered += 1;
+    } catch (err: any) {
+      if (err?.statusCode === 404 || err?.statusCode === 410) {
+        pushSubscriptions.delete(sub.endpoint);
+        savePushSubscriptions();
+      } else {
+        console.warn("[Push] Send failed for endpoint:", err?.statusCode || err?.message || err);
+      }
+    }
+  });
+  await Promise.allSettled(sendPromises);
+  return delivered;
+}
+
+// Active calls tracking on server + continuous background ring timers (WhatsApp-style)
 interface ActiveCallServerRecord {
   callId: string;
   callerName: string;
@@ -269,12 +342,23 @@ interface ActiveCallServerRecord {
   callerAvatar?: string;
   receiverId?: string;
   receiverPhone?: string;
+  recipients?: Array<{ phone?: string; id?: string }>;
   isVideo: boolean;
+  isGroup?: boolean;
   chatId?: string;
-  status: 'ringing' | 'connected' | 'ended' | 'declined';
+  status: 'ringing' | 'connected' | 'ended' | 'declined' | 'accepted';
   createdAt: number;
 }
 const activeCallsServerMap = new Map<string, ActiveCallServerRecord>();
+const activeCallRingTimers = new Map<string, ReturnType<typeof setInterval>>();
+
+function stopBackgroundCallRingTimer(callId: string) {
+  const timer = activeCallRingTimers.get(callId);
+  if (timer) {
+    clearInterval(timer);
+    activeCallRingTimers.delete(callId);
+  }
+}
 
 // API Health Check
 app.get("/api/health", (_req, res) => {
@@ -291,6 +375,18 @@ app.get("/api/push/vapid-public-key", (_req, res) => {
   res.json({ publicKey: vapidKeys.publicKey });
 });
 
+// API: Check if user currently has an active push subscription on server
+app.get("/api/push/status", (req, res) => {
+  const userId = typeof req.query.userId === "string" ? req.query.userId : "";
+  const userPhone = typeof req.query.userPhone === "string" ? req.query.userPhone : "";
+  const matches = findMatchingSubscriptions([{ id: userId || undefined, phone: userPhone || undefined }]);
+  return res.json({
+    subscribed: matches.length > 0,
+    devicesCount: matches.length,
+    totalSubscriptions: pushSubscriptions.size,
+  });
+});
+
 // API: Subscribe browser / phone to OS Push Notifications
 app.post("/api/push/subscribe", (req, res) => {
   try {
@@ -299,27 +395,93 @@ app.post("/api/push/subscribe", (req, res) => {
       return res.status(400).json({ error: "Invalid subscription data" });
     }
     const cleanNum = cleanPhone(userPhone);
+    const existing = pushSubscriptions.get(subscription.endpoint);
     const record: PushSubscriptionRecord = {
       endpoint: subscription.endpoint,
       keys: {
         p256dh: subscription.keys.p256dh,
         auth: subscription.keys.auth,
       },
-      userId: userId || undefined,
-      userPhoneClean: cleanNum || undefined,
+      userId: (userId && userId !== "me" && userId !== "user_me" ? userId : existing?.userId) || userId || undefined,
+      userPhoneClean: cleanNum || existing?.userPhoneClean || undefined,
       updatedAt: Date.now(),
     };
     pushSubscriptions.set(subscription.endpoint, record);
     savePushSubscriptions();
-    console.log(`[Push] Subscribed device for user ${userId || "unknown"} (phone: ${cleanNum || "none"}). Total subs: ${pushSubscriptions.size}`);
-    return res.json({ success: true, registered: true });
+    console.log(`[Push] Subscribed device for user ${record.userId || "unknown"} (phone: ${record.userPhoneClean || "none"}). Total subs: ${pushSubscriptions.size}`);
+    return res.json({ success: true, registered: true, devicesCount: pushSubscriptions.size });
   } catch (err) {
     console.error("Error saving push subscription:", err);
     return res.status(500).json({ error: "Failed to save push subscription" });
   }
 });
 
-// API: Trigger Call Push Notification when app is closed / screen is off
+// API: Test background Web Push (immediate or delayed e.g. 5s so user can lock phone / close app)
+app.post("/api/push/test", async (req, res) => {
+  try {
+    const { kind = "message", delaySeconds = 0, userId, userPhone, userName, endpoint } = req.body || {};
+    const safeDelay = Math.max(0, Math.min(15, Number(delaySeconds) || 0));
+
+    const sendNow = async () => {
+      let targetSubs: PushSubscriptionRecord[] = [];
+      if (endpoint && pushSubscriptions.has(endpoint)) {
+        targetSubs = [pushSubscriptions.get(endpoint)!];
+      } else {
+        targetSubs = findMatchingSubscriptions([{ id: userId, phone: userPhone }]);
+      }
+      if (targetSubs.length === 0) return 0;
+
+      if (kind === "call") {
+        const testCallId = `test_call_${Date.now()}`;
+        return await sendWebPushBatch(
+          targetSubs,
+          {
+            type: "call",
+            callId: testCallId,
+            callerName: userName || "Llamada de Prueba PidgeX",
+            callerPhone: cleanPhone(userPhone),
+            callerAvatar: DEFAULT_PUSH_ICON,
+            icon: DEFAULT_PUSH_ICON,
+            isVideo: false,
+            isTest: true,
+            title: "📞 Llamada entrante de Prueba",
+            body: "Pantalla activa y vibración estilo WhatsApp. Toca Contestar o Rechazar.",
+            url: `/?autoAnswerCall=${testCallId}`,
+          },
+          { TTL: 45, urgency: "high", topic: "pidgex_test_call" }
+        );
+      }
+
+      return await sendWebPushBatch(
+        targetSubs,
+        {
+          type: "message",
+          chatId: "test_notif",
+          title: "PidgeX • Notificación Activa",
+          body: "¡Listo! Tu celular sonó con su tono del sistema y vibró correctamente.",
+          icon: DEFAULT_PUSH_ICON,
+          url: "/",
+        },
+        { TTL: 300, urgency: "high" }
+      );
+    };
+
+    if (safeDelay > 0) {
+      setTimeout(() => {
+        sendNow().catch(() => {});
+      }, safeDelay * 1000);
+      return res.json({ success: true, scheduled: true, delaySeconds: safeDelay });
+    }
+
+    const delivered = await sendNow();
+    return res.json({ success: true, delivered });
+  } catch (err) {
+    console.error("Error sending test push:", err);
+    return res.status(500).json({ error: "Failed to send test push" });
+  }
+});
+
+// API: Trigger Call Push Notification when app is closed / screen is off (WhatsApp-style ringing)
 app.post("/api/calls/trigger", async (req, res) => {
   try {
     const {
@@ -329,7 +491,9 @@ app.post("/api/calls/trigger", async (req, res) => {
       callerAvatar,
       receiverId,
       receiverPhone,
+      recipients,
       isVideo,
+      isGroup,
       chatId,
     } = req.body;
 
@@ -339,74 +503,94 @@ app.post("/api/calls/trigger", async (req, res) => {
 
     const cleanReceiver = cleanPhone(receiverPhone);
     const cleanCaller = cleanPhone(callerPhone);
+    const safeIcon = safePushIconUrl(callerAvatar);
+
+    const recipientList: Array<{ phone?: string; id?: string }> = [];
+    if (Array.isArray(recipients) && recipients.length > 0) {
+      recipients.forEach((r: any) => {
+        if (r && (r.phone || r.id)) {
+          recipientList.push({ phone: cleanPhone(r.phone), id: r.id });
+        }
+      });
+    }
+    if (cleanReceiver || receiverId) {
+      recipientList.push({ phone: cleanReceiver || undefined, id: receiverId || undefined });
+    }
 
     const callRecord: ActiveCallServerRecord = {
       callId,
       callerName: callerName || "Usuario PidgeX",
       callerPhone: cleanCaller,
-      callerAvatar,
+      callerAvatar: safeIcon,
       receiverId,
       receiverPhone: cleanReceiver,
+      recipients: recipientList,
       isVideo: Boolean(isVideo),
+      isGroup: Boolean(isGroup),
       chatId,
       status: "ringing",
       createdAt: Date.now(),
     };
     activeCallsServerMap.set(callId, callRecord);
+    stopBackgroundCallRingTimer(callId);
 
-    // Find all matching subscriptions for recipient
-    const targetSubs: PushSubscriptionRecord[] = [];
-    for (const sub of pushSubscriptions.values()) {
-      const matchPhone = cleanReceiver && sub.userPhoneClean && (sub.userPhoneClean.includes(cleanReceiver) || cleanReceiver.includes(sub.userPhoneClean));
-      const matchId = receiverId && sub.userId === receiverId;
-      if (matchPhone || matchId) {
-        targetSubs.push(sub);
-      }
-    }
+    const targetSubs = findMatchingSubscriptions(recipientList);
+    console.log(`[Call Trigger] Call ${callId} to ${recipientList.map((r) => r.phone || r.id).join(", ")}. Found ${targetSubs.length} device subscriptions.`);
 
-    console.log(`[Call Trigger] Call ${callId} to ${cleanReceiver || receiverId}. Found ${targetSubs.length} device subscriptions.`);
-
-    const payload = JSON.stringify({
+    const buildCallPayload = (ringNumber: number) => ({
       type: "call",
       callId,
       callerName: callerName || "Usuario PidgeX",
       callerPhone: cleanCaller,
-      callerAvatar,
+      callerAvatar: safeIcon,
+      icon: safeIcon,
       isVideo: Boolean(isVideo),
+      isGroup: Boolean(isGroup),
       chatId,
-      title: `📞 Llamada de ${callerName || "PidgeX"}`,
+      ringNumber,
+      title: isVideo
+        ? `📹 Videollamada de ${callerName || "PidgeX"}`
+        : `📞 Llamada de ${callerName || "PidgeX"}`,
       body: isVideo
-        ? `📹 Videollamada entrante de ${callerName || "un amigo"}... ¡Toca para contestar!`
-        : `📞 Llamada de voz entrante de ${callerName || "un amigo"}... ¡Toca para contestar!`,
+        ? `Videollamada entrante de ${callerName || "un amigo"} • Toca para contestar`
+        : `Llamada entrante de ${callerName || "un amigo"} • Toca para contestar`,
       url: `/?autoAnswerCall=${callId}`,
     });
 
-    const sendPromises = targetSubs.map(async (sub) => {
-      try {
-        await webpush.sendNotification(
-          {
-            endpoint: sub.endpoint,
-            keys: sub.keys,
-          },
-          payload,
-          {
-            TTL: 60,
-            urgency: "high",
-          }
-        );
-      } catch (err: any) {
-        if (err.statusCode === 404 || err.statusCode === 410) {
-          pushSubscriptions.delete(sub.endpoint);
-          savePushSubscriptions();
-        }
-      }
+    const delivered = await sendWebPushBatch(targetSubs, buildCallPayload(1), {
+      TTL: 45,
+      urgency: "high",
+      topic: `call_${callId.slice(-12)}`,
     });
 
-    await Promise.allSettled(sendPromises);
+    // Keep ringing in background like WhatsApp (re-pulse every 6.5s up to 4 extra pulses while status === 'ringing')
+    if (targetSubs.length > 0) {
+      let pulseCount = 1;
+      const ringTimer = setInterval(async () => {
+        const current = activeCallsServerMap.get(callId);
+        if (!current || current.status !== "ringing" || pulseCount >= 5) {
+          stopBackgroundCallRingTimer(callId);
+          return;
+        }
+        pulseCount += 1;
+        const freshSubs = findMatchingSubscriptions(current.recipients || recipientList);
+        if (freshSubs.length === 0) {
+          stopBackgroundCallRingTimer(callId);
+          return;
+        }
+        await sendWebPushBatch(freshSubs, buildCallPayload(pulseCount), {
+          TTL: 30,
+          urgency: "high",
+          topic: `call_${callId.slice(-12)}`,
+        });
+      }, 6500);
+      activeCallRingTimers.set(callId, ringTimer);
+    }
 
     return res.json({
       success: true,
-      notifiedDevices: targetSubs.length,
+      notifiedDevices: delivered,
+      matchedSubscriptions: targetSubs.length,
       callId,
     });
   } catch (err) {
@@ -425,20 +609,50 @@ app.get("/api/calls/check", (req, res) => {
   return res.json({ call: call || null });
 });
 
-// API: End Call on server
-app.post("/api/calls/end", (req, res) => {
+// API: End Call on server (stops background ringing and closes/updates OS call notification)
+app.post("/api/calls/end", async (req, res) => {
   const { callId, status } = req.body;
-  if (callId && activeCallsServerMap.has(callId)) {
-    const call = activeCallsServerMap.get(callId)!;
-    call.status = status || "ended";
-    setTimeout(() => {
-      activeCallsServerMap.delete(callId);
-    }, 300000);
+  if (callId) {
+    stopBackgroundCallRingTimer(callId);
+    const call = activeCallsServerMap.get(callId);
+    if (call) {
+      const wasRinging = call.status === "ringing";
+      call.status = status || "ended";
+      const targetSubs = findMatchingSubscriptions(
+        call.recipients && call.recipients.length > 0
+          ? call.recipients
+          : [{ phone: call.receiverPhone, id: call.receiverId }]
+      );
+      if (targetSubs.length > 0) {
+        const isMissed = wasRinging && (status === "ended" || status === "missed");
+        sendWebPushBatch(
+          targetSubs,
+          {
+            type: "call_ended",
+            callId,
+            missed: isMissed,
+            callerName: call.callerName,
+            isVideo: call.isVideo,
+            chatId: call.chatId,
+            icon: safePushIconUrl(call.callerAvatar),
+            title: isMissed ? `📞 Llamada perdida de ${call.callerName}` : "Llamada finalizada",
+            body: isMissed
+              ? `No pudiste contestar la ${call.isVideo ? "videollamada" : "llamada"} de ${call.callerName}.`
+              : "",
+            url: call.chatId ? `/?chatId=${call.chatId}` : "/",
+          },
+          { TTL: 120, urgency: "high", topic: `call_${callId.slice(-12)}` }
+        ).catch(() => {});
+      }
+      setTimeout(() => {
+        activeCallsServerMap.delete(callId);
+      }, 300000);
+    }
   }
   return res.json({ success: true });
 });
 
-// API: Send Push for new chat messages when app is closed
+// API: Send Push for new chat messages when app is closed or in background
 app.post("/api/messages/trigger", async (req, res) => {
   try {
     const { chatId, message, receiverPhone, receiverId } = req.body;
@@ -447,53 +661,32 @@ app.post("/api/messages/trigger", async (req, res) => {
     }
 
     const cleanReceiver = cleanPhone(receiverPhone);
-    const targetSubs: PushSubscriptionRecord[] = [];
-    for (const sub of pushSubscriptions.values()) {
-      const matchPhone = cleanReceiver && sub.userPhoneClean && (sub.userPhoneClean.includes(cleanReceiver) || cleanReceiver.includes(sub.userPhoneClean));
-      const matchId = receiverId && sub.userId === receiverId;
-      if (matchPhone || matchId) {
-        targetSubs.push(sub);
-      }
-    }
+    const targetSubs = findMatchingSubscriptions([
+      { phone: cleanReceiver || undefined, id: receiverId || undefined },
+    ]);
 
     let bodyText = message.text || "Nuevo mensaje";
     if (message.type === "voice") bodyText = "🎙️ Mensaje de voz";
     if (message.type === "image") bodyText = "📸 Foto adjunta";
     if (message.type === "video") bodyText = "🎬 Video adjunto";
     if (message.type === "sticker") bodyText = `🌟 Sticker: ${message.stickerTitle || ""}`;
+    if (message.type === "game_invite") bodyText = `🎮 ${message.gameData?.title || "Invitación a juego grupal"}`;
 
-    const payload = JSON.stringify({
-      type: "message",
-      chatId,
-      title: `${message.senderName || "PidgeX 🐦"}`,
-      body: bodyText,
-      icon: message.senderAvatar || "/pidgex-logo.svg",
-      url: `/?chatId=${chatId}`,
-    });
+    const delivered = await sendWebPushBatch(
+      targetSubs,
+      {
+        type: "message",
+        chatId,
+        messageId: message.id,
+        title: `${message.senderName || "PidgeX"}`,
+        body: bodyText.slice(0, 180),
+        icon: safePushIconUrl(message.senderAvatar),
+        url: chatId ? `/?chatId=${encodeURIComponent(chatId)}` : "/",
+      },
+      { TTL: 3600, urgency: "high" }
+    );
 
-    const sendPromises = targetSubs.map(async (sub) => {
-      try {
-        await webpush.sendNotification(
-          {
-            endpoint: sub.endpoint,
-            keys: sub.keys,
-          },
-          payload,
-          {
-            TTL: 3600,
-            urgency: "high",
-          }
-        );
-      } catch (err: any) {
-        if (err.statusCode === 404 || err.statusCode === 410) {
-          pushSubscriptions.delete(sub.endpoint);
-          savePushSubscriptions();
-        }
-      }
-    });
-
-    await Promise.allSettled(sendPromises);
-    return res.json({ success: true, notifiedDevices: targetSubs.length });
+    return res.json({ success: true, notifiedDevices: delivered });
   } catch (err) {
     return res.status(500).json({ error: "Failed to trigger message push" });
   }
@@ -1625,6 +1818,356 @@ app.post('/api/realtime/create-room', (req, res) => {
 });
 
 // ============================================================================
+// Server-Authoritative Multiplayer Group Games Engine (Trivia, Draw, Truth/Dare)
+// ============================================================================
+const SERVER_TRIVIA_BANK = [
+  { id: 'tq1', category: 'Cultura', question: '¿Cuál es el océano más grande del planeta Tierra?', options: ['Océano Atlántico', 'Océano Índico', 'Océano Pacífico', 'Océano Ártico'], correctIndex: 2 },
+  { id: 'tq2', category: 'Ciencia', question: '¿Cuál es el planeta más cercano al Sol?', options: ['Venus', 'Mercurio', 'Marte', 'Tierra'], correctIndex: 1 },
+  { id: 'tq3', category: 'Cine', question: '¿Qué estudio creó películas como Toy Story y Coco?', options: ['DreamWorks', 'Pixar', 'Illumination', 'Sony Pictures'], correctIndex: 1 },
+  { id: 'tq4', category: 'Geografía', question: '¿En qué país se encuentra la famosa torre Eiffel?', options: ['Italia', 'España', 'Francia', 'Alemania'], correctIndex: 2 },
+  { id: 'tq5', category: 'Tecnología', question: '¿Qué significa la sigla "Wi-Fi" en la vida cotidiana?', options: ['Conexión inalámbrica de red', 'Cable de fibra óptica', 'Batería de litio', 'Radio satelital'], correctIndex: 0 },
+  { id: 'tq6', category: 'Deportes', question: '¿Cuántos jugadores tiene cada equipo en la cancha en fútbol 11?', options: ['9', '10', '11', '12'], correctIndex: 2 },
+  { id: 'tq7', category: 'Música', question: '¿Cuántas cuerdas tiene normalmente una guitarra clásica?', options: ['4', '5', '6', '8'], correctIndex: 2 },
+  { id: 'tq8', category: 'Naturaleza', question: '¿Qué animal es conocido por dormir de pie y poder correr muy rápido?', options: ['Caballo', 'Koala', 'Pingüino', 'Nutria'], correctIndex: 0 },
+  { id: 'tq9', category: 'Gastronomía', question: '¿De qué país es originario el taco tradicional?', options: ['Perú', 'México', 'Colombia', 'Chile'], correctIndex: 1 },
+  { id: 'tq10', category: 'Ciencia', question: '¿Qué gas necesitan los humanos principalmente para respirar?', options: ['Nitrógeno', 'Oxígeno', 'Helio', 'Argón'], correctIndex: 1 },
+  { id: 'tq11', category: 'Historia', question: '¿En qué año llegó el ser humano por primera vez a la Luna?', options: ['1959', '1969', '1975', '1981'], correctIndex: 1 },
+  { id: 'tq12', category: 'Arte', question: '¿Quién pintó "La noche estrellada"?', options: ['Pablo Picasso', 'Salvador Dalí', 'Vincent van Gogh', 'Leonardo da Vinci'], correctIndex: 2 },
+  { id: 'tq13', category: 'Geografía', question: '¿Cuál es el río más largo de América del Sur?', options: ['Río Orinoco', 'Río Amazonas', 'Río Paraná', 'Río Magdalena'], correctIndex: 1 },
+  { id: 'tq14', category: 'Videojuegos', question: '¿De qué color es la gorra clásica de Mario Bros?', options: ['Azul', 'Verde', 'Roja', 'Amarilla'], correctIndex: 2 },
+];
+
+const SERVER_DRAW_WORDS = [
+  'Cohete', 'Paloma', 'Pizza', 'Guitarra', 'Dinosaurio', 'Playa',
+  'Robot', 'Castillo', 'Mariposa', 'Helado', 'Volcán', 'Bicicleta',
+  'Unicornio', 'Telescopio', 'Hamburguesa', 'Pulpo', 'Reloj', 'Montaña',
+  'Gato', 'Corona', 'Submarino', 'Fuego', 'Arcoíris', 'Dragón',
+];
+
+const SERVER_TRUTHS = [
+  '¿Cuál ha sido tu momento más gracioso frente a tus amigos?',
+  'Si pudieras viajar mañana a cualquier país, ¿cuál elegirías y por qué?',
+  '¿Qué talento secreto tienes que casi nadie en este grupo conoce?',
+  '¿Cuál es la comida más rara que has probado y te gustó?',
+  '¿Qué canción cantas a todo pulmón cuando nadie te escucha?',
+  '¿Cuál ha sido tu mayor logro este año?',
+  'Si ganaras un premio millonario hoy, ¿qué sería lo primero que harías?',
+];
+
+const SERVER_DARES = [
+  'Envía una nota de voz de 5 segundos imitando a tu animal favorito.',
+  'Escribe en el chat un cumplido divertido para cada persona conectada.',
+  'Cambia tu estado o manda un sticker describiendo cómo te sientes ahora.',
+  'Cuenta un chiste corto o adivinanza en el grupo ahora mismo.',
+  'Di 3 cosas por las que estés agradecido hoy.',
+  'Escribe una frase usando solo emojis para que el grupo la adivine.',
+  'Envía un saludo épico como si fueras locutor de radio.',
+];
+
+function stripAccentsServer(str: string): string {
+  return str
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .trim()
+    .toLowerCase();
+}
+
+function maskSecretWord(word: string): string {
+  return word
+    .split('')
+    .map((ch) => (ch === ' ' ? ' ' : '_'))
+    .join(' ');
+}
+
+function shuffleArray<T>(arr: T[]): T[] {
+  const copy = [...arr];
+  for (let i = copy.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [copy[i], copy[j]] = [copy[j], copy[i]];
+  }
+  return copy;
+}
+
+function upsertGamePlayer(players: any[], actor: { id: string; name: string; avatarUrl?: string; phone?: string }) {
+  if (!actor || !actor.id) return players;
+  const idx = players.findIndex((p) => p.id === actor.id);
+  if (idx >= 0) {
+    const updated = [...players];
+    updated[idx] = {
+      ...updated[idx],
+      name: actor.name || updated[idx].name,
+      avatarUrl: actor.avatarUrl || updated[idx].avatarUrl,
+    };
+    return updated;
+  }
+  return [
+    ...players,
+    {
+      id: actor.id,
+      name: actor.name || 'Jugador',
+      avatarUrl: actor.avatarUrl || '',
+      phone: actor.phone || '',
+      score: 0,
+      joinedAt: Date.now(),
+    },
+  ];
+}
+
+function processGroupGameAction(
+  chatId: string,
+  actor: { id: string; name: string; avatarUrl?: string; phone?: string },
+  action: string,
+  payload: any = {}
+) {
+  const room = getOrCreateRoom(chatId);
+  const now = Date.now();
+
+  if (action === 'START_GAME') {
+    const gameType = payload.gameType || 'trivia';
+    const initialPlayers: any[] = [];
+    const seededMembers = Array.isArray(payload.seedPlayers) ? payload.seedPlayers : [];
+    let players = upsertGamePlayer(initialPlayers, actor);
+    seededMembers.forEach((m: any) => {
+      if (m && m.id && m.id !== actor.id) {
+        players = upsertGamePlayer(players, m);
+      }
+    });
+
+    const gameId = `gg_${now}_${Math.random().toString(36).substring(2, 6)}`;
+    const titles: Record<string, string> = {
+      trivia: 'Trivia Grupal en Vivo',
+      draw: 'Dibuja y Adivina',
+      truth_dare: 'Verdad o Reto Grupal',
+    };
+
+    if (gameType === 'trivia') {
+      const totalRounds = Math.min(8, Math.max(3, Number(payload.totalRounds) || 5));
+      const questions = shuffleArray(SERVER_TRIVIA_BANK).slice(0, totalRounds);
+      room.gameState = {
+        gameId,
+        chatId,
+        gameType: 'trivia',
+        title: titles.trivia,
+        status: 'active',
+        hostId: actor.id,
+        hostName: actor.name,
+        players,
+        round: 0,
+        totalRounds: questions.length,
+        triviaQuestions: questions,
+        triviaAnswers: {},
+        roundStartedAt: now,
+        updatedAt: now,
+      };
+    } else if (gameType === 'draw') {
+      const secretWord = SERVER_DRAW_WORDS[Math.floor(Math.random() * SERVER_DRAW_WORDS.length)];
+      room.gameState = {
+        gameId,
+        chatId,
+        gameType: 'draw',
+        title: titles.draw,
+        status: 'active',
+        hostId: actor.id,
+        hostName: actor.name,
+        players,
+        round: 0,
+        totalRounds: Math.max(3, players.length),
+        drawerId: actor.id,
+        drawerName: actor.name,
+        secretWord,
+        maskedWord: maskSecretWord(secretWord),
+        strokes: [],
+        guesses: [],
+        roundWinners: [],
+        updatedAt: now,
+      };
+    } else {
+      room.gameState = {
+        gameId,
+        chatId,
+        gameType: 'truth_dare',
+        title: titles.truth_dare,
+        status: 'active',
+        hostId: actor.id,
+        hostName: actor.name,
+        players,
+        round: 0,
+        totalRounds: 10,
+        selectedPlayerId: actor.id,
+        selectedPlayerName: actor.name,
+        truthOrDareMode: null,
+        truthOrDarePrompt: null,
+        truthOrDareHistory: [],
+        updatedAt: now,
+      };
+    }
+  } else if (!room.gameState) {
+    return null;
+  } else {
+    const gs = room.gameState;
+    gs.players = upsertGamePlayer(gs.players || [], actor);
+    gs.updatedAt = now;
+
+    if (action === 'JOIN_GAME') {
+      // Player already upserted above
+    } else if (action === 'TRIVIA_ANSWER' && gs.gameType === 'trivia' && gs.status === 'active') {
+      const roundIdx = typeof payload.round === 'number' ? payload.round : gs.round;
+      if (roundIdx === gs.round) {
+        gs.triviaAnswers = gs.triviaAnswers || {};
+        gs.triviaAnswers[roundIdx] = gs.triviaAnswers[roundIdx] || {};
+        if (!gs.triviaAnswers[roundIdx][actor.id]) {
+          const q = gs.triviaQuestions?.[roundIdx];
+          const optionIndex = Number(payload.optionIndex);
+          const isCorrect = Boolean(q && optionIndex === q.correctIndex);
+          const elapsedSec = Math.max(0, (now - (gs.roundStartedAt || now)) / 1000);
+          const speedBonus = isCorrect ? Math.max(0, Math.round((15 - Math.min(15, elapsedSec)) * 5)) : 0;
+          const points = isCorrect ? 100 + speedBonus : 0;
+          gs.triviaAnswers[roundIdx][actor.id] = { optionIndex, isCorrect, points };
+          if (points > 0) {
+            gs.players = gs.players.map((p: any) =>
+              p.id === actor.id ? { ...p, score: (p.score || 0) + points } : p
+            );
+          }
+        }
+      }
+    } else if (action === 'TRIVIA_NEXT_ROUND' && gs.gameType === 'trivia') {
+      if (gs.round + 1 >= (gs.totalRounds || 5)) {
+        gs.status = 'finished';
+      } else {
+        gs.round += 1;
+        gs.roundStartedAt = now;
+      }
+    } else if (action === 'DRAW_STROKE' && gs.gameType === 'draw' && gs.status === 'active') {
+      if (actor.id === gs.drawerId && payload.stroke) {
+        gs.strokes = gs.strokes || [];
+        gs.strokes.push(payload.stroke);
+        if (gs.strokes.length > 400) gs.strokes.shift();
+      }
+    } else if (action === 'DRAW_CLEAR' && gs.gameType === 'draw' && gs.status === 'active') {
+      if (actor.id === gs.drawerId) {
+        gs.strokes = [];
+      }
+    } else if (action === 'DRAW_GUESS' && gs.gameType === 'draw' && gs.status === 'active') {
+      const guessText = String(payload.text || '').trim();
+      if (guessText && actor.id !== gs.drawerId) {
+        const isCorrect =
+          Boolean(gs.secretWord) &&
+          stripAccentsServer(guessText) === stripAccentsServer(gs.secretWord);
+        gs.guesses = gs.guesses || [];
+        gs.guesses.push({
+          id: `g_${now}_${Math.random().toString(36).substring(2, 6)}`,
+          userId: actor.id,
+          userName: actor.name,
+          text: isCorrect ? `🎉 ¡${actor.name} adivinó la palabra!` : guessText,
+          isCorrect,
+          timestamp: now,
+        });
+        if (gs.guesses.length > 40) gs.guesses.shift();
+
+        if (isCorrect && !(gs.roundWinners || []).includes(actor.id)) {
+          gs.roundWinners = [...(gs.roundWinners || []), actor.id];
+          gs.players = gs.players.map((p: any) => {
+            if (p.id === actor.id) return { ...p, score: (p.score || 0) + 100 };
+            if (p.id === gs.drawerId) return { ...p, score: (p.score || 0) + 60 };
+            return p;
+          });
+        }
+      }
+    } else if (action === 'DRAW_NEXT_TURN' && gs.gameType === 'draw') {
+      const nextRound = (gs.round || 0) + 1;
+      const list = gs.players || [];
+      const currentIdx = list.findIndex((p: any) => p.id === gs.drawerId);
+      const nextPlayer = list.length > 0 ? list[(currentIdx + 1) % list.length] : actor;
+      const nextWord = SERVER_DRAW_WORDS[Math.floor(Math.random() * SERVER_DRAW_WORDS.length)];
+      gs.round = nextRound;
+      gs.drawerId = nextPlayer.id;
+      gs.drawerName = nextPlayer.name;
+      gs.secretWord = nextWord;
+      gs.maskedWord = maskSecretWord(nextWord);
+      gs.strokes = [];
+      gs.roundWinners = [];
+      gs.guesses = [
+        {
+          id: `sys_${now}`,
+          userId: 'system',
+          userName: 'Sistema',
+          text: `🎨 Nuevo turno: ahora dibuja ${nextPlayer.name}`,
+          isCorrect: false,
+          timestamp: now,
+        },
+      ];
+    } else if (action === 'SPIN_WHEEL' && gs.gameType === 'truth_dare' && gs.status === 'active') {
+      const list = gs.players || [];
+      if (list.length > 0) {
+        const picked = list[Math.floor(Math.random() * list.length)];
+        gs.selectedPlayerId = picked.id;
+        gs.selectedPlayerName = picked.name;
+        gs.truthOrDareMode = null;
+        gs.truthOrDarePrompt = null;
+      }
+    } else if (action === 'PICK_TRUTH_DARE' && gs.gameType === 'truth_dare' && gs.status === 'active') {
+      const mode = payload.mode === 'dare' ? 'dare' : 'truth';
+      const customPrompt = typeof payload.customPrompt === 'string' && payload.customPrompt.trim() ? payload.customPrompt.trim() : null;
+      const bank = mode === 'truth' ? SERVER_TRUTHS : SERVER_DARES;
+      gs.truthOrDareMode = mode;
+      gs.truthOrDarePrompt = customPrompt || bank[Math.floor(Math.random() * bank.length)];
+    } else if (action === 'COMPLETE_TRUTH_DARE' && gs.gameType === 'truth_dare' && gs.status === 'active') {
+      const completed = Boolean(payload.completed);
+      if (gs.truthOrDarePrompt) {
+        gs.truthOrDareHistory = gs.truthOrDareHistory || [];
+        gs.truthOrDareHistory.unshift({
+          id: `td_${now}`,
+          playerName: gs.selectedPlayerName || actor.name,
+          mode: gs.truthOrDareMode || 'truth',
+          prompt: gs.truthOrDarePrompt,
+          completed,
+        });
+        if (gs.truthOrDareHistory.length > 20) gs.truthOrDareHistory.pop();
+      }
+      if (completed && gs.selectedPlayerId) {
+        gs.players = gs.players.map((p: any) =>
+          p.id === gs.selectedPlayerId ? { ...p, score: (p.score || 0) + 50 } : p
+        );
+      }
+      gs.round = (gs.round || 0) + 1;
+      gs.truthOrDareMode = null;
+      gs.truthOrDarePrompt = null;
+    } else if (action === 'END_GAME') {
+      gs.status = 'finished';
+    }
+  }
+
+  broadcastToRoom(chatId, {
+    type: 'game_event',
+    roomId: chatId,
+    gameType: room.gameState.gameType,
+    action,
+    payload,
+    gameState: room.gameState,
+    senderId: actor.id,
+    senderName: actor.name,
+  });
+
+  return room.gameState;
+}
+
+app.get('/api/group-games/:chatId', (req, res) => {
+  const { chatId } = req.params;
+  const room = realtimeRooms.get(chatId);
+  return res.json({ ok: true, gameState: room?.gameState || null });
+});
+
+app.post('/api/group-games/:chatId/action', (req, res) => {
+  const { chatId } = req.params;
+  const { actor, action, payload } = req.body || {};
+  if (!actor || !actor.id || typeof action !== 'string') {
+    return res.status(400).json({ error: 'Datos de jugada inválidos.' });
+  }
+  const gameState = processGroupGameAction(chatId, actor, action, payload || {});
+  return res.json({ ok: true, gameState });
+});
+
+// ============================================================================
 // Authentication: Salted scrypt password hashing, uniqueness, & account state
 // ============================================================================
 const AUTH_ACCOUNTS_FILE = path.join(MEDIA_CACHE_DIR, "auth_accounts.json");
@@ -1899,6 +2442,38 @@ app.post('/api/auth/check-phone', (req, res) => {
   }
   const taken = isPhoneUsedByOtherAccount(phone, typeof currentUserId === 'string' ? currentUserId : undefined);
   return res.json({ taken });
+});
+
+app.post('/api/auth/find-user', (req, res) => {
+  const { phone, currentUserId } = req.body || {};
+  if (typeof phone !== 'string') {
+    return res.json({ found: false, isSelf: false, user: null });
+  }
+  const target = normalizePhoneDigitsServer(phone);
+  if (target.full.length < 5) {
+    return res.json({ found: false, isSelf: false, user: null });
+  }
+  for (const acc of authAccountsById.values()) {
+    const accDigits = normalizePhoneDigitsServer(acc.phone);
+    const matches =
+      (accDigits.full && accDigits.full === target.full) ||
+      (accDigits.core.length >= 6 && target.core.length >= 6 && accDigits.core === target.core);
+    if (matches) {
+      const isSelf = Boolean(currentUserId && acc.userId === currentUserId);
+      return res.json({
+        found: true,
+        isSelf,
+        user: {
+          id: acc.userId,
+          name: acc.name,
+          username: acc.username,
+          phone: acc.phone,
+          avatarUrl: acc.avatarUrl,
+        },
+      });
+    }
+  }
+  return res.json({ found: false, isSelf: false, user: null });
 });
 
 app.post('/api/auth/register', (req, res) => {

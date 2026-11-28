@@ -19,6 +19,13 @@ export const CALL_RINGTONE_OPTIONS: RingtoneOption[] = [
 ];
 
 export const MESSAGE_TONE_OPTIONS: RingtoneOption[] = [
+  {
+    id: 'system_default',
+    name: 'Sonido del Celular (Predeterminado)',
+    description: 'Usa el sonido de notificación configurado en tu celular',
+    type: 'message',
+    icon: '📱',
+  },
   { id: 'pidgex_chirp', name: 'PidgeX Pío Pío Clásico', description: 'Doble trino de bienvenida amigable', type: 'message', icon: '🕊️' },
   { id: 'soft_chime', name: 'Campana de Cristal', description: 'Resonancia suave, elegante y limpia', type: 'message', icon: '🔔' },
   { id: 'bubble_pop', name: 'Burbuja de Agua Pop', description: 'Sonido divertido y ligero como burbuja', type: 'message', icon: '🫧' },
@@ -110,14 +117,15 @@ class RingtoneAudioManager {
     if (typeof window === 'undefined' || !('vibrate' in navigator)) return;
     this.stopCallVibration();
 
-    const vibratePattern = [600, 300, 600, 300, 600, 300];
+    // WhatsApp-style continuous strong call vibration
+    const vibratePattern = [900, 350, 900, 350, 900, 350];
     try {
       navigator.vibrate(vibratePattern);
       this.callVibrateInterval = setInterval(() => {
         try {
           navigator.vibrate(vibratePattern);
         } catch {}
-      }, 2700);
+      }, 3800);
     } catch (e) {
       console.warn('Vibration not permitted or unsupported:', e);
     }
@@ -138,7 +146,7 @@ class RingtoneAudioManager {
   triggerMessageVibration() {
     if (typeof window === 'undefined' || !('vibrate' in navigator)) return;
     try {
-      navigator.vibrate([180, 90, 180]);
+      navigator.vibrate([220, 90, 220]);
     } catch (e) {
       console.warn('Message vibration warning:', e);
     }
@@ -177,7 +185,6 @@ class RingtoneAudioManager {
 
     switch (toneId) {
       case 'tropical_bird': {
-        // Multi-frequency bird trill
         for (let i = 0; i < 5; i++) {
           const osc = ctx.createOscillator();
           const gain = ctx.createGain();
@@ -196,7 +203,6 @@ class RingtoneAudioManager {
       }
 
       case 'digital_phone': {
-        // Standard electronic phone ring (440Hz + 480Hz dual tone)
         const osc1 = ctx.createOscillator();
         const osc2 = ctx.createOscillator();
         const gain = ctx.createGain();
@@ -219,7 +225,6 @@ class RingtoneAudioManager {
       }
 
       case 'retro_synth': {
-        // 80s Synth chord progression (Am -> F -> G -> C)
         const notes = [440, 523.25, 659.25, 880];
         notes.forEach((freq, idx) => {
           const osc = ctx.createOscillator();
@@ -238,7 +243,6 @@ class RingtoneAudioManager {
       }
 
       case 'marimba_pop': {
-        // Warm wooden marimba notes
         const freqs = [523.25, 659.25, 783.99, 1046.5];
         freqs.forEach((freq, idx) => {
           const osc = ctx.createOscillator();
@@ -258,7 +262,6 @@ class RingtoneAudioManager {
 
       case 'pidgex_melody':
       default: {
-        // Cheerful PidgeX chime arpeggio
         const melody = [587.33, 739.99, 880, 1174.66, 880, 1174.66];
         melody.forEach((freq, i) => {
           const osc = ctx.createOscillator();
@@ -278,33 +281,31 @@ class RingtoneAudioManager {
     }
   }
 
-  playSynthesizedMessageTone(toneId: string = 'pidgex_chirp') {
+  playSynthesizedMessageTone(toneId: string = 'soft_chime') {
     const ctx = this.getAudioContext();
     if (!ctx) return;
     const now = ctx.currentTime;
 
     switch (toneId) {
       case 'soft_chime': {
-        // Crystal bell dual resonance
-        const f1 = 1318.51; // E6
-        const f2 = 1975.53; // B6
+        const f1 = 1318.51;
+        const f2 = 1975.53;
         [f1, f2].forEach((freq, idx) => {
           const osc = ctx.createOscillator();
           const gain = ctx.createGain();
           osc.type = 'sine';
           osc.frequency.setValueAtTime(freq, now + idx * 0.08);
-          gain.gain.setValueAtTime(0.2, now + idx * 0.08);
-          gain.gain.exponentialRampToValueAtTime(0.001, now + idx * 0.08 + 0.4);
+          gain.gain.setValueAtTime(0.18, now + idx * 0.08);
+          gain.gain.exponentialRampToValueAtTime(0.001, now + idx * 0.08 + 0.38);
           osc.connect(gain);
           gain.connect(ctx.destination);
           osc.start(now + idx * 0.08);
-          osc.stop(now + idx * 0.08 + 0.4);
+          osc.stop(now + idx * 0.08 + 0.38);
         });
         break;
       }
 
       case 'bubble_pop': {
-        // Water droplet bubble pop
         const osc = ctx.createOscillator();
         const gain = ctx.createGain();
         osc.type = 'sine';
@@ -320,7 +321,6 @@ class RingtoneAudioManager {
       }
 
       case 'digital_pulse': {
-        // High tech electronic blip
         const osc = ctx.createOscillator();
         const gain = ctx.createGain();
         osc.type = 'sawtooth';
@@ -336,7 +336,6 @@ class RingtoneAudioManager {
       }
 
       case 'happy_whistle': {
-        // Cheerful ascending whistle
         const osc = ctx.createOscillator();
         const gain = ctx.createGain();
         osc.type = 'sine';
@@ -353,7 +352,6 @@ class RingtoneAudioManager {
 
       case 'pidgex_chirp':
       default: {
-        // Classic bird chirp (pío pío)
         const osc1 = ctx.createOscillator();
         const gain1 = ctx.createGain();
         osc1.type = 'sine';
@@ -493,9 +491,11 @@ class RingtoneAudioManager {
     }
   }
 
-  // --- PLAY INCOMING MESSAGE ALERT (Tone + Vibration + Screen Pulse) ---
+  // --- PLAY INCOMING MESSAGE ALERT (Vibration + Screen Wake + Selected Tone or Phone's System Sound) ---
   playIncomingMessageAlert(user: UserProfile) {
-    // 1. Vibration
+    if (user?.doNotDisturb) return;
+
+    // 1. Hardware vibration
     if (user.vibrateOnMessage !== false) {
       this.triggerMessageVibration();
     }
@@ -506,21 +506,37 @@ class RingtoneAudioManager {
       setTimeout(() => this.releaseScreenWakeLock(), 4000);
     }
 
-    // 3. Audio Tone
-    const isCustom = user.messageToneId === 'custom' && Boolean(user.customMessageToneUrl);
+    // 3. Audio Tone:
+    // By default ('system_default'), we let the device's own native OS notification sound play
+    // (via showNotification with silent: false) instead of overriding it with a synthetic chirp.
+    const selectedTone = user.messageToneId || 'system_default';
+
+    if (selectedTone === 'system_default') {
+      // Only play a gentle in-app fallback if native OS notifications are unavailable or not yet granted
+      const hasNativeNotif =
+        typeof window !== 'undefined' &&
+        'Notification' in window &&
+        Notification.permission === 'granted';
+      if (!hasNativeNotif) {
+        this.playSynthesizedMessageTone('soft_chime');
+      }
+      return;
+    }
+
+    const isCustom = selectedTone === 'custom' && Boolean(user.customMessageToneUrl);
     if (isCustom && user.customMessageToneUrl) {
       try {
         const audio = new Audio(user.customMessageToneUrl);
         audio.volume = 1.0;
         audio.preload = 'auto';
         audio.play().catch(() => {
-          this.playSynthesizedMessageTone('pidgex_chirp');
+          this.playSynthesizedMessageTone('soft_chime');
         });
       } catch {
-        this.playSynthesizedMessageTone('pidgex_chirp');
+        this.playSynthesizedMessageTone('soft_chime');
       }
     } else {
-      const tone = user.messageToneId === 'custom' ? 'pidgex_chirp' : (user.messageToneId || 'pidgex_chirp');
+      const tone = selectedTone === 'custom' ? 'soft_chime' : selectedTone;
       this.playSynthesizedMessageTone(tone);
     }
   }
@@ -542,9 +558,53 @@ class RingtoneAudioManager {
 
     if (type === 'call') {
       this.playSynthesizedCallTone(toneId);
-    } else {
-      this.playSynthesizedMessageTone(toneId);
+      return;
     }
+
+    // For 'system_default', trigger an actual OS Notification (silent: false + vibrate)
+    // so the user hears the exact notification sound configured on their phone!
+    if (toneId === 'system_default') {
+      this.triggerMessageVibration();
+      if (typeof window !== 'undefined' && 'Notification' in window) {
+        const fireOsPreview = async () => {
+          let perm = Notification.permission;
+          if (perm === 'default') {
+            try {
+              perm = await Notification.requestPermission();
+            } catch {}
+          }
+          if (perm === 'granted') {
+            const opts: NotificationOptions & { vibrate?: number[]; renotify?: boolean } = {
+              body: 'Así sonará y vibrará tu celular con cada mensaje nuevo.',
+              icon: '/assets/aistudio/Logo_de_PidgeX_5e3aa7b3.PNG',
+              badge: '/assets/aistudio/Logo_de_PidgeX_5e3aa7b3.PNG',
+              vibrate: [220, 90, 220],
+              silent: false,
+              tag: `pidgex_tone_preview_${Date.now()}`,
+              renotify: true,
+            };
+            try {
+              if ('serviceWorker' in navigator) {
+                const reg = await navigator.serviceWorker.ready;
+                if (reg?.showNotification) {
+                  await reg.showNotification('PidgeX • Sonido del Celular', opts);
+                  return;
+                }
+              }
+              new Notification('PidgeX • Sonido del Celular', opts);
+              return;
+            } catch {}
+          }
+          this.playSynthesizedMessageTone('soft_chime');
+        };
+        fireOsPreview().catch(() => {});
+      } else {
+        this.playSynthesizedMessageTone('soft_chime');
+      }
+      return;
+    }
+
+    this.playSynthesizedMessageTone(toneId);
   }
 
   stopPreview() {
