@@ -39,6 +39,7 @@ import { PidgeXFullLogo } from './BirdLogo';
 import { AvatarCaptureModal } from './AvatarCaptureModal';
 import { DigitalAvatarStudioModal } from './DigitalAvatarStudioModal';
 import { AiStickerFactoryModal } from './AiStickerFactoryModal';
+import { ProfilePhotoshopEditorModal } from './ProfilePhotoshopEditorModal';
 import { MONTHLY_THEMES } from '../utils/monthlyThemes';
 import {
   CALL_RINGTONE_OPTIONS,
@@ -92,6 +93,7 @@ export const SettingsProfileView: React.FC<SettingsProfileViewProps> = ({
   const [phoneError, setPhoneError] = useState<string | null>(null);
   const [showAvatarStudio, setShowAvatarStudio] = useState<boolean>(false);
   const [showStickerFactory, setShowStickerFactory] = useState<boolean>(false);
+  const [showPhotoshopEditor, setShowPhotoshopEditor] = useState<boolean>(false);
 
   // Wallpaper custom upload
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -441,6 +443,15 @@ export const SettingsProfileView: React.FC<SettingsProfileViewProps> = ({
                 >
                   <Wand2 className="w-3.5 h-3.5" />
                   <span>Fábrica de Stickers IA</span>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => setShowPhotoshopEditor(true)}
+                  className="px-3.5 py-2 rounded-xl bg-gradient-to-r from-sky-600 to-indigo-600 hover:from-sky-700 hover:to-indigo-700 text-white text-xs font-semibold flex items-center gap-1.5 shadow-md cursor-pointer transition-all"
+                >
+                  <Sparkles className="w-3.5 h-3.5" />
+                  <span>Editor Photoshop (Fondos)</span>
                 </button>
               </div>
 
@@ -1404,6 +1415,20 @@ export const SettingsProfileView: React.FC<SettingsProfileViewProps> = ({
         customPacks={user.customStickerPacks || []}
         onSavePacks={(packs) => {
           onUpdateUser({ customStickerPacks: packs });
+          setSavedFeedback(true);
+          setTimeout(() => setSavedFeedback(false), 2500);
+        }}
+        isNightMode={isNightMode}
+      />
+
+      {/* Profile Photoshop Background Editor Modal */}
+      <ProfilePhotoshopEditorModal
+        isOpen={showPhotoshopEditor}
+        onClose={() => setShowPhotoshopEditor(false)}
+        currentAvatarUrl={avatarUrl}
+        onSaveAvatar={(newAvatar) => {
+          setAvatarUrl(newAvatar);
+          onUpdateUser({ avatarUrl: newAvatar });
           setSavedFeedback(true);
           setTimeout(() => setSavedFeedback(false), 2500);
         }}

@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { X, Users, Phone, Check, Plus, AlertCircle, Loader2, Crown, Sparkles, Camera } from 'lucide-react';
 import { Chat, GroupMember, UserProfile } from '../types';
 import { ensurePhoneStartsWith16 } from '../utils/phoneUtils';
@@ -43,18 +43,32 @@ export const NewGroupModal: React.FC<NewGroupModalProps> = ({
   const [showAvatarModal, setShowAvatarModal] = useState<boolean>(false);
   const [countryCode, setCountryCode] = useState<string>('16');
   const [phoneInput, setPhoneInput] = useState<string>('');
-  const [selectedFriends, setSelectedFriends] = useState<GroupMember[]>([
-    {
-      id: user.id || 'me',
-      name: user.name || 'Tú (Creador)',
-      phone: user.phone,
-      avatarUrl: user.avatarUrl,
-      isLeader: true, // El creador siempre es el primer líder
-      joinedAt: 'Ahora',
-    },
-  ]);
+  const buildCreatorMember = (): GroupMember => ({
+    id: user.id || 'me',
+    name: user.name || 'Tú (Creador)',
+    phone: user.phone ? ensurePhoneStartsWith16(user.phone) : undefined,
+    avatarUrl: user.avatarUrl,
+    isLeader: true, // El creador siempre es el primer líder
+    joinedAt: 'Ahora',
+  });
+
+  const [selectedFriends, setSelectedFriends] = useState<GroupMember[]>([buildCreatorMember()]);
   const [isSearchingPhone, setIsSearchingPhone] = useState<boolean>(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
+
+  const cleanDigits = (val?: string) => (val || '').replace(/\D/g, '');
+  const samePhone = (a?: string, b?: string) => {
+    const ca = cleanDigits(a);
+    const cb = cleanDigits(b);
+    return Boolean(ca && cb && ca === cb);
+  };
+
+  useEffect(() => {
+    if (isOpen) {
+      setSelectedFriends([buildCreatorMember()]);
+      setErrorMessage(null);
+    }
+  }, [isOpen, user.id, user.name, user.phone, user.avatarUrl]);
 
   if (!isOpen) return null;
 
@@ -66,17 +80,35 @@ export const NewGroupModal: React.FC<NewGroupModalProps> = ({
     (c) => !c.isBlocked && c.isFriend !== false && c.type === 'direct'
   );
 
+  const resolveChatPhone = (chat: Chat): string | undefined => {
+    if (chat.phone) return ensurePhoneStartsWith16(chat.phone);
+    if (chat.id && chat.id.startsWith('direct_')) {
+      const myClean = cleanDigits(user.phone);
+      const peerDigits = chat.id
+        .split('_')
+        .slice(1)
+        .find((p) => p && p !== myClean);
+      if (peerDigits) return ensurePhoneStartsWith16(peerDigits);
+    }
+    return undefined;
+  };
+
   const toggleFriendSelection = (chat: Chat) => {
-    const exists = selectedFriends.some((m) => m.id === chat.id || m.phone === chat.phone);
+    const resolvedPhone = resolveChatPhone(chat);
+    const exists = selectedFriends.some(
+      (m) => m.id === chat.id || samePhone(m.phone, resolvedPhone)
+    );
     if (exists) {
       // Remove unless it's the user creator
-      if (chat.id === user.id || chat.id === 'me') return;
-      setSelectedFriends((prev) => prev.filter((m) => m.id !== chat.id && m.phone !== chat.phone));
+      if (chat.id === user.id || chat.id === 'me' || samePhone(resolvedPhone, user.phone)) return;
+      setSelectedFriends((prev) =>
+        prev.filter((m) => m.id !== chat.id && !samePhone(m.phone, resolvedPhone))
+      );
     } else {
       const newMember: GroupMember = {
         id: chat.id,
         name: chat.name,
-        phone: chat.phone,
+        phone: resolvedPhone,
         avatarUrl: chat.avatarUrl,
         isLeader: false,
         addedBy: user.name,
@@ -102,7 +134,7 @@ export const NewGroupModal: React.FC<NewGroupModalProps> = ({
     const finalPhone = ensurePhoneStartsWith16(rawPhone);
 
     // Check if already added
-    if (selectedFriends.some((m) => m.phone === finalPhone)) {
+    if (selectedFriends.some((m) => samePhone(m.phone, finalPhone))) {
       setErrorMessage(`El número "${finalPhone}" ya está agregado a la lista de miembros.`);
       return;
     }
@@ -155,6 +187,7 @@ export const NewGroupModal: React.FC<NewGroupModalProps> = ({
     setDescription('');
     setCustomAvatarUrl('');
     setPhoneInput('');
+    setSelectedFriends([buildCreatorMember()]);
     setErrorMessage(null);
     onClose();
   };
@@ -314,35 +347,20 @@ export const NewGroupModal: React.FC<NewGroupModalProps> = ({
                 <button
                   type="button"
                   onClick={() => {
-                    const allSelected = availableFriends.every((f) =>
-                      selectedFriends.some((m) => m.id === f.id || m.phone === f.phone)
-                    );
+                    const allSelected = availableFriends.every((f) => {
+                      const fPhone = resolveChatPhone(f);
+                      return selectedFriends.some((m) => m.id === f.id || samePhone(m.phone, fPhone));
+                    });
                     if (allSelected) {
                       // Keep only self creator
-                      setSelectedFriends([
-                        {
-                          id: user.id || 'me',
-                          name: user.name || 'Tú (Creador)',
-                          phone: user.phone,
-                          avatarUrl: user.avatarUrl,
-                          isLeader: true,
-                          joinedAt: 'Ahora',
-                        },
-                      ]);
+                      setSelectedFriends([buildCreatorMember()]);
                     } else {
                       const newMembersList: GroupMember[] = [
-                        {
-                          id: user.id || 'me',
-                          name: user.name || 'Tú (Creador)',
-                          phone: user.phone,
-                          avatarUrl: user.avatarUrl,
-                          isLeader: true,
-                          joinedAt: 'Ahora',
-                        },
+                        buildCreatorMember(),
                         ...availableFriends.map((friend) => ({
                           id: friend.id,
                           name: friend.name,
-                          phone: friend.phone,
+                          phone: resolveChatPhone(friend),
                           avatarUrl: friend.avatarUrl,
                           isLeader: false,
                           addedBy: user.name,
@@ -354,9 +372,10 @@ export const NewGroupModal: React.FC<NewGroupModalProps> = ({
                   }}
                   className="text-[11px] text-[#38bdf8] hover:text-[#7bd0ff] font-bold cursor-pointer transition-colors"
                 >
-                  {availableFriends.every((f) =>
-                    selectedFriends.some((m) => m.id === f.id || m.phone === f.phone)
-                  )
+                  {availableFriends.every((f) => {
+                    const fPhone = resolveChatPhone(f);
+                    return selectedFriends.some((m) => m.id === f.id || samePhone(m.phone, fPhone));
+                  })
                     ? 'Deseleccionar Todos'
                     : '⚡ Seleccionar Todos mis Contactos'}
                 </button>
@@ -370,8 +389,9 @@ export const NewGroupModal: React.FC<NewGroupModalProps> = ({
                 </span>
               ) : (
                 availableFriends.map((friend) => {
+                  const friendPhone = resolveChatPhone(friend);
                   const isSelected = selectedFriends.some(
-                    (m) => m.id === friend.id || m.phone === friend.phone
+                    (m) => m.id === friend.id || samePhone(m.phone, friendPhone)
                   );
                   return (
                     <div

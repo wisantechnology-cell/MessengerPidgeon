@@ -1940,13 +1940,8 @@ app.post('/api/auth/register', (req, res) => {
       });
     }
 
-    // Enforce unique username and unique password across all accounts
+    // Enforce unique password across all accounts (name & username can repeat)
     for (const existing of authAccountsById.values()) {
-      if (existing.username === normUsername) {
-        return res.status(409).json({
-          error: 'Ese nombre de usuario ya está en uso. Elige otro.',
-        });
-      }
       if (verifyPasswordScrypt(password, existing.salt, existing.passwordHash)) {
         return res.status(409).json({
           error: 'Esa contraseña ya está en uso por otra cuenta. No se puede repetir contraseña.',
@@ -2132,8 +2127,28 @@ async function startServer() {
 
   wss.on('connection', (ws: WebSocket) => {
     const socketRooms = new Set<string>();
+    const socketConnId = `conn_${Date.now()}_${Math.random().toString(36).substring(2, 8)}`;
     let currentUserId: string = `user_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`;
     let currentUserData: any = null;
+
+    const getRoomMemberKey = (roomId: string) =>
+      roomId.startsWith('call_') ? `${currentUserId}_${socketConnId}` : currentUserId;
+
+    const ensureJoinedCallRoom = (roomId: string) => {
+      if (!roomId || !roomId.startsWith('call_')) return;
+      const room = getOrCreateRoom(roomId);
+      const memberKey = getRoomMemberKey(roomId);
+      if (!room.users.has(memberKey)) {
+        socketRooms.add(roomId);
+        room.users.set(memberKey, {
+          id: currentUserId,
+          name: currentUserData?.name || 'Usuario',
+          avatarUrl: currentUserData?.avatarUrl,
+          ws,
+          lastActive: Date.now(),
+        });
+      }
+    };
 
     ws.on('message', (raw: string) => {
       try {
@@ -2146,7 +2161,7 @@ async function startServer() {
           }
           socketRooms.add(roomId);
           const room = getOrCreateRoom(roomId);
-          room.users.set(currentUserId, {
+          room.users.set(getRoomMemberKey(roomId), {
             id: currentUserId,
             name: currentUserData?.name || 'Usuario',
             avatarUrl: currentUserData?.avatarUrl,
@@ -2180,6 +2195,7 @@ async function startServer() {
             socketRooms.delete(roomId);
             const room = realtimeRooms.get(roomId);
             if (room) {
+              room.users.delete(getRoomMemberKey(roomId));
               room.users.delete(currentUserId);
               if (room.room3dAvatars) {
                 delete room.room3dAvatars[currentUserId];
@@ -2266,6 +2282,7 @@ async function startServer() {
         } else if (data.type === 'call_signal') {
           const { roomId, callId, signal } = data;
           const targetRoom = roomId || `call_${callId}`;
+          ensureJoinedCallRoom(targetRoom);
           broadcastToRoom(targetRoom, {
             type: 'call_signal',
             callId,
@@ -2275,6 +2292,7 @@ async function startServer() {
         } else if (data.type === 'call_frame') {
           const { roomId, callId, frame, role } = data;
           const targetRoom = roomId || `call_${callId}`;
+          ensureJoinedCallRoom(targetRoom);
           broadcastToRoom(targetRoom, {
             type: 'call_frame',
             callId,
@@ -2285,6 +2303,7 @@ async function startServer() {
         } else if (data.type === 'call_audio') {
           const { roomId, callId, audio, role } = data;
           const targetRoom = roomId || `call_${callId}`;
+          ensureJoinedCallRoom(targetRoom);
           broadcastToRoom(targetRoom, {
             type: 'call_audio',
             callId,
@@ -2302,6 +2321,7 @@ async function startServer() {
       for (const rId of socketRooms) {
         const room = realtimeRooms.get(rId);
         if (room) {
+          room.users.delete(getRoomMemberKey(rId));
           room.users.delete(currentUserId);
           broadcastPresence(rId);
         }

@@ -78,18 +78,38 @@ export const GroupMembersModal: React.FC<GroupMembersModalProps> = ({
     },
   ];
 
+  const cleanDigits = (val?: string) => (val || '').replace(/\D/g, '');
+  const samePhone = (a?: string, b?: string) => {
+    const ca = cleanDigits(a);
+    const cb = cleanDigits(b);
+    return Boolean(ca && cb && ca === cb);
+  };
+
   // Determine if the current user is a Leader in this group
-  const currentUserMember = groupMembers.find((m) => m.id === user.id || m.id === 'me');
-  const isCurrentUserLeader = currentUserMember?.isLeader ?? true; // default true if creator
+  const currentUserMember = groupMembers.find(
+    (m) => m.id === user.id || m.id === 'me' || samePhone(m.phone, user.phone)
+  );
+  const isCurrentUserLeader = currentUserMember ? Boolean(currentUserMember.isLeader) : false;
+
+  const resolveContactPhone = (contact: Chat): string | undefined => {
+    if (contact.phone) return ensurePhoneStartsWith16(contact.phone);
+    if (contact.id && contact.id.startsWith('direct_')) {
+      const myClean = cleanDigits(user.phone);
+      const peerDigits = contact.id
+        .split('_')
+        .slice(1)
+        .find((p) => p && p !== myClean);
+      if (peerDigits) return ensurePhoneStartsWith16(peerDigits);
+    }
+    return undefined;
+  };
 
   // Available contacts not yet in group
-  const availableContacts = contacts.filter(
-    (c) =>
-      !c.isBlocked &&
-      c.isFriend !== false &&
-      c.type === 'direct' &&
-      !groupMembers.some((m) => m.id === c.id || (c.phone && m.phone === c.phone))
-  );
+  const availableContacts = contacts.filter((c) => {
+    if (c.isBlocked || c.isFriend === false || c.type !== 'direct') return false;
+    const contactPhone = resolveContactPhone(c);
+    return !groupMembers.some((m) => m.id === c.id || samePhone(m.phone, contactPhone));
+  });
 
   // Function to Add Member by Contact Selection
   const handleAddMemberFromContact = (contact: Chat) => {
@@ -99,7 +119,7 @@ export const GroupMembersModal: React.FC<GroupMembersModalProps> = ({
     const newMember: GroupMember = {
       id: contact.id,
       name: contact.name,
-      phone: contact.phone,
+      phone: resolveContactPhone(contact),
       avatarUrl: contact.avatarUrl,
       isLeader: false,
       addedBy: user.name,
@@ -129,7 +149,7 @@ export const GroupMembersModal: React.FC<GroupMembersModalProps> = ({
     }
     const finalPhone = ensurePhoneStartsWith16(rawPhone);
 
-    if (groupMembers.some((m) => m.phone === finalPhone)) {
+    if (groupMembers.some((m) => samePhone(m.phone, finalPhone))) {
       setErrorMessage(`El número "${finalPhone}" ya pertenece a un miembro del grupo.`);
       return;
     }
@@ -385,7 +405,8 @@ export const GroupMembersModal: React.FC<GroupMembersModalProps> = ({
 
           <div className="flex flex-col gap-2 max-h-60 overflow-y-auto pr-1">
             {groupMembers.map((member) => {
-              const isSelf = member.id === user.id || member.id === 'me';
+              const isSelf =
+                member.id === user.id || member.id === 'me' || samePhone(member.phone, user.phone);
 
               return (
                 <div

@@ -407,7 +407,7 @@ export const AccountOnboardingView: React.FC<AccountOnboardingViewProps> = ({
       const cleanUser = username.trim().replace(/^@+/, '').replace(/\s+/g, '').toLowerCase();
       const normUsername = `@${cleanUser}`;
 
-      // Enforce unique phone, password, and username in Firebase Firestore
+      // Enforce unique phone and password in Firebase Firestore (name & username can repeat)
       try {
         const phoneQuery = query(collection(db, 'accountCredentials'), where('phone', '==', finalPhone));
         const phoneSnap = await getDocs(phoneQuery);
@@ -421,14 +421,6 @@ export const AccountOnboardingView: React.FC<AccountOnboardingViewProps> = ({
         const passSnap = await getDocs(passQuery);
         if (!passSnap.empty) {
           setSubmitError('Esa contraseña ya está en uso por otra cuenta. No se puede repetir contraseña.');
-          setIsSubmitting(false);
-          return;
-        }
-
-        const userQuery = query(collection(db, 'accountCredentials'), where('username', '==', normUsername));
-        const userSnap = await getDocs(userQuery);
-        if (!userSnap.empty) {
-          setSubmitError('Ese nombre de usuario ya está en uso. Elige otro.');
           setIsSubmitting(false);
           return;
         }
